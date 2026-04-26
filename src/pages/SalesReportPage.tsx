@@ -20,7 +20,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Loader2, FileDown, RefreshCw, Calendar, CalendarIcon, Package, Users, ShoppingBag } from "lucide-react";
+import { Loader2, FileDown, RefreshCw, Calendar, CalendarIcon, Package, Users, ShoppingBag, Layers } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
