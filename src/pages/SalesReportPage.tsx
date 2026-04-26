@@ -175,6 +175,92 @@ export default function SalesReportPage() {
     }
   };
 
+  // Categorias agregadas (independente do modelo/marca específica)
+  const CATEGORIAS = [
+    "Armação",
+    "Óculos Solar",
+    "Lentes",
+    "Consulta A 50",
+    "Consulta A 100",
+  ] as const;
+  type Categoria = typeof CATEGORIAS[number] | "Outros";
+
+  const norm = (s: string) =>
+    (s || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+
+  function classificarItem(
+    grupo: string | null | undefined,
+    descricao: string | null | undefined,
+  ): Categoria {
+    const g = norm(grupo || "");
+    const d = norm(descricao || "");
+    const t = `${g} ${d}`;
+
+    // Consultas (verificar antes de "armação" para evitar falsos positivos)
+    if (/consulta/.test(t) && /\b(a\s*100|a100|100)\b/.test(t)) return "Consulta A 100";
+    if (/consulta/.test(t) && /\b(a\s*50|a50|50)\b/.test(t)) return "Consulta A 50";
+
+    // Óculos Solar (verificar antes de "armação" porque solar pode conter armação)
+    if (/solar/.test(t) || /\bsol\b/.test(t)) return "Óculos Solar";
+
+    // Lentes (oftálmicas, de contato, etc.)
+    if (/lente/.test(t)) return "Lentes";
+
+    // Armação (grau)
+    if (/armaca/.test(t) || /\barma\b/.test(t)) return "Armação";
+
+    return "Outros";
+  }
+
+  // Agrupa por categoria de produto (somando quantidades)
+  const groupedByCategoria = useMemo(() => {
+    const map = new Map<
+      Categoria,
+      { categoria: Categoria; quantidade: number; valorTotal: number; vendasUnicas: Set<number> }
+    >();
+    for (const cat of CATEGORIAS) {
+      map.set(cat, {
+        categoria: cat,
+        quantidade: 0,
+        valorTotal: 0,
+        vendasUnicas: new Set(),
+      });
+    }
+    map.set("Outros", {
+      categoria: "Outros",
+      quantidade: 0,
+      valorTotal: 0,
+      vendasUnicas: new Set(),
+    });
+
+    (vendas || []).forEach((v) => {
+      v.itens.forEach((it) => {
+        const cat = classificarItem(it.produto?.grupo, it.produto?.descricao);
+        const cur = map.get(cat)!;
+        cur.quantidade += Number(it.quantidade || 0);
+        cur.valorTotal += Number(it.valor_total_liquido || 0);
+        cur.vendasUnicas.add(v.id);
+      });
+    });
+
+    // Mostra apenas categorias com pelo menos 1 produto vendido,
+    // mantendo a ordem fixa das CATEGORIAS e "Outros" no fim.
+    const order: Categoria[] = [...CATEGORIAS, "Outros"];
+    return order
+      .map((c) => map.get(c)!)
+      .filter((g) => g.quantidade > 0)
+      .map((g) => ({
+        categoria: g.categoria,
+        quantidade: g.quantidade,
+        valorTotal: g.valorTotal,
+        vendas: g.vendasUnicas.size,
+      }));
+  }, [vendas]);
+
   // Agrupa por vendedor (funcionario.nome). Vendas sem funcionário vão em "Sem vendedor".
   const grouped = useMemo(() => {
     const map = new Map<
