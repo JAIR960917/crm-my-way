@@ -462,7 +462,7 @@ export default function CobrancaEditSheet(props: Props) {
 
               {/* Parcelas content */}
               {tab === "parcelas" && (
-                <ScrollArea className="flex-1">
+                <ScrollArea className="flex-1 max-sm:[&_[data-radix-scroll-area-viewport]]:!overflow-visible max-sm:[&>[data-radix-scroll-area-viewport]]:max-h-none">
                   <div className="p-5 space-y-4">
                     {loadingParcelas ? (
                       <p className="text-center text-sm text-muted-foreground py-12">Carregando parcelas...</p>
@@ -585,7 +585,7 @@ export default function CobrancaEditSheet(props: Props) {
 
               {/* Timeline */}
               {tab !== "parcelas" && tab !== "produtos" && (
-              <ScrollArea className="flex-1">
+              <ScrollArea className="flex-1 max-sm:[&_[data-radix-scroll-area-viewport]]:!overflow-visible max-sm:[&>[data-radix-scroll-area-viewport]]:max-h-none">
                 <div className="p-5 space-y-3">
                   {tab === "atividade" && cobrancaId && user && (
                     <CobrancaContactAttemptForm
