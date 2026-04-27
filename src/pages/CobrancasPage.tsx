@@ -118,7 +118,7 @@ export default function CobrancasPage() {
   const loadMeta = useCallback(async () => {
     const [
       { data: sts }, { data: profs }, { data: comps }, { data: roles },
-      { data: acts }, { data: notes }, { data: checklist }, { data: comps2 }
+      { data: acts }, { data: notes }
     ] = await Promise.all([
       supabase.from("crm_cobranca_statuses").select("*").order("position"),
       supabase.rpc("get_profile_names"),
@@ -126,8 +126,6 @@ export default function CobrancasPage() {
       supabase.from("user_roles").select("user_id, role").eq("role", "financeiro"),
       supabase.from("cobranca_activities").select("id, cobranca_id, title, scheduled_date, completed_at"),
       supabase.from("crm_cobranca_notes").select("cobranca_id"),
-      supabase.from("crm_cobranca_status_checklist" as any).select("*").order("position"),
-      supabase.from("crm_cobranca_checklist_completions" as any).select("id, cobranca_id, status_id, checklist_item_id"),
     ]);
     const allSts = ((sts || []) as unknown) as CrmStatus[];
     setAllStatuses(allSts);
@@ -141,8 +139,6 @@ export default function CobrancasPage() {
     setFinanceiroIds(new Set((roles || []).map((r: any) => r.user_id)));
     setActivities((acts || []) as CobrancaActivity[]);
     setNoteIds(new Set((notes || []).map((n: any) => n.cobranca_id)));
-    setChecklistItems(((checklist || []) as unknown) as ChecklistItem[]);
-    setCompletions(((comps2 || []) as unknown) as ChecklistCompletion[]);
   }, [isFinanceiro, isAdmin, isGerente]);
 
   useEffect(() => { loadMeta(); }, [loadMeta]);
@@ -243,21 +239,6 @@ export default function CobrancasPage() {
     setDeleteConfirmId(null);
   };
 
-  // Verifica se a coluna de origem tem checklist e se está completo para esta cobrança
-  const getColumnChecklistStatus = useCallback((cobrancaId: string, fromStatusKey: string) => {
-    const fromSt = allStatuses.find(s => s.key === fromStatusKey);
-    if (!fromSt) return { items: [] as ChecklistItem[], pending: [] as ChecklistItem[], complete: true };
-    const items = checklistItems.filter(i => i.status_id === fromSt.id);
-    if (items.length === 0) return { items, pending: [], complete: true };
-    const done = new Set(
-      completions
-        .filter(c => c.cobranca_id === cobrancaId && c.status_id === fromSt.id)
-        .map(c => c.checklist_item_id)
-    );
-    const pending = items.filter(i => !done.has(i.id));
-    return { items, pending, complete: pending.length === 0 };
-  }, [allStatuses, checklistItems, completions]);
-
   const onDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
     const newStatus = result.destination.droppableId;
@@ -267,59 +248,8 @@ export default function CobrancasPage() {
     const item = paginatedColumns[fromStatus]?.items.find((it) => it.id === cobrancaId)
       || (searchResults || []).find((it) => it.id === cobrancaId);
 
-    // Admin pode mover livremente; outros precisam respeitar o checklist da coluna de origem
-    if (!isAdmin) {
-      const { complete } = getColumnChecklistStatus(cobrancaId, fromStatus);
-      if (!complete) {
-        if (isFinanceiro && item) {
-          // Abre diálogo para o financeiro preencher o checklist
-          setChecklistDialog({ cobranca: item as Cobranca, fromStatus, toStatus: newStatus });
-        } else {
-          toast.error("Esta coluna está aguardando o financeiro liberar o lead.");
-        }
-        return;
-      }
-    }
-
     updateItemStatus(cobrancaId, fromStatus, newStatus, item);
     await supabase.from("crm_cobrancas").update({ status: newStatus }).eq("id", cobrancaId);
-  };
-
-  const confirmChecklistAndMove = async () => {
-    if (!checklistDialog) return;
-    const { cobranca, fromStatus, toStatus } = checklistDialog;
-    const { complete } = getColumnChecklistStatus(cobranca.id, fromStatus);
-    if (!complete) {
-      toast.error("Marque todos os critérios antes de liberar o lead.");
-      return;
-    }
-    updateItemStatus(cobranca.id, fromStatus, toStatus, cobranca);
-    await supabase.from("crm_cobrancas").update({ status: toStatus }).eq("id", cobranca.id);
-    setChecklistDialog(null);
-    toast.success("Lead liberado para a próxima coluna");
-  };
-
-  const toggleChecklistItem = async (itemId: string, statusId: string, cobrancaId: string, currentlyDone: boolean) => {
-    if (currentlyDone) {
-      const existing = completions.find(c => c.cobranca_id === cobrancaId && c.checklist_item_id === itemId && c.status_id === statusId);
-      if (!existing) return;
-      const { error } = await supabase.from("crm_cobranca_checklist_completions" as any).delete().eq("id", existing.id);
-      if (error) { toast.error("Erro ao desmarcar"); return; }
-      setCompletions(prev => prev.filter(c => c.id !== existing.id));
-    } else {
-      const { data, error } = await supabase
-        .from("crm_cobranca_checklist_completions" as any)
-        .insert({
-          cobranca_id: cobrancaId,
-          status_id: statusId,
-          checklist_item_id: itemId,
-          completed_by: user?.id,
-        } as any)
-        .select()
-        .single();
-      if (error) { toast.error("Erro ao marcar"); return; }
-      setCompletions(prev => [...prev, (data as unknown) as ChecklistCompletion]);
-    }
   };
 
   const getProfileName = (userId: string | null) => {
