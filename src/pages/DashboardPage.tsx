@@ -76,6 +76,12 @@ export default function DashboardPage() {
   const [selectedDate, setSelectedDate] = useState<string>(formatDateForInput(new Date()));
   const [startDate, setStartDate] = useState<string>(formatDateForInput(new Date()));
   const [endDate, setEndDate] = useState<string>(formatDateForInput(new Date()));
+  // Filtros próprios do Relatório de Cobranças
+  const [cobDateMode, setCobDateMode] = useState<"day" | "range">("day");
+  const [cobSelectedDate, setCobSelectedDate] = useState<string>(formatDateForInput(new Date()));
+  const [cobStartDate, setCobStartDate] = useState<string>(formatDateForInput(new Date()));
+  const [cobEndDate, setCobEndDate] = useState<string>(formatDateForInput(new Date()));
+  const [loadingCob, setLoadingCob] = useState(true);
   const [adminIds, setAdminIds] = useState<Set<string>>(new Set());
 
   const [companyFilter, setCompanyFilter] = useState<string>(ALL);
