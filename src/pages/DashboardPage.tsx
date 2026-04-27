@@ -849,7 +849,8 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 mb-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6 mb-4">
+              <SummaryStat label="Aberturas" value={cobrancaTotals.aberturas} icon={FolderOpen} tone="default" />
               <SummaryStat label="Contatos" value={cobrancaTotals.contatos} icon={Phone} tone="default" />
               <SummaryStat label="Atenderam" value={cobrancaTotals.atendeu} icon={Phone} tone="success" />
               <SummaryStat label="Não atenderam" value={cobrancaTotals.naoAtendeu} icon={PhoneOff} tone="danger" />
@@ -870,6 +871,9 @@ export default function DashboardPage() {
                     <TableRow>
                       <TableHead>Vendedor</TableHead>
                       <TableHead>Empresa</TableHead>
+                      <TableHead className="text-center">
+                        <span className="inline-flex items-center gap-1"><FolderOpen className="h-3.5 w-3.5" /> Aberturas</span>
+                      </TableHead>
                       <TableHead className="text-center">
                         <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" /> Contatos</span>
                       </TableHead>
@@ -902,6 +906,7 @@ export default function DashboardPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground text-sm">{row.company_name}</TableCell>
+                        <TableCell className="text-center font-semibold">{row.aberturas}</TableCell>
                         <TableCell className="text-center font-semibold">{row.contatos}</TableCell>
                         <TableCell className="text-center">
                           <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 bg-emerald-500/10">
