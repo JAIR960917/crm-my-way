@@ -185,7 +185,7 @@ export default function LeadsPage() {
         supabase.from("crm_statuses").select("*").order("position"),
         supabase.from("profiles").select("company_id").eq("user_id", user!.id).maybeSingle(),
         supabase.from("manager_companies").select("company_id").eq("user_id", user!.id),
-        supabase.from("crm_form_fields").select("id, label, is_name_field, is_phone_field, show_on_card, status_mapping, date_status_ranges").order("position"),
+        supabase.from("crm_form_fields").select("id, label, position, is_name_field, is_phone_field, show_on_card, status_mapping, date_status_ranges").order("position"),
         supabase.from("crm_form_fields").select("*").order("position"),
         supabase.from("profiles").select("user_id, full_name, avatar_url, company_id"),
       ]);
