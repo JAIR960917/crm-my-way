@@ -47,6 +47,7 @@ export default function AppSidebar({ onNavigate }: Props) {
   const { settings } = useSystemSettings();
   
   const [signingOut, setSigningOut] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
