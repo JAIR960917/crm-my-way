@@ -155,10 +155,35 @@ export default function RenovacaoFormBuilderPage() {
     else { toast.success("Pergunta excluída"); fetchFields(); }
   };
 
+  /**
+   * Drag-and-drop handler. Suporta reordenação de perguntas raiz e de subperguntas
+   * condicionais agrupadas por trigger value.
+   * droppableId: "root" | "child::<parentId>::<trigger>" | "child::<parentId>::__notrigger__"
+   */
   const onDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
-    const rootFields = fields.filter((f) => !f.parent_field_id);
-    const reordered = [...rootFields];
+    if (result.source.droppableId !== result.destination.droppableId) return;
+
+    const dropId = result.source.droppableId;
+    let group: FormField[] = [];
+
+    if (dropId === "root") {
+      group = fields.filter((f) => !f.parent_field_id).sort((a, b) => a.position - b.position);
+    } else if (dropId.startsWith("child::")) {
+      const [, parentId, trigger] = dropId.split("::");
+      group = fields
+        .filter((f) => f.parent_field_id === parentId)
+        .filter((f) => {
+          const vals = parseTriggerValues(f.parent_trigger_value);
+          if (trigger === "__notrigger__") return vals.length === 0;
+          return vals.includes(trigger);
+        })
+        .sort((a, b) => a.position - b.position);
+    } else {
+      return;
+    }
+
+    const reordered = [...group];
     const [moved] = reordered.splice(result.source.index, 1);
     reordered.splice(result.destination.index, 0, moved);
 
