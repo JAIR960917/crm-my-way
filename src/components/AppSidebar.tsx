@@ -208,7 +208,7 @@ export default function AppSidebar({ onNavigate }: Props) {
           {signingOut ? "Saindo..." : "Sair"}
         </button>
         <div className="mx-3 rounded-md border border-emerald-500 bg-emerald-500/10 px-2 py-1 text-center text-xs font-semibold text-emerald-400">
-          v1.0.2
+          v1.0.4
         </div>
       </div>
     </aside>
