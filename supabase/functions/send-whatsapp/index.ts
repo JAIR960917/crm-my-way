@@ -1,11 +1,36 @@
+/**
+ * ============================================================================
+ * Edge Function: send-whatsapp
+ * ============================================================================
+ * Envia mensagens de WhatsApp via API Full (https://api.apifull.com.br).
+ *
+ * RESPONSABILIDADES:
+ *   - Receber pedido de envio (lead/cobranca/renovacao + texto/imagem)
+ *   - Resolver placeholders no template ({{nome}}, {{valor}}, etc.)
+ *   - Chamar a API Full e interpretar a resposta (success / error)
+ *   - Registrar log do envio na tabela `whatsapp_logs`
+ *
+ * MÓDULOS SUPORTADOS:
+ *   - leads      → tabela crm_leads      / status crm_statuses
+ *   - cobrancas  → tabela crm_cobrancas  / status crm_cobranca_statuses
+ *   - renovacoes → tabela crm_renovacoes / status crm_renovacao_statuses
+ *
+ * REFERÊNCIA DA API:
+ *   POST /send-message  → texto puro
+ *   POST /send-image    → texto + imagem (campo `file` com URL)
+ *   Headers: Authorization: Bearer <api_key>
+ * ============================================================================
+ */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+/** Headers CORS para permitir chamada do frontend. */
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+/** URL base da API Full (provedor de WhatsApp). */
 const APIFULL_BASE = "https://api.apifull.com.br/whatsapp";
 
 const SUCCESS_TOKENS = ["success", "sucesso", "sent", "enviado", "accepted", "queued", "ok"];

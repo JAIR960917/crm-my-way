@@ -1,9 +1,31 @@
+/**
+ * ============================================================================
+ * AuthContext.tsx — Estado global de autenticação e papéis (roles)
+ * ============================================================================
+ * O QUE FAZ:
+ *   - Restaura a sessão do Supabase ao carregar a página
+ *   - Escuta mudanças de auth (login, logout, refresh de token)
+ *   - Busca os papéis do usuário na tabela `user_roles`
+ *   - Expõe `useAuth()` com: session, user, roles, flags (isAdmin, ...), signOut
+ *
+ * SEGURANÇA:
+ *   - Papéis NÃO ficam no JWT — sempre lidos do banco com RLS
+ *   - Lista de papéis: 'admin' | 'gerente' | 'vendedor' | 'financeiro'
+ *
+ * DETALHE IMPORTANTE (não remover sem entender):
+ *   - Em TOKEN_REFRESHED com sessão null (falha temporária de rede), NÃO
+ *     limpamos a sessão — isso evitava o CRM "deslogar sozinho" do usuário.
+ *   - Só SIGNED_OUT explícito limpa o estado.
+ * ============================================================================
+ */
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
+/** Tipos de papel reconhecidos pelo sistema (espelha o enum app_role no DB). */
 type AppRole = "admin" | "vendedor" | "gerente" | "financeiro";
 
+/** Forma do contexto exposto via useAuth(). */
 interface AuthContextType {
   session: Session | null;
   user: User | null;
@@ -17,6 +39,11 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/**
+ * Busca os papéis do usuário no banco.
+ * Falhas retornam array vazio (usuário sem papel = sem permissão extra).
+ * @param userId UUID do usuário autenticado
+ */
 async function fetchRoles(userId: string): Promise<AppRole[]> {
   try {
     const { data } = await supabase
@@ -30,38 +57,39 @@ async function fetchRoles(userId: string): Promise<AppRole[]> {
   }
 }
 
+/**
+ * Provider que envolve a aplicação e fornece o contexto de autenticação.
+ * Deve ficar DENTRO do BrowserRouter (App.tsx).
+ */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // ----- Efeito 1: restaurar sessão + escutar eventos do Supabase Auth -----
   useEffect(() => {
-    let mounted = true;
+    let mounted = true; // evita setState após unmount
 
+    /** Lê a sessão persistida no localStorage (refresh da página). */
     const restoreSession = async () => {
       try {
         const { data: { session: restoredSession } } = await supabase.auth.getSession();
         if (!mounted) return;
-
         setSession(restoredSession);
       } finally {
         if (mounted) setLoading(false);
       }
     };
-
     void restoreSession();
 
+    // Listener de eventos de auth (login, logout, refresh de token...).
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) return;
 
-      // INITIAL_SESSION é tratado pelo restoreSession()
-      if (event === "INITIAL_SESSION") {
-        return;
-      }
+      // INITIAL_SESSION já foi tratado por restoreSession() acima — ignoramos.
+      if (event === "INITIAL_SESSION") return;
 
-      // Só limpa a sessão em logout explícito ou usuário removido.
-      // TOKEN_REFRESHED com falha temporária pode emitir nextSession=null
-      // sem que o usuário tenha realmente saído — ignorar evita "fechar" o CRM.
+      // Logout explícito ou usuário deletado: limpa tudo.
       if (event === "SIGNED_OUT") {
         setSession(null);
         setRoles([]);
@@ -69,7 +97,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Para SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED, etc. só atualiza se houver sessão.
+      // Demais eventos (SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED) só atualizam
+      // se nextSession existe — evita "deslogar fantasma" em refresh falho.
       if (nextSession) {
         setSession(nextSession);
         setLoading(false);
@@ -82,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // ----- Efeito 2: buscar papéis sempre que o usuário muda -----
   useEffect(() => {
     let mounted = true;
     const userId = session?.user?.id;
@@ -91,23 +121,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    setRoles([]);
+    setRoles([]); // reseta enquanto carrega (evita papéis "antigos" piscando)
 
     void fetchRoles(userId).then((nextRoles) => {
-      if (mounted) {
-        setRoles(nextRoles);
-      }
+      if (mounted) setRoles(nextRoles);
     });
 
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [session?.user?.id]);
 
+  /** Faz logout no Supabase — o listener acima limpa o estado. */
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
+  // Valor exposto a quem chama useAuth().
   const value: AuthContextType = {
     session,
     user: session?.user ?? null,
@@ -122,6 +150,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+/**
+ * Hook para consumir o contexto de autenticação.
+ * @throws se usado fora de <AuthProvider>
+ */
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");

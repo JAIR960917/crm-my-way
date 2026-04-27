@@ -1,3 +1,14 @@
+/**
+ * ============================================================================
+ * Login.tsx — Tela de login (rota /login)
+ * ============================================================================
+ * - Formulário simples de e-mail + senha.
+ * - Usa supabase.auth.signInWithPassword — o redirecionamento acontece
+ *   automaticamente porque <PublicRoute> em App.tsx detecta a sessão e
+ *   joga o usuário para "/" (vendedor) ou "/dashboard" (admin).
+ * - Não há cadastro público: usuários são criados pelo admin em /usuarios.
+ * ============================================================================
+ */
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSystemSettings } from "@/contexts/SystemSettingsContext";
@@ -14,6 +25,10 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
+  /**
+   * Submete o formulário de login.
+   * @param e Evento do form (usado para preventDefault)
+   */
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -23,7 +38,8 @@ export default function Login() {
         toast.error("Credenciais inválidas");
         setLoading(false);
       }
-      // Don't setLoading(false) on success — keep spinner until redirect
+      // Em caso de sucesso, NÃO desligamos o loading — mantemos o spinner
+      // até o redirect automático do <PublicRoute> acontecer.
     } catch {
       toast.error("Erro de conexão");
       setLoading(false);
@@ -34,6 +50,7 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-sm shadow-xl border-0">
         <CardHeader className="text-center pb-2">
+          {/* Logo dinâmica vinda de system_settings */}
           {settings.logo_url ? (
             <img src={settings.logo_url} alt="Logo" className="mx-auto mb-3 h-12 w-12 rounded-xl object-contain" />
           ) : (
@@ -46,6 +63,7 @@ export default function Login() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
+            {/* Campo: e-mail */}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -57,6 +75,8 @@ export default function Login() {
                 required
               />
             </div>
+
+            {/* Campo: senha */}
             <div className="space-y-2">
               <Label htmlFor="password">Senha</Label>
               <Input
@@ -68,6 +88,8 @@ export default function Login() {
                 required
               />
             </div>
+
+            {/* Botão de envio (desabilita enquanto carrega) */}
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Entrando..." : "Entrar"}
             </Button>

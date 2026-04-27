@@ -1,56 +1,87 @@
+/**
+ * ============================================================================
+ * AppSidebar.tsx — Menu lateral de navegação
+ * ============================================================================
+ * O QUE FAZ:
+ *   - Lista todas as páginas do sistema (filtradas por papel do usuário)
+ *   - Botões inferiores: Atualizar Sistema (limpa cache PWA), Instalar App,
+ *     Tema (dark/light), Meu Perfil, Sair
+ *   - Mostra nome e logo do sistema (vem de SystemSettingsContext)
+ *
+ * REGRAS DE PERMISSÃO (canSee):
+ *   - Item COM `roles`: aparece se o usuário tem PELO MENOS UM dos papéis
+ *   - Item SEM `roles`: aparece para todos EXCETO financeiro puro
+ *     (financeiro só vê o que estiver explicitamente liberado)
+ * ============================================================================
+ */
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSystemSettings } from "@/contexts/SystemSettingsContext";
-
 import { useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Users, LogOut, Columns3, Building2, FileText, Sun, Moon, Download, Settings, UserCircle, Bell, MessageSquare, CalendarCheck, UserCheck, Upload, Receipt, Plug, CalendarHeart, History, BarChart3, FileBarChart, RefreshCw } from "lucide-react";
+import {
+  LayoutDashboard, Users, LogOut, Columns3, Building2, FileText,
+  Sun, Moon, Download, Settings, UserCircle, Bell, MessageSquare,
+  CalendarCheck, UserCheck, Upload, Receipt, Plug, CalendarHeart,
+  History, BarChart3, FileBarChart, RefreshCw,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
+/** Papéis suportados pelo sistema. */
 type Role = "admin" | "gerente" | "financeiro" | "vendedor";
 
+/** Estrutura de um item do menu. */
 type NavItem = {
   path: string;
   label: string;
   icon: any;
-  // If `roles` is set, only those roles see it.
-  // If omitted, every role EXCEPT financeiro sees it (financeiro is restricted by default).
+  /**
+   * Lista de papéis que veem este item.
+   * - Se definido: só esses papéis veem.
+   * - Se omitido: todos veem (exceto financeiro puro).
+   */
   roles?: Role[];
 };
 
+/** Itens do menu principal — ORDEM IMPORTA (é a ordem visual). */
 const navItems: NavItem[] = [
-  { path: "/dashboard", label: "Dashboard", icon: BarChart3, roles: ["admin"] },
-  { path: "/relatorio-vendas", label: "Relatório de Vendas", icon: FileBarChart, roles: ["admin"] },
-  { path: "/", label: "Leads", icon: LayoutDashboard },
-  { path: "/cobrancas", label: "Cobranças", icon: Receipt, roles: ["admin", "financeiro"] },
-  { path: "/agendamentos", label: "Agendamentos", icon: CalendarCheck },
-  { path: "/clientes-ativos", label: "Renovação", icon: UserCheck },
-  { path: "/usuarios", label: "Usuários", icon: Users, roles: ["admin", "gerente"] },
-  { path: "/empresas", label: "Empresas", icon: Building2, roles: ["admin"] },
-  { path: "/colunas", label: "Colunas CRM", icon: Columns3, roles: ["admin"] },
-  { path: "/formulario", label: "Formulário Lead", icon: FileText, roles: ["admin"] },
-  { path: "/formulario-renovacao", label: "Formulário Renovação", icon: CalendarHeart, roles: ["admin"] },
-  { path: "/configuracoes", label: "Configurações", icon: Settings, roles: ["admin"] },
-  { path: "/notificacoes", label: "Notificações", icon: Bell },
-  { path: "/whatsapp", label: "WhatsApp", icon: MessageSquare, roles: ["admin", "gerente"] },
-  { path: "/importar", label: "Importar Leads", icon: Upload, roles: ["admin"] },
-  { path: "/integracoes-ssotica", label: "Integrações SSótica", icon: Plug, roles: ["admin"] },
-  { path: "/logs-movimentacao", label: "Logs Movimentação", icon: History, roles: ["admin"] },
+  { path: "/dashboard",            label: "Dashboard",              icon: BarChart3,    roles: ["admin"] },
+  { path: "/relatorio-vendas",     label: "Relatório de Vendas",    icon: FileBarChart, roles: ["admin"] },
+  { path: "/",                     label: "Leads",                  icon: LayoutDashboard },
+  { path: "/cobrancas",            label: "Cobranças",              icon: Receipt,      roles: ["admin", "financeiro"] },
+  { path: "/agendamentos",         label: "Agendamentos",           icon: CalendarCheck },
+  { path: "/clientes-ativos",      label: "Renovação",              icon: UserCheck },
+  { path: "/usuarios",             label: "Usuários",               icon: Users,        roles: ["admin", "gerente"] },
+  { path: "/empresas",             label: "Empresas",               icon: Building2,    roles: ["admin"] },
+  { path: "/colunas",              label: "Colunas CRM",            icon: Columns3,     roles: ["admin"] },
+  { path: "/formulario",           label: "Formulário Lead",        icon: FileText,     roles: ["admin"] },
+  { path: "/formulario-renovacao", label: "Formulário Renovação",   icon: CalendarHeart, roles: ["admin"] },
+  { path: "/configuracoes",        label: "Configurações",          icon: Settings,     roles: ["admin"] },
+  { path: "/notificacoes",         label: "Notificações",           icon: Bell },
+  { path: "/whatsapp",             label: "WhatsApp",               icon: MessageSquare, roles: ["admin", "gerente"] },
+  { path: "/importar",             label: "Importar Leads",         icon: Upload,       roles: ["admin"] },
+  { path: "/integracoes-ssotica",  label: "Integrações SSótica",    icon: Plug,         roles: ["admin"] },
+  { path: "/logs-movimentacao",    label: "Logs Movimentação",      icon: History,      roles: ["admin"] },
 ];
 
 interface Props {
+  /** Callback chamado após navegação — usado pelo mobile para fechar o drawer. */
   onNavigate?: () => void;
 }
 
 export default function AppSidebar({ onNavigate }: Props) {
   const { user, isAdmin, isGerente, isFinanceiro, signOut } = useAuth();
   const { settings } = useSystemSettings();
-  
+
   const [signingOut, setSigningOut] = useState(false);
   const [updating, setUpdating] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
+  /**
+   * Decide se o item de menu deve aparecer para o usuário atual.
+   * @param item Item do menu a avaliar
+   */
   const canSee = (item: NavItem) => {
     if (item.roles) {
       if (isAdmin && item.roles.includes("admin")) return true;
@@ -58,16 +89,18 @@ export default function AppSidebar({ onNavigate }: Props) {
       if (isFinanceiro && item.roles.includes("financeiro")) return true;
       return false;
     }
-    // No explicit roles: hide from financeiro by default (financeiro only sees explicit pages)
+    // Item público (sem roles): financeiro puro NÃO vê.
     if (isFinanceiro && !isAdmin && !isGerente) return false;
     return true;
   };
 
+  /** Navega para a rota e (no mobile) fecha o drawer. */
   const handleNav = (path: string) => {
     navigate(path);
     onNavigate?.();
   };
 
+  /** Faz logout e redireciona para /login. */
   const handleSignOut = async () => {
     if (signingOut) return;
     setSigningOut(true);
@@ -80,37 +113,35 @@ export default function AppSidebar({ onNavigate }: Props) {
     }
   };
 
+  /**
+   * "Atualizar Sistema": força a versão mais nova quando o PWA está com
+   * cache antigo. Apaga caches do browser, desregistra Service Workers
+   * e recarrega a página.
+   */
   const handleUpdateSystem = async () => {
     if (updating) return;
     setUpdating(true);
     toast.loading("Atualizando sistema...", { id: "update-system" });
     try {
-      // Limpa todos os caches do navegador (Service Worker / PWA)
+      // 1. Apaga caches do navegador (PWA / Service Worker).
       if ("caches" in window) {
         const keys = await caches.keys();
         await Promise.all(keys.map((k) => caches.delete(k)));
       }
-      // Atualiza/desregistra service workers para forçar nova versão
+      // 2. Desregistra todos os Service Workers ativos.
       if ("serviceWorker" in navigator) {
         const regs = await navigator.serviceWorker.getRegistrations();
         await Promise.all(
           regs.map(async (r) => {
-            try {
-              await r.update();
-            } catch {}
-            try {
-              await r.unregister();
-            } catch {}
+            try { await r.update(); } catch {}
+            try { await r.unregister(); } catch {}
           })
         );
       }
       toast.success("Recarregando...", { id: "update-system" });
-      // Pequeno delay para o toast aparecer antes do reload
-      setTimeout(() => {
-        // Força bypass de cache
-        window.location.reload();
-      }, 400);
-    } catch (e) {
+      // 3. Pequeno delay para o toast aparecer antes do reload.
+      setTimeout(() => window.location.reload(), 400);
+    } catch {
       toast.error("Falha ao atualizar. Tente novamente.", { id: "update-system" });
       setUpdating(false);
     }
@@ -118,6 +149,7 @@ export default function AppSidebar({ onNavigate }: Props) {
 
   return (
     <aside className="flex h-screen w-60 flex-col bg-sidebar text-sidebar-foreground">
+      {/* ===== Topo: logo + nome do sistema ===== */}
       <div className="flex items-center gap-2 px-5 py-5 flex-shrink-0">
         {settings.logo_url ? (
           <img src={settings.logo_url} alt="Logo" className="h-8 w-8 rounded-lg object-contain" />
@@ -129,27 +161,28 @@ export default function AppSidebar({ onNavigate }: Props) {
         <span className="text-lg font-bold text-sidebar-primary-foreground truncate">{settings.system_name}</span>
       </div>
 
+      {/* ===== Menu principal (rolável) ===== */}
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2 min-h-0">
-        {navItems
-          .filter(canSee)
-          .map((item) => (
-            <button
-              key={item.path}
-              onClick={() => handleNav(item.path)}
-              className={cn(
-                "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                location.pathname === item.path
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "hover:bg-sidebar-accent/50"
-              )}
-            >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </button>
-          ))}
+        {navItems.filter(canSee).map((item) => (
+          <button
+            key={item.path}
+            onClick={() => handleNav(item.path)}
+            className={cn(
+              "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+              location.pathname === item.path
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "hover:bg-sidebar-accent/50"
+            )}
+          >
+            <item.icon className="h-4 w-4" />
+            {item.label}
+          </button>
+        ))}
       </nav>
 
+      {/* ===== Rodapé: ações utilitárias + sair ===== */}
       <div className="space-y-2 border-t border-sidebar-border px-3 py-4 flex-shrink-0">
+        {/* Atualizar (limpa cache PWA) */}
         <button
           onClick={handleUpdateSystem}
           disabled={updating}
@@ -158,6 +191,8 @@ export default function AppSidebar({ onNavigate }: Props) {
           <RefreshCw className={cn("h-4 w-4", updating && "animate-spin")} />
           {updating ? "Atualizando..." : "Atualizar Sistema"}
         </button>
+
+        {/* Instalar PWA */}
         <button
           onClick={() => handleNav("/instalar")}
           className={cn(
@@ -170,6 +205,8 @@ export default function AppSidebar({ onNavigate }: Props) {
           <Download className="h-4 w-4" />
           Instalar App
         </button>
+
+        {/* Toggle de tema dark/light (persistido em localStorage) */}
         <button
           onClick={() => {
             const html = document.documentElement;
@@ -184,6 +221,8 @@ export default function AppSidebar({ onNavigate }: Props) {
           <span className="dark:hidden">Modo Escuro</span>
           <span className="hidden dark:inline">Modo Claro</span>
         </button>
+
+        {/* Meu Perfil */}
         <button
           onClick={() => handleNav("/perfil")}
           className={cn(
@@ -196,9 +235,13 @@ export default function AppSidebar({ onNavigate }: Props) {
           <UserCircle className="h-4 w-4" />
           Meu Perfil
         </button>
+
+        {/* E-mail do usuário (apenas exibição) */}
         <div className="truncate px-3 text-xs text-sidebar-foreground/60">
           {user?.email}
         </div>
+
+        {/* Sair */}
         <button
           onClick={handleSignOut}
           disabled={signingOut}
@@ -207,6 +250,8 @@ export default function AppSidebar({ onNavigate }: Props) {
           <LogOut className="h-4 w-4" />
           {signingOut ? "Saindo..." : "Sair"}
         </button>
+
+        {/* Badge de versão (atualize manualmente quando publicar uma versão nova) */}
         <div className="mx-3 rounded-md border border-emerald-500 bg-emerald-500/10 px-2 py-1 text-center text-xs font-semibold text-emerald-400">
           v1.0.4
         </div>
