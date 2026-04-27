@@ -297,16 +297,16 @@ export default function CobrancaEditSheet(props: Props) {
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-[1100px] p-0 flex flex-col sm:flex-row gap-0"
+        className="w-full sm:max-w-[1100px] p-0 flex flex-col sm:flex-row gap-0 overflow-y-auto sm:overflow-hidden"
       >
         {/* LEFT: Form */}
-        <div className="w-full sm:w-[420px] sm:border-r border-border flex flex-col bg-card">
-          <div className="flex items-center justify-between px-5 py-4 border-b">
+        <div className="w-full sm:w-[420px] sm:border-r border-border flex flex-col bg-card sm:h-full">
+          <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-card z-10 sm:static">
             <h2 className="font-semibold text-lg">
               {isEditing ? "Editar Cobrança" : "Nova Cobrança"}
             </h2>
           </div>
-          <ScrollArea className="flex-1">
+          <ScrollArea className="flex-1 max-sm:[&_[data-radix-scroll-area-viewport]]:!overflow-visible max-sm:[&>[data-radix-scroll-area-viewport]]:max-h-none">
             <form onSubmit={onSave} id="cobranca-form" className="p-5 space-y-4">
               <div className="space-y-2">
                 <Label>Empresa</Label>
