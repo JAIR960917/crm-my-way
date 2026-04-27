@@ -857,8 +857,7 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6 mb-4">
-              <SummaryStat label="Aberturas" value={cobrancaTotals.aberturas} icon={FolderOpen} tone="default" />
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 mb-4">
               <SummaryStat label="Contatos" value={cobrancaTotals.contatos} icon={Phone} tone="default" />
               <SummaryStat label="Atenderam" value={cobrancaTotals.atendeu} icon={Phone} tone="success" />
               <SummaryStat label="Não atenderam" value={cobrancaTotals.naoAtendeu} icon={PhoneOff} tone="danger" />
@@ -870,7 +869,7 @@ export default function DashboardPage() {
               <Skeleton className="h-40 w-full" />
             ) : filteredCobrancaRows.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
-                Nenhuma abertura de card ou tentativa de contato em cobranças no período selecionado.
+                Nenhuma tentativa de contato em cobranças no período selecionado.
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -879,9 +878,6 @@ export default function DashboardPage() {
                     <TableRow>
                       <TableHead>Vendedor</TableHead>
                       <TableHead>Empresa</TableHead>
-                      <TableHead className="text-center">
-                        <span className="inline-flex items-center gap-1"><FolderOpen className="h-3.5 w-3.5" /> Aberturas</span>
-                      </TableHead>
                       <TableHead className="text-center">
                         <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" /> Contatos</span>
                       </TableHead>
@@ -914,7 +910,6 @@ export default function DashboardPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground text-sm">{row.company_name}</TableCell>
-                        <TableCell className="text-center font-semibold">{row.aberturas}</TableCell>
                         <TableCell className="text-center font-semibold">{row.contatos}</TableCell>
                         <TableCell className="text-center">
                           <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 bg-emerald-500/10">
@@ -944,11 +939,9 @@ export default function DashboardPage() {
             )}
 
             <p className="text-[11px] text-muted-foreground mt-4">
-              <FolderOpen className="h-3 w-3 inline mr-1" />
-              "Aberturas" conta cards de cobrança únicos abertos no dia.{" "}
-              <Phone className="h-3 w-3 inline mx-1" />
-              Cada "Contato" é uma tentativa registrada. "Renegociaram" e "Não renegociaram"
-              são contadas apenas quando o cliente atendeu.
+              <Phone className="h-3 w-3 inline mr-1" />
+              "Contatos" conta cada lead único com tentativa registrada (mesmo que aberto várias vezes no dia).
+              "Renegociaram" e "Não renegociaram" são contadas apenas quando o cliente atendeu.
             </p>
           </CardContent>
         </Card>
