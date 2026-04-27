@@ -58,10 +58,10 @@ const groupColor = (grupo: string | null) => {
   return "bg-muted text-muted-foreground";
 };
 
-const cacheKey = (cli: number | string, comp: string, months: number) =>
-  `ssotica-vendas:${comp}:${cli}:${months}m`;
+const cacheKey = (cli: number | string, comp: string, months: number, cpf?: string | null) =>
+  `ssotica-vendas:${comp}:${cli}:${months}m${cpf ? `:cpf=${cpf}` : ""}`;
 
-export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId }: Props) {
+export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId, cpf }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [vendas, setVendas] = useState<Venda[] | null>(null);
@@ -72,7 +72,7 @@ export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId }
       setError("Cliente sem vínculo SSótica — não é possível buscar produtos.");
       return;
     }
-    const key = cacheKey(ssoticaClienteId, ssoticaCompanyId, months);
+    const key = cacheKey(ssoticaClienteId, ssoticaCompanyId, months, cpf);
     if (!force) {
       try {
         const cached = sessionStorage.getItem(key);
@@ -87,7 +87,7 @@ export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId }
     setError(null);
     try {
       const { data, error: invErr } = await supabase.functions.invoke("ssotica-cliente-vendas", {
-        body: { ssoticaClienteId, ssoticaCompanyId, monthsBack: months },
+        body: { ssoticaClienteId, ssoticaCompanyId, monthsBack: months, cpf: cpf ?? null },
       });
       if (invErr) throw invErr;
       if (data?.error) throw new Error(data.error);
@@ -108,7 +108,7 @@ export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId }
       fetchVendas(monthsBack);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ssoticaClienteId, ssoticaCompanyId]);
+  }, [ssoticaClienteId, ssoticaCompanyId, cpf]);
 
   if (!ssoticaClienteId || !ssoticaCompanyId) {
     return (
