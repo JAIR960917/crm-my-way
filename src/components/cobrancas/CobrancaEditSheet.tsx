@@ -586,6 +586,11 @@ export default function CobrancaEditSheet(props: Props) {
                                     <div className="text-xs text-muted-foreground">
                                       Venceu em {venc} · <span className="text-red-500 font-semibold">{p.dias_atraso} dia(s) em atraso</span>
                                     </div>
+                                    {p.loja_nome && (
+                                      <div className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground/80 mt-0.5">
+                                        Loja: {p.loja_nome}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                                 <div className="text-right shrink-0">
