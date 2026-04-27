@@ -432,31 +432,7 @@ export default function CobrancasPage() {
           )}
         </div>
 
-        {(() => {
-          const { items: clItems, pending: clPending } = getColumnChecklistStatus(cobranca.id, cobranca.status);
-          if (clItems.length === 0) return null;
-          const done = clItems.length - clPending.length;
-          return (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                // Abre só o checklist (sem mover) usando próprio status como "destino" temporário
-                setChecklistDialog({ cobranca, fromStatus: cobranca.status, toStatus: cobranca.status });
-              }}
-              className={`w-full text-[11px] flex items-center justify-between gap-2 rounded-md px-2 py-1.5 border transition-colors ${
-                clPending.length === 0
-                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 hover:bg-emerald-500/20"
-                  : "bg-amber-500/10 border-amber-500/40 text-amber-700 hover:bg-amber-500/20"
-              }`}
-            >
-              <span className="font-medium">
-                {clPending.length === 0 ? "Critérios concluídos" : "Critérios pendentes"}
-              </span>
-              <span>{done}/{clItems.length}</span>
-            </button>
-          );
-        })()}
+
 
         <div className="flex gap-1 justify-end pt-1">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(cobranca)}>
@@ -673,57 +649,6 @@ export default function CobrancasPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={!!checklistDialog} onOpenChange={(open) => !open && setChecklistDialog(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Liberar lead para próxima coluna</DialogTitle>
-            <DialogDescription>
-              Marque todos os critérios abaixo para confirmar que o atendimento desta etapa foi concluído.
-            </DialogDescription>
-          </DialogHeader>
-          {checklistDialog && (() => {
-            const fromSt = allStatuses.find(s => s.key === checklistDialog.fromStatus);
-            const toSt = allStatuses.find(s => s.key === checklistDialog.toStatus);
-            if (!fromSt) return null;
-            const items = checklistItems.filter(i => i.status_id === fromSt.id);
-            const doneIds = new Set(
-              completions
-                .filter(c => c.cobranca_id === checklistDialog.cobranca.id && c.status_id === fromSt.id)
-                .map(c => c.checklist_item_id)
-            );
-            const allDone = items.every(i => doneIds.has(i.id));
-            return (
-              <div className="space-y-4">
-                <div className="rounded-lg border bg-muted/30 p-3 text-xs space-y-1">
-                  <p><span className="text-muted-foreground">De:</span> <span className="font-medium">{fromSt.label}</span></p>
-                  <p><span className="text-muted-foreground">Para:</span> <span className="font-medium">{toSt?.label || checklistDialog.toStatus}</span></p>
-                </div>
-                <div className="space-y-2">
-                  {items.map(it => {
-                    const isDone = doneIds.has(it.id);
-                    return (
-                      <label key={it.id} className="flex items-start gap-3 rounded-md border bg-card p-3 cursor-pointer hover:bg-accent/30">
-                        <Checkbox
-                          checked={isDone}
-                          onCheckedChange={() => toggleChecklistItem(it.id, fromSt.id, checklistDialog.cobranca.id, isDone)}
-                          className="mt-0.5"
-                        />
-                        <span className={`text-sm flex-1 ${isDone ? "line-through text-muted-foreground" : ""}`}>{it.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setChecklistDialog(null)}>Fechar</Button>
-                  <Button onClick={confirmChecklistAndMove} disabled={!allDone}>
-                    Liberar lead
-                  </Button>
-                </DialogFooter>
-              </div>
-            );
-          })()}
-        </DialogContent>
-      </Dialog>
     </AppLayout>
   );
 }
