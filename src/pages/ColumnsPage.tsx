@@ -210,10 +210,22 @@ export default function ColumnsPage() {
                     </div>
                     <div className={`h-3 w-3 rounded-full shrink-0 ${colorDot[status.color] || colorDot.blue}`} />
                     <div className="flex-1 min-w-0">
-                      <span className="font-medium text-sm">{status.label}</span>
-                      <span className="text-xs text-muted-foreground ml-2">({status.key})</span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm">{status.label}</span>
+                        <span className="text-xs text-muted-foreground">({status.key})</span>
+                        {section === "cobrancas" && status.financeiro_visible === false && (
+                          <span className="text-[10px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                            <EyeOff className="h-3 w-3" />Oculta para financeiro
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-1 shrink-0">
+                      {section === "cobrancas" && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8" title="Configurar acesso do financeiro" onClick={() => openFinanceiroConfig(status)}>
+                          <Settings className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(status, section)}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
