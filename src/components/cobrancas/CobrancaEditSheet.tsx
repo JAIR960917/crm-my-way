@@ -135,6 +135,8 @@ export default function CobrancaEditSheet(props: Props) {
       const lista = (card as any)?.data?.parcelas_atrasadas as any[] | undefined;
       const currentParcelaId = (card as any)?.ssotica_parcela_id;
       if (!error && Array.isArray(lista) && lista.length > 0) {
+        // Mapa de empresas para mostrar a loja em cada parcela quando o card foi mesclado entre lojas
+        const companiesById = new Map((companies ?? []).map((c: any) => [String(c.id), c.name as string]));
         const parcelasInfo: ParcelaInfo[] = lista.map((p: any, idx: number) => ({
           id: String(p.parcela_id ?? `${p.titulo_id ?? "tit"}-${p.numero_parcela ?? idx}`),
           numero_parcela: p.numero_parcela != null ? Number(p.numero_parcela) : null,
@@ -143,6 +145,7 @@ export default function CobrancaEditSheet(props: Props) {
           dias_atraso: p.dias_atraso ?? null,
           status: null,
           is_current: currentParcelaId != null && String(p.parcela_id) === String(currentParcelaId),
+          loja_nome: p.ssotica_company_id ? (companiesById.get(String(p.ssotica_company_id)) ?? null) : null,
         }));
         // Ordena por vencimento (mais antiga primeiro)
         parcelasInfo.sort((a, b) =>
