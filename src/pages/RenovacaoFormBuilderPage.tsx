@@ -208,62 +208,113 @@ export default function RenovacaoFormBuilderPage() {
   const getParentOptions = (parentId: string): string[] => fields.find((f) => f.id === parentId)?.options || [];
   const typeLabel = (t: string) => FIELD_TYPES.find((ft) => ft.value === t)?.label || t;
 
-  const renderField = (field: FormField, depth: number = 0) => {
+  /** Renderiza o card visual de uma pergunta. */
+  const renderFieldCard = (field: FormField, depth: number, dragHandleProps?: any) => {
+    const hasOptions = ["select", "checkbox_group"].includes(field.field_type) && field.options && field.options.length > 0;
+    return (
+      <div className={`flex items-center gap-2 p-3 rounded-lg border bg-card mb-2 group ${depth > 0 ? "ml-6 sm:ml-10 border-l-2 border-l-primary/30" : ""}`}>
+        <span {...(dragHandleProps || {})} className="shrink-0 cursor-grab active:cursor-grabbing">
+          {depth === 0 ? (
+            <GripVertical className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <CornerDownRight className="h-4 w-4 text-primary/50" />
+          )}
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-sm truncate">
+            {field.label}
+            {field.is_required && <span className="text-destructive ml-1">*</span>}
+          </p>
+          <div className="flex flex-wrap gap-1.5 mt-1">
+            <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{typeLabel(field.field_type)}</span>
+            {field.is_name_field && <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">📛 Nome</span>}
+            {field.is_phone_field && <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">📞 Telefone</span>}
+            {field.is_last_visit_field && <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">📅 Última receita</span>}
+            {field.show_on_card && !field.is_last_visit_field && !field.is_name_field && !field.is_phone_field && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600">No card</span>
+            )}
+            {field.parent_trigger_value && (() => {
+              const vals = parseTriggerValues(field.parent_trigger_value);
+              return <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">Quando: {vals.map(v => `"${v}"`).join(", ")}</span>;
+            })()}
+          </div>
+        </div>
+        {isAdmin && (
+          <div className="flex gap-1 shrink-0">
+            {hasOptions && (
+              <Button variant="ghost" size="icon" className="h-7 w-7" title="Sub-pergunta" onClick={() => openCreate(field.id)}>
+                <Plus className="h-3.5 w-3.5 text-primary" />
+              </Button>
+            )}
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(field)}><Pencil className="h-3.5 w-3.5" /></Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(field.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /**
+   * Renderiza recursivamente uma pergunta e seus filhos. Cada grupo de filhos
+   * (por trigger value) vira um Droppable separado, permitindo reordená-los.
+   */
+  const renderField = (field: FormField, depth: number = 0, dragHandleProps?: any) => {
     const children = getChildren(field.id);
     const hasOptions = ["select", "checkbox_group"].includes(field.field_type) && field.options && field.options.length > 0;
+    const noTriggerChildren = children.filter((c) => !c.parent_trigger_value);
 
     return (
       <div key={field.id}>
-        <div className={`flex items-center gap-2 p-3 rounded-lg border bg-card mb-2 group ${depth > 0 ? "ml-6 sm:ml-10 border-l-2 border-l-primary/30" : ""}`}>
-          {depth === 0 && <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab shrink-0" />}
-          {depth > 0 && <CornerDownRight className="h-4 w-4 text-primary/50 shrink-0" />}
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-sm truncate">
-              {field.label}
-              {field.is_required && <span className="text-destructive ml-1">*</span>}
-            </p>
-            <div className="flex flex-wrap gap-1.5 mt-1">
-              <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{typeLabel(field.field_type)}</span>
-              {field.is_name_field && <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">📛 Nome</span>}
-              {field.is_phone_field && <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">📞 Telefone</span>}
-              {field.is_last_visit_field && <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">📅 Última receita</span>}
-              {field.show_on_card && !field.is_last_visit_field && !field.is_name_field && !field.is_phone_field && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600">No card</span>
-              )}
-              {field.parent_trigger_value && (() => {
-                const vals = parseTriggerValues(field.parent_trigger_value);
-                return <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">Quando: {vals.map(v => `"${v}"`).join(", ")}</span>;
-              })()}
-            </div>
-          </div>
-          {isAdmin && (
-            <div className="flex gap-1 shrink-0">
-              {hasOptions && (
-                <Button variant="ghost" size="icon" className="h-7 w-7" title="Sub-pergunta" onClick={() => openCreate(field.id)}>
-                  <Plus className="h-3.5 w-3.5 text-primary" />
-                </Button>
-              )}
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(field)}><Pencil className="h-3.5 w-3.5" /></Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(field.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
-            </div>
-          )}
-        </div>
+        {renderFieldCard(field, depth, dragHandleProps)}
 
         {hasOptions && field.options!.map((opt) => {
           const optChildren = children.filter((c) => parseTriggerValues(c.parent_trigger_value).includes(opt));
           if (optChildren.length === 0) return null;
+          const dropId = `child::${field.id}::${opt}`;
           return (
             <div key={opt}>
               <div className="ml-6 sm:ml-10 mb-1 flex items-center gap-1.5">
                 <ChevronRight className="h-3 w-3 text-muted-foreground" />
                 <span className="text-xs font-medium text-muted-foreground">Se "{opt}":</span>
               </div>
-              {optChildren.map((child) => renderField(child, depth + 1))}
+              <Droppable droppableId={dropId}>
+                {(prov) => (
+                  <div ref={prov.innerRef} {...prov.droppableProps}>
+                    {optChildren.map((child, idx) => (
+                      <Draggable key={child.id} draggableId={child.id} index={idx}>
+                        {(p) => (
+                          <div ref={p.innerRef} {...p.draggableProps}>
+                            {renderField(child, depth + 1, p.dragHandleProps)}
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {prov.placeholder}
+                  </div>
+                )}
+              </Droppable>
             </div>
           );
         })}
 
-        {children.filter((c) => !c.parent_trigger_value).map((child) => renderField(child, depth + 1))}
+        {noTriggerChildren.length > 0 && (
+          <Droppable droppableId={`child::${field.id}::__notrigger__`}>
+            {(prov) => (
+              <div ref={prov.innerRef} {...prov.droppableProps}>
+                {noTriggerChildren.map((child, idx) => (
+                  <Draggable key={child.id} draggableId={child.id} index={idx}>
+                    {(p) => (
+                      <div ref={p.innerRef} {...p.draggableProps}>
+                        {renderField(child, depth + 1, p.dragHandleProps)}
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {prov.placeholder}
+              </div>
+            )}
+          </Droppable>
+        )}
       </div>
     );
   };
