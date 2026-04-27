@@ -39,7 +39,6 @@ type CobrancaRow = {
   avatar_url: string | null;
   company_id: string | null;
   company_name: string;
-  aberturas: number;
   contatos: number;
   atendeu: number;
   naoAtendeu: number;
