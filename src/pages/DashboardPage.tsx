@@ -33,6 +33,19 @@ type SellerRow = {
   atendeuSemAgendar: number;
 };
 
+type CobrancaRow = {
+  user_id: string;
+  full_name: string;
+  avatar_url: string | null;
+  company_id: string | null;
+  company_name: string;
+  contatos: number;
+  atendeu: number;
+  naoAtendeu: number;
+  renegociou: number;
+  naoRenegociou: number;
+};
+
 const ALL = "__all__";
 
 const rangeBounds = (startStr: string, endStr: string) => {
