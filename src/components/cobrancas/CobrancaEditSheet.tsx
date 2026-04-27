@@ -332,7 +332,7 @@ export default function CobrancaEditSheet(props: Props) {
             </h2>
           </div>
           <ScrollArea className="flex-1 max-sm:[&_[data-radix-scroll-area-viewport]]:!overflow-visible max-sm:[&>[data-radix-scroll-area-viewport]]:max-h-none">
-            <form onSubmit={onSave} id="cobranca-form" className="p-5 space-y-4">
+            <form onSubmit={handleFormSubmit} id="cobranca-form" className="p-5 space-y-4">
               <div className="space-y-2">
                 <Label>Empresa</Label>
                 <Select value={formCompanyId} onValueChange={setFormCompanyId}>
