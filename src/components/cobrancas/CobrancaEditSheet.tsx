@@ -370,8 +370,8 @@ export default function CobrancaEditSheet(props: Props) {
         </div>
 
         {/* RIGHT: Timeline */}
-        <div className="flex-1 flex flex-col bg-background min-w-0">
-          <div className="flex items-center justify-between px-5 py-3 border-b">
+        <div className="flex-1 flex flex-col bg-background min-w-0 sm:h-full border-t sm:border-t-0">
+          <div className="flex items-center justify-between px-5 py-3 border-b sticky top-0 bg-background z-10 sm:static gap-2 overflow-x-auto">
             <Tabs value={tab} onValueChange={setTab} className="flex-1">
               <TabsList className="bg-transparent">
                 <TabsTrigger value="atividade" className="data-[state=active]:bg-destructive data-[state=active]:text-destructive-foreground">Atividade</TabsTrigger>
