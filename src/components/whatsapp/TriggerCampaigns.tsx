@@ -239,11 +239,14 @@ export default function TriggerCampaigns({ instances }: Props) {
           image_url: s.image_url || null,
         }));
 
+      const resolveCompanyId = (val: string) =>
+        val === "__ALL__" || val === "__GLOBAL__" ? null : val;
+
       if (editingId) {
-        // Edição: mantém comportamento de uma única campanha
+        // Edição: mantém comportamento de uma única campanha (global se __GLOBAL__)
         const { error } = await supabase
           .from("whatsapp_trigger_campaigns")
-          .update({ ...basePayload, company_id: companyId === "__ALL__" ? null : companyId })
+          .update({ ...basePayload, company_id: resolveCompanyId(companyId) })
           .eq("id", editingId);
         if (error) throw error;
         await supabase.from("whatsapp_trigger_steps").delete().eq("campaign_id", editingId);
@@ -272,6 +275,19 @@ export default function TriggerCampaigns({ instances }: Props) {
           if (stepsError) throw stepsError;
         }
         toast.success(`${companies.length} campanhas criadas (uma por empresa)!`);
+      } else if (companyId === "__GLOBAL__") {
+        // Uma única campanha global (company_id = null) — usa instância da empresa do lead
+        const { data, error } = await supabase
+          .from("whatsapp_trigger_campaigns")
+          .insert({ ...basePayload, company_id: null, instance_id: null })
+          .select("id")
+          .single();
+        if (error) throw error;
+        const { error: stepsError } = await supabase
+          .from("whatsapp_trigger_steps")
+          .insert(buildSteps(data.id));
+        if (stepsError) throw stepsError;
+        toast.success("Campanha global criada (rodará para todas as empresas)!");
       } else {
         const { data, error } = await supabase
           .from("whatsapp_trigger_campaigns")
