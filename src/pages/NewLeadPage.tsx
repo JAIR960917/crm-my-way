@@ -248,49 +248,64 @@ export default function NewLeadPage() {
   const resolveStatus = (): string => {
     const defaultStatus = statuses.length > 0 ? statuses[0].key : formStatus;
 
-    // Check date-based mapping first
-    const dateFields = fields.filter(f => f.date_status_ranges && f.field_type === "date");
-    for (const df of dateFields) {
-      const fieldKey = `field_${df.id}`;
-      const dateVal = formData[fieldKey];
-      const config = df.date_status_ranges!;
-      if (!dateVal || (typeof dateVal === "string" && !dateVal.trim())) {
-        if (config.no_answer) return config.no_answer;
-        continue;
-      }
-      const diffMs = Date.now() - new Date(dateVal).getTime();
-      const diffYears = diffMs / (1000 * 60 * 60 * 24 * 365.25);
-      const sortedRanges = [...config.ranges].sort((a, b) => a.max_years - b.max_years);
-      let matched = false;
-      for (const range of sortedRanges) {
-        if (diffYears <= range.max_years && range.status_key) {
-          return range.status_key;
-        }
-      }
-      if (!matched && config.above_all) return config.above_all;
-    }
+    // Reúne TODAS as perguntas com regra de redirecionamento (data ou opção)
+    // e processa na ordem do formulário (position). Primeira que tiver resposta válida vence.
+    const ruleFields = fields
+      .filter(f =>
+        (f.date_status_ranges && f.field_type === "date") ||
+        (f.status_mapping && Object.keys(f.status_mapping).length > 0)
+      )
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
-    // Then check option-based mapping (incluindo a chave especial __any__ = qualquer resposta)
-    const mappingFields = fields.filter(f => f.status_mapping && Object.keys(f.status_mapping).length > 0);
-    if (mappingFields.length === 0 && dateFields.length === 0) return formStatus;
-    // Primeira pergunta (ordem do formulário) com redirecionamento vence
-    const orderedMappingFields = [...mappingFields].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-    for (const mf of orderedMappingFields) {
-      const fieldKey = `field_${mf.id}`;
+    if (ruleFields.length === 0) return formStatus;
+
+    // Pass 1: tenta resolver por respostas efetivamente preenchidas
+    for (const f of ruleFields) {
+      const fieldKey = `field_${f.id}`;
       const answer = formData[fieldKey];
       const hasAnswer = !(answer === undefined || answer === null || answer === "" || (Array.isArray(answer) && answer.length === 0));
-      if (!hasAnswer) continue;
-      const mapping = mf.status_mapping!;
-      // 1) Mapeamento por valor específico (select/checkbox)
-      if (typeof answer === "string" && mapping[answer]) return mapping[answer];
-      if (Array.isArray(answer)) {
-        for (const v of answer) {
-          if (mapping[v]) return mapping[v];
+
+      // Campo de data
+      if (f.date_status_ranges && f.field_type === "date") {
+        if (!hasAnswer) continue; // sem resposta -> ignora aqui (no_answer só na pass 2)
+        const config = f.date_status_ranges;
+        const diffMs = Date.now() - new Date(answer as string).getTime();
+        const diffYears = diffMs / (1000 * 60 * 60 * 24 * 365.25);
+        const sortedRanges = [...config.ranges].sort((a, b) => a.max_years - b.max_years);
+        for (const range of sortedRanges) {
+          if (diffYears <= range.max_years && range.status_key) return range.status_key;
+        }
+        if (config.above_all) return config.above_all;
+        continue;
+      }
+
+      // Campo de opção (status_mapping)
+      if (f.status_mapping && Object.keys(f.status_mapping).length > 0) {
+        if (!hasAnswer) continue;
+        const mapping = f.status_mapping;
+        if (typeof answer === "string" && mapping[answer]) return mapping[answer];
+        if (Array.isArray(answer)) {
+          for (const v of answer) {
+            if (mapping[v]) return mapping[v];
+          }
+        }
+        if (mapping["__any__"]) return mapping["__any__"];
+      }
+    }
+
+    // Pass 2: nenhuma pergunta foi respondida com regra ativa.
+    // Aplica fallback "no_answer" do primeiro campo de data sem resposta.
+    for (const f of ruleFields) {
+      if (f.date_status_ranges && f.field_type === "date") {
+        const fieldKey = `field_${f.id}`;
+        const answer = formData[fieldKey];
+        const hasAnswer = !(answer === undefined || answer === null || (typeof answer === "string" && !answer.trim()));
+        if (!hasAnswer && f.date_status_ranges.no_answer) {
+          return f.date_status_ranges.no_answer;
         }
       }
-      // 2) Redirecionamento "qualquer resposta" (__any__) — fallback se não houver match por valor
-      if (mapping["__any__"]) return mapping["__any__"];
     }
+
     return defaultStatus;
   };
 
