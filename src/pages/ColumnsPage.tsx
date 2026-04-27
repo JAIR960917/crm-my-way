@@ -142,6 +142,52 @@ export default function ColumnsPage() {
     await Promise.all(statuses.map((s, i) => supabase.from(table as any).update({ position: i } as any).eq("id", s.id)));
   };
 
+  const openFinanceiroConfig = async (status: CrmStatus) => {
+    setFinStatus(status);
+    setFinVisible(status.financeiro_visible !== false);
+    const { data } = await supabase
+      .from("crm_cobranca_status_checklist" as any)
+      .select("*")
+      .eq("status_id", status.id)
+      .order("position");
+    setChecklistItems((data || []) as ChecklistItem[]);
+    setNewChecklistLabel("");
+    setFinDialogOpen(true);
+  };
+
+  const toggleFinVisible = async (value: boolean) => {
+    if (!finStatus) return;
+    setFinVisible(value);
+    await supabase
+      .from("crm_cobranca_statuses")
+      .update({ financeiro_visible: value } as any)
+      .eq("id", finStatus.id);
+    setCobrancaStatuses(prev => prev.map(s => s.id === finStatus.id ? { ...s, financeiro_visible: value } : s));
+  };
+
+  const addChecklistItem = async () => {
+    if (!finStatus || !newChecklistLabel.trim()) return;
+    setSavingFin(true);
+    const maxPos = checklistItems.length > 0 ? Math.max(...checklistItems.map(i => i.position)) + 1 : 0;
+    const { data, error } = await supabase
+      .from("crm_cobranca_status_checklist" as any)
+      .insert({ status_id: finStatus.id, label: newChecklistLabel.trim(), position: maxPos } as any)
+      .select()
+      .single();
+    if (error) toast.error("Erro ao adicionar item");
+    else {
+      setChecklistItems(prev => [...prev, data as ChecklistItem]);
+      setNewChecklistLabel("");
+    }
+    setSavingFin(false);
+  };
+
+  const removeChecklistItem = async (id: string) => {
+    const { error } = await supabase.from("crm_cobranca_status_checklist" as any).delete().eq("id", id);
+    if (error) toast.error("Erro ao remover");
+    else setChecklistItems(prev => prev.filter(i => i.id !== id));
+  };
+
   if (!isAdmin) {
     return <AppLayout><p className="text-muted-foreground">Acesso restrito a administradores.</p></AppLayout>;
   }
