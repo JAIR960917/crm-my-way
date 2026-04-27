@@ -409,6 +409,27 @@ export default function DashboardPage() {
     );
   }, [filteredRows]);
 
+  const filteredCobrancaRows = useMemo(() => {
+    return cobrancaRows.filter((r) => {
+      if (companyFilter !== ALL && r.company_id !== companyFilter) return false;
+      if (sellerFilter.length > 0 && !sellerFilter.includes(r.user_id)) return false;
+      return true;
+    });
+  }, [cobrancaRows, companyFilter, sellerFilter]);
+
+  const cobrancaTotals = useMemo(() => {
+    return filteredCobrancaRows.reduce(
+      (acc, r) => ({
+        contatos: acc.contatos + r.contatos,
+        atendeu: acc.atendeu + r.atendeu,
+        naoAtendeu: acc.naoAtendeu + r.naoAtendeu,
+        renegociou: acc.renegociou + r.renegociou,
+        naoRenegociou: acc.naoRenegociou + r.naoRenegociou,
+      }),
+      { contatos: 0, atendeu: 0, naoAtendeu: 0, renegociou: 0, naoRenegociou: 0 },
+    );
+  }, [filteredCobrancaRows]);
+
   const toggleSeller = (uid: string) => {
     setSellerFilter((prev) =>
       prev.includes(uid) ? prev.filter((x) => x !== uid) : [...prev, uid],
