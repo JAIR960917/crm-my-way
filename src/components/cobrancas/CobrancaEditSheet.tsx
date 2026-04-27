@@ -18,6 +18,7 @@ import { ptBR } from "date-fns/locale";
 import { X, Plus, Trash2, CheckCircle2, Clock, FileText, CalendarIcon, AlertTriangle, CalendarClock, Pencil, Receipt, ShoppingBag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ClientProductsTab from "@/components/ClientProductsTab";
+import CobrancaContactAttemptForm from "@/components/cobrancas/CobrancaContactAttemptForm";
 
 type Profile = { user_id: string; full_name: string; avatar_url?: string | null };
 type Company = { id: string; name: string };
@@ -586,6 +587,15 @@ export default function CobrancaEditSheet(props: Props) {
               {tab !== "parcelas" && tab !== "produtos" && (
               <ScrollArea className="flex-1">
                 <div className="p-5 space-y-3">
+                  {tab === "atividade" && cobrancaId && user && (
+                    <CobrancaContactAttemptForm
+                      cobrancaId={cobrancaId}
+                      userId={user.id}
+                      userName={getProfile(user.id)?.full_name}
+                      cobrancaData={formData}
+                      onSaved={() => { fetchTimeline(); }}
+                    />
+                  )}
                   {tab === "atividade" && timeline.length === 0 && (
                     <p className="text-center text-sm text-muted-foreground py-12">Nenhuma atividade registrada ainda.</p>
                   )}
