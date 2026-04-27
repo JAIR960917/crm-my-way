@@ -67,6 +67,12 @@ export default function CobrancasPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [activities, setActivities] = useState<CobrancaActivity[]>([]);
   const [noteIds, setNoteIds] = useState<Set<string>>(new Set());
+  const [allStatuses, setAllStatuses] = useState<CrmStatus[]>([]);
+  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
+  const [completions, setCompletions] = useState<ChecklistCompletion[]>([]);
+  const [checklistDialog, setChecklistDialog] = useState<{
+    cobranca: Cobranca; fromStatus: string; toStatus: string;
+  } | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCobranca, setEditingCobranca] = useState<Cobranca | null>(null);
   const [formData, setFormData] = useState<Record<string, any>>({ nome: "", telefone: "", descricao: "" });
