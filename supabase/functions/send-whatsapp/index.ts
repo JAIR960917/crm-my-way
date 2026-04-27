@@ -169,6 +169,39 @@ function filterCardsByCompany(cards: any[], companyUserIds: Set<string>): any[] 
   });
 }
 
+// Para campanhas globais: descobre o company_id de um lead pelos seus user ids (assigned_to/created_by → profiles.company_id)
+async function buildUserToCompanyMap(supabase: any): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const { data: profs } = await supabase
+    .from("profiles")
+    .select("user_id, company_id");
+  for (const p of (profs || []) as { user_id: string; company_id: string | null }[]) {
+    if (p.user_id && p.company_id) map.set(p.user_id, p.company_id);
+  }
+  return map;
+}
+
+// Para campanhas globais: cache de instância ativa por empresa
+async function buildCompanyToSessionMap(supabase: any): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const { data: insts } = await supabase
+    .from("whatsapp_instances")
+    .select("company_id, session, is_active")
+    .eq("is_active", true);
+  for (const i of (insts || []) as { company_id: string | null; session: string }[]) {
+    if (i.company_id && i.session && !map.has(i.company_id)) {
+      map.set(i.company_id, i.session);
+    }
+  }
+  return map;
+}
+
+function resolveCardCompanyId(card: any, userToCompany: Map<string, string>): string | null {
+  if (card.assigned_to && userToCompany.has(card.assigned_to)) return userToCompany.get(card.assigned_to)!;
+  if (card.created_by && userToCompany.has(card.created_by)) return userToCompany.get(card.created_by)!;
+  return null;
+}
+
 async function resolveStatusKey(supabase: any, statusTable: string, statusId: string): Promise<string> {
   const { data } = await supabase.from(statusTable).select("key").eq("id", statusId).single();
   return data?.key || "";
