@@ -104,6 +104,8 @@ export default function FormBuilderPage() {
     setEditingField(null);
     setIsStatusField(false);
     setStatusMapping({});
+    setIsAnyAnswerRedirect(false);
+    setAnyAnswerStatusKey("");
     setIsDateStatusField(false);
     setDateStatusRanges({
       ranges: [
