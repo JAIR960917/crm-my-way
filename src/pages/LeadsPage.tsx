@@ -362,13 +362,16 @@ export default function LeadsPage() {
       if (config.above_all) return config.above_all;
     }
 
-    // Then check option-based mapping
+    // Then check option-based mapping (incluindo a chave especial __any__ = qualquer resposta)
     const mappingFields = formFields.filter(f => f.status_mapping && Object.keys(f.status_mapping).length > 0);
     if (mappingFields.length === 0 && dateFields.length === 0) return formStatus;
-    for (const mf of [...mappingFields].reverse()) {
+    // Primeira pergunta (ordem do formulário) com redirecionamento vence
+    const orderedMappingFields = [...mappingFields].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    for (const mf of orderedMappingFields) {
       const fieldKey = `field_${mf.id}`;
       const answer = data[fieldKey];
-      if (!answer || (typeof answer === "string" && !answer.trim())) continue;
+      const hasAnswer = !(answer === undefined || answer === null || answer === "" || (Array.isArray(answer) && answer.length === 0));
+      if (!hasAnswer) continue;
       const mapping = mf.status_mapping!;
       if (typeof answer === "string" && mapping[answer]) return mapping[answer];
       if (Array.isArray(answer)) {
@@ -376,6 +379,8 @@ export default function LeadsPage() {
           if (mapping[v]) return mapping[v];
         }
       }
+      // Fallback: redirecionamento "qualquer resposta"
+      if (mapping["__any__"]) return mapping["__any__"];
     }
     return defaultStatus;
   };
