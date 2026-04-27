@@ -75,11 +75,6 @@ function RoleGate({ children }: { children: React.ReactNode }) {
     return <Navigate to="/" replace />;
   }
 
-  // Admin opens the app on the dashboard by default
-  if (isAdmin && path === "/") {
-    return <Navigate to="/dashboard" replace />;
-  }
-
   return <>{children}</>;
 }
 
