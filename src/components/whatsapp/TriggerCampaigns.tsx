@@ -393,6 +393,7 @@ export default function TriggerCampaigns({ instances }: Props) {
                   {!editingId && (
                     <SelectItem value="__ALL__">🏢 Todas as empresas (cria uma por empresa)</SelectItem>
                   )}
+                  <SelectItem value="__GLOBAL__">🌐 Global (uma única para todas as empresas)</SelectItem>
                   {companies.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
