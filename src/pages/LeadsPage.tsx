@@ -343,45 +343,60 @@ export default function LeadsPage() {
   const resolveStatus = (data: Record<string, any>): string => {
     const defaultStatus = statuses.length > 0 ? statuses[0].key : formStatus;
 
-    // Check date-based mapping first
-    const dateFields = formFields.filter(f => f.date_status_ranges);
-    for (const df of dateFields) {
-      const fieldKey = `field_${df.id}`;
-      const dateVal = data[fieldKey];
-      const config = df.date_status_ranges!;
-      if (!dateVal || (typeof dateVal === "string" && !dateVal.trim())) {
-        if (config.no_answer) return config.no_answer;
-        continue;
-      }
-      const diffMs = Date.now() - new Date(dateVal).getTime();
-      const diffYears = diffMs / (1000 * 60 * 60 * 24 * 365.25);
-      const sortedRanges = [...config.ranges].sort((a, b) => a.max_years - b.max_years);
-      for (const range of sortedRanges) {
-        if (diffYears <= range.max_years && range.status_key) return range.status_key;
-      }
-      if (config.above_all) return config.above_all;
-    }
+    // Reúne TODAS as perguntas com regra (data ou opção) e processa por ordem do formulário.
+    const ruleFields = formFields
+      .filter(f =>
+        f.date_status_ranges ||
+        (f.status_mapping && Object.keys(f.status_mapping).length > 0)
+      )
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
-    // Then check option-based mapping (incluindo a chave especial __any__ = qualquer resposta)
-    const mappingFields = formFields.filter(f => f.status_mapping && Object.keys(f.status_mapping).length > 0);
-    if (mappingFields.length === 0 && dateFields.length === 0) return formStatus;
-    // Primeira pergunta (ordem do formulário) com redirecionamento vence
-    const orderedMappingFields = [...mappingFields].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-    for (const mf of orderedMappingFields) {
-      const fieldKey = `field_${mf.id}`;
+    if (ruleFields.length === 0) return formStatus;
+
+    // Pass 1: respostas efetivamente preenchidas
+    for (const f of ruleFields) {
+      const fieldKey = `field_${f.id}`;
       const answer = data[fieldKey];
       const hasAnswer = !(answer === undefined || answer === null || answer === "" || (Array.isArray(answer) && answer.length === 0));
-      if (!hasAnswer) continue;
-      const mapping = mf.status_mapping!;
-      if (typeof answer === "string" && mapping[answer]) return mapping[answer];
-      if (Array.isArray(answer)) {
-        for (const v of answer) {
-          if (mapping[v]) return mapping[v];
+
+      if (f.date_status_ranges) {
+        if (!hasAnswer) continue;
+        const config = f.date_status_ranges;
+        const diffMs = Date.now() - new Date(answer as string).getTime();
+        const diffYears = diffMs / (1000 * 60 * 60 * 24 * 365.25);
+        const sortedRanges = [...config.ranges].sort((a, b) => a.max_years - b.max_years);
+        for (const range of sortedRanges) {
+          if (diffYears <= range.max_years && range.status_key) return range.status_key;
+        }
+        if (config.above_all) return config.above_all;
+        continue;
+      }
+
+      if (f.status_mapping && Object.keys(f.status_mapping).length > 0) {
+        if (!hasAnswer) continue;
+        const mapping = f.status_mapping;
+        if (typeof answer === "string" && mapping[answer]) return mapping[answer];
+        if (Array.isArray(answer)) {
+          for (const v of answer) {
+            if (mapping[v]) return mapping[v];
+          }
+        }
+        if (mapping["__any__"]) return mapping["__any__"];
+      }
+    }
+
+    // Pass 2: fallback "no_answer" da primeira data sem resposta
+    for (const f of ruleFields) {
+      if (f.date_status_ranges) {
+        const fieldKey = `field_${f.id}`;
+        const answer = data[fieldKey];
+        const hasAnswer = !(answer === undefined || answer === null || (typeof answer === "string" && !answer.trim()));
+        if (!hasAnswer && f.date_status_ranges.no_answer) {
+          return f.date_status_ranges.no_answer;
         }
       }
-      // Fallback: redirecionamento "qualquer resposta"
-      if (mapping["__any__"]) return mapping["__any__"];
     }
+
     return defaultStatus;
   };
 
