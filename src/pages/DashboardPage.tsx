@@ -76,6 +76,12 @@ export default function DashboardPage() {
   const [selectedDate, setSelectedDate] = useState<string>(formatDateForInput(new Date()));
   const [startDate, setStartDate] = useState<string>(formatDateForInput(new Date()));
   const [endDate, setEndDate] = useState<string>(formatDateForInput(new Date()));
+  // Filtros próprios do Relatório de Cobranças
+  const [cobDateMode, setCobDateMode] = useState<"day" | "range">("day");
+  const [cobSelectedDate, setCobSelectedDate] = useState<string>(formatDateForInput(new Date()));
+  const [cobStartDate, setCobStartDate] = useState<string>(formatDateForInput(new Date()));
+  const [cobEndDate, setCobEndDate] = useState<string>(formatDateForInput(new Date()));
+  const [loadingCob, setLoadingCob] = useState(true);
   const [adminIds, setAdminIds] = useState<Set<string>>(new Set());
 
   const [companyFilter, setCompanyFilter] = useState<string>(ALL);
@@ -339,11 +345,19 @@ export default function DashboardPage() {
     Promise.all([
       fetchTotals(companyFilter),
       fetchReport(start, end),
-      fetchCobrancaReport(start, end),
     ]).finally(() => setLoading(false));
   }, [canSee, user, dateMode, selectedDate, startDate, endDate, companyFilter]);
 
-  // Realtime: refresh report when opens or notes change
+  // Relatório de Cobranças usa filtros de período próprios
+  useEffect(() => {
+    if (!canSee || !user) return;
+    setLoadingCob(true);
+    const start = cobDateMode === "day" ? cobSelectedDate : cobStartDate;
+    const end = cobDateMode === "day" ? cobSelectedDate : cobEndDate;
+    fetchCobrancaReport(start, end).finally(() => setLoadingCob(false));
+  }, [canSee, user, cobDateMode, cobSelectedDate, cobStartDate, cobEndDate]);
+
+  // Realtime: refresh reports when opens or notes change
   useEffect(() => {
     if (!canSee || !user) return;
 
@@ -351,13 +365,14 @@ export default function DashboardPage() {
     const refresh = () => {
       if (scheduled) return;
       scheduled = true;
-      // Debounce burst of events into a single refresh
       setTimeout(() => {
         scheduled = false;
         const start = dateMode === "day" ? selectedDate : startDate;
         const end = dateMode === "day" ? selectedDate : endDate;
+        const cobStart = cobDateMode === "day" ? cobSelectedDate : cobStartDate;
+        const cobEnd = cobDateMode === "day" ? cobSelectedDate : cobEndDate;
         fetchReport(start, end);
-        fetchCobrancaReport(start, end);
+        fetchCobrancaReport(cobStart, cobEnd);
         fetchTotals(companyFilter);
       }, 400);
     };
@@ -373,7 +388,7 @@ export default function DashboardPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [canSee, user, dateMode, selectedDate, startDate, endDate, companyFilter]);
+  }, [canSee, user, dateMode, selectedDate, startDate, endDate, companyFilter, cobDateMode, cobSelectedDate, cobStartDate, cobEndDate]);
 
   // Reset seller filter when company changes
   useEffect(() => {
@@ -735,12 +750,73 @@ export default function DashboardPage() {
         {/* Relatório de Cobranças */}
         <Card>
           <CardHeader>
-            <div>
-              <CardTitle>Relatório de Cobranças</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                Tentativas de contato realizadas em cobranças. Usa os mesmos filtros de empresa,
-                vendedores e período acima.
-              </p>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <CardTitle>Relatório de Cobranças</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Tentativas de contato registradas em cobranças. Os filtros de empresa e vendedores
+                  acima continuam valendo; o período abaixo é exclusivo deste relatório.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-muted-foreground uppercase">Período</label>
+                  <Select value={cobDateMode} onValueChange={(v) => setCobDateMode(v as "day" | "range")}>
+                    <SelectTrigger className="h-9 w-[140px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="day">Dia</SelectItem>
+                      <SelectItem value="range">Intervalo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {cobDateMode === "day" ? (
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-medium text-muted-foreground uppercase">Data</label>
+                    <div className="relative">
+                      <CalIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                      <Input
+                        type="date"
+                        value={cobSelectedDate}
+                        onChange={(e) => setCobSelectedDate(e.target.value)}
+                        className="h-9 w-[170px] pl-7"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-medium text-muted-foreground uppercase">De</label>
+                      <div className="relative">
+                        <CalIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                        <Input
+                          type="date"
+                          value={cobStartDate}
+                          max={cobEndDate}
+                          onChange={(e) => setCobStartDate(e.target.value)}
+                          className="h-9 w-[160px] pl-7"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-medium text-muted-foreground uppercase">Até</label>
+                      <div className="relative">
+                        <CalIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                        <Input
+                          type="date"
+                          value={cobEndDate}
+                          min={cobStartDate}
+                          onChange={(e) => setCobEndDate(e.target.value)}
+                          className="h-9 w-[160px] pl-7"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -752,7 +828,7 @@ export default function DashboardPage() {
               <SummaryStat label="Não renegociaram" value={cobrancaTotals.naoRenegociou} icon={ThumbsDown} tone="warning" />
             </div>
 
-            {loading ? (
+            {loadingCob ? (
               <Skeleton className="h-40 w-full" />
             ) : filteredCobrancaRows.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">

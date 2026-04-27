@@ -74,7 +74,7 @@ export default function CobrancaEditSheet(props: Props) {
     formValor, setFormValor, formCompanyId, setFormCompanyId,
     statuses, profiles, companies, saving, onSave, canReassign,
   } = props;
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isFinanceiro } = useAuth();
 
   const [tab, setTab] = useState("atividade");
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -83,6 +83,9 @@ export default function CobrancaEditSheet(props: Props) {
   const [loadingParcelas, setLoadingParcelas] = useState(false);
   const [newComment, setNewComment] = useState("");
   const [postingComment, setPostingComment] = useState(false);
+  // Tracks whether a contact attempt was registered during this open session.
+  // Required for "financeiro" role to be able to close / save the card.
+  const [contactRegisteredInSession, setContactRegisteredInSession] = useState(false);
 
   // Task creation
   const [taskOpen, setTaskOpen] = useState(false);
@@ -192,9 +195,31 @@ export default function CobrancaEditSheet(props: Props) {
       setTab("atividade");
       setNewComment("");
       setTaskOpen(false);
+      setContactRegisteredInSession(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, cobrancaId, ssoticaClienteId, ssoticaCompanyId]);
+
+  // Financeiro must register a contact attempt in this session before closing/saving.
+  const requiresContactRegistration = isFinanceiro && !isAdmin && !!cobrancaId;
+  const canCloseOrSave = !requiresContactRegistration || contactRegisteredInSession;
+
+  const handleSheetOpenChange = (v: boolean) => {
+    if (!v && !canCloseOrSave) {
+      toast.error("Registre uma tentativa de contato antes de fechar este card.");
+      return;
+    }
+    onOpenChange(v);
+  };
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    if (!canCloseOrSave) {
+      e.preventDefault();
+      toast.error("Registre uma tentativa de contato antes de salvar.");
+      return;
+    }
+    onSave(e);
+  };
 
   const timeline = useMemo(() => {
     const items = [
@@ -294,7 +319,7 @@ export default function CobrancaEditSheet(props: Props) {
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleSheetOpenChange}>
       <SheetContent
         side="right"
         className="w-full sm:max-w-[1100px] p-0 flex flex-col sm:flex-row gap-0 overflow-y-auto sm:overflow-hidden"
@@ -307,7 +332,7 @@ export default function CobrancaEditSheet(props: Props) {
             </h2>
           </div>
           <ScrollArea className="flex-1 max-sm:[&_[data-radix-scroll-area-viewport]]:!overflow-visible max-sm:[&>[data-radix-scroll-area-viewport]]:max-h-none">
-            <form onSubmit={onSave} id="cobranca-form" className="p-5 space-y-4">
+            <form onSubmit={handleFormSubmit} id="cobranca-form" className="p-5 space-y-4">
               <div className="space-y-2">
                 <Label>Empresa</Label>
                 <Select value={formCompanyId} onValueChange={setFormCompanyId}>
@@ -362,7 +387,22 @@ export default function CobrancaEditSheet(props: Props) {
                 <Textarea rows={3} value={formData.descricao || ""}
                   onChange={e => setFormData({ ...formData, descricao: e.target.value })} />
               </div>
-              <Button type="submit" form="cobranca-form" className="w-full" disabled={saving || !formData.nome?.trim()}>
+              {requiresContactRegistration && !contactRegisteredInSession && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>
+                    Antes de salvar ou fechar este card, registre uma{" "}
+                    <strong>tentativa de contato</strong> na aba <strong>Atividade</strong>.
+                  </span>
+                </div>
+              )}
+              <Button
+                type="submit"
+                form="cobranca-form"
+                className="w-full"
+                disabled={saving || !formData.nome?.trim() || !canCloseOrSave}
+                title={!canCloseOrSave ? "Registre uma tentativa de contato antes de salvar" : undefined}
+              >
                 {saving ? "Salvando..." : isEditing ? "Atualizar" : "Criar"}
               </Button>
             </form>
@@ -391,7 +431,7 @@ export default function CobrancaEditSheet(props: Props) {
                 </TabsTrigger>
               </TabsList>
             </Tabs>
-            <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)}>
+            <Button variant="ghost" size="icon" onClick={() => handleSheetOpenChange(false)}>
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -593,7 +633,7 @@ export default function CobrancaEditSheet(props: Props) {
                       userId={user.id}
                       userName={getProfile(user.id)?.full_name}
                       cobrancaData={formData}
-                      onSaved={() => { fetchTimeline(); }}
+                      onSaved={() => { setContactRegisteredInSession(true); fetchTimeline(); }}
                     />
                   )}
                   {tab === "atividade" && timeline.length === 0 && (
