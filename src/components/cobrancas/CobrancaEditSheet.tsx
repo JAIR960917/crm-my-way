@@ -616,6 +616,11 @@ export default function CobrancaEditSheet(props: Props) {
                                       <div className="min-w-0">
                                         <div className="text-sm font-semibold text-foreground">Parcela {p.numero_parcela ?? "—"}</div>
                                         <div className="text-xs text-muted-foreground">Vence em {venc}</div>
+                                        {p.loja_nome && (
+                                          <div className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground/80 mt-0.5">
+                                            Loja: {p.loja_nome}
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                     <div className="text-sm font-bold text-foreground">
