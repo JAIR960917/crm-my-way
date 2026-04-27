@@ -65,6 +65,8 @@ export default function FormBuilderPage() {
   const [statuses, setStatuses] = useState<CrmStatus[]>([]);
   const [statusMapping, setStatusMapping] = useState<Record<string, string>>({});
   const [isStatusField, setIsStatusField] = useState(false);
+  const [isAnyAnswerRedirect, setIsAnyAnswerRedirect] = useState(false);
+  const [anyAnswerStatusKey, setAnyAnswerStatusKey] = useState<string>("");
   const [isDateStatusField, setIsDateStatusField] = useState(false);
   const [dateStatusRanges, setDateStatusRanges] = useState<DateStatusConfig>({
     ranges: [
