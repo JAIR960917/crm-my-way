@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { Plus, Trash2, GripVertical, Pencil } from "lucide-react";
+import { Plus, Trash2, GripVertical, Pencil, Settings, Eye, EyeOff } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 type CrmStatus = {
   id: string;
@@ -18,6 +19,14 @@ type CrmStatus = {
   label: string;
   position: number;
   color: string;
+  financeiro_visible?: boolean;
+};
+
+type ChecklistItem = {
+  id: string;
+  status_id: string;
+  label: string;
+  position: number;
 };
 
 const COLORS = [
@@ -57,6 +66,14 @@ export default function ColumnsPage() {
   const [label, setLabel] = useState("");
   const [color, setColor] = useState("blue");
   const [saving, setSaving] = useState(false);
+
+  // Financeiro config dialog state
+  const [finDialogOpen, setFinDialogOpen] = useState(false);
+  const [finStatus, setFinStatus] = useState<CrmStatus | null>(null);
+  const [finVisible, setFinVisible] = useState(true);
+  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
+  const [newChecklistLabel, setNewChecklistLabel] = useState("");
+  const [savingFin, setSavingFin] = useState(false);
 
   const fetchStatuses = async () => {
     const [{ data: leads }, { data: cobrancas }, { data: renovacoes }] = await Promise.all([
@@ -125,6 +142,52 @@ export default function ColumnsPage() {
     await Promise.all(statuses.map((s, i) => supabase.from(table as any).update({ position: i } as any).eq("id", s.id)));
   };
 
+  const openFinanceiroConfig = async (status: CrmStatus) => {
+    setFinStatus(status);
+    setFinVisible(status.financeiro_visible !== false);
+    const { data } = await supabase
+      .from("crm_cobranca_status_checklist" as any)
+      .select("*")
+      .eq("status_id", status.id)
+      .order("position");
+    setChecklistItems(((data || []) as unknown) as ChecklistItem[]);
+    setNewChecklistLabel("");
+    setFinDialogOpen(true);
+  };
+
+  const toggleFinVisible = async (value: boolean) => {
+    if (!finStatus) return;
+    setFinVisible(value);
+    await supabase
+      .from("crm_cobranca_statuses")
+      .update({ financeiro_visible: value } as any)
+      .eq("id", finStatus.id);
+    setCobrancaStatuses(prev => prev.map(s => s.id === finStatus.id ? { ...s, financeiro_visible: value } : s));
+  };
+
+  const addChecklistItem = async () => {
+    if (!finStatus || !newChecklistLabel.trim()) return;
+    setSavingFin(true);
+    const maxPos = checklistItems.length > 0 ? Math.max(...checklistItems.map(i => i.position)) + 1 : 0;
+    const { data, error } = await supabase
+      .from("crm_cobranca_status_checklist" as any)
+      .insert({ status_id: finStatus.id, label: newChecklistLabel.trim(), position: maxPos } as any)
+      .select()
+      .single();
+    if (error) toast.error("Erro ao adicionar item");
+    else {
+      setChecklistItems(prev => [...prev, (data as unknown) as ChecklistItem]);
+      setNewChecklistLabel("");
+    }
+    setSavingFin(false);
+  };
+
+  const removeChecklistItem = async (id: string) => {
+    const { error } = await supabase.from("crm_cobranca_status_checklist" as any).delete().eq("id", id);
+    if (error) toast.error("Erro ao remover");
+    else setChecklistItems(prev => prev.filter(i => i.id !== id));
+  };
+
   if (!isAdmin) {
     return <AppLayout><p className="text-muted-foreground">Acesso restrito a administradores.</p></AppLayout>;
   }
@@ -147,10 +210,22 @@ export default function ColumnsPage() {
                     </div>
                     <div className={`h-3 w-3 rounded-full shrink-0 ${colorDot[status.color] || colorDot.blue}`} />
                     <div className="flex-1 min-w-0">
-                      <span className="font-medium text-sm">{status.label}</span>
-                      <span className="text-xs text-muted-foreground ml-2">({status.key})</span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm">{status.label}</span>
+                        <span className="text-xs text-muted-foreground">({status.key})</span>
+                        {section === "cobrancas" && status.financeiro_visible === false && (
+                          <span className="text-[10px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                            <EyeOff className="h-3 w-3" />Oculta para financeiro
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-1 shrink-0">
+                      {section === "cobrancas" && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8" title="Configurar acesso do financeiro" onClick={() => openFinanceiroConfig(status)}>
+                          <Settings className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(status, section)}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
@@ -238,6 +313,69 @@ export default function ColumnsPage() {
               {saving ? "Salvando..." : editingStatus ? "Atualizar" : "Criar"}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={finDialogOpen} onOpenChange={setFinDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Configurar acesso do financeiro</DialogTitle>
+          </DialogHeader>
+          {finStatus && (
+            <div className="space-y-5">
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <p className="text-xs text-muted-foreground">Coluna</p>
+                <p className="font-medium text-sm">{finStatus.label}</p>
+              </div>
+
+              <div className="flex items-start justify-between gap-3 rounded-lg border p-3">
+                <div className="flex-1">
+                  <Label className="text-sm">Visível para o usuário financeiro</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Quando desativado, esta coluna não aparece para usuários do financeiro.
+                  </p>
+                </div>
+                <Switch checked={finVisible} onCheckedChange={toggleFinVisible} />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm flex items-center gap-2">
+                  <Eye className="h-4 w-4" />
+                  Critérios para liberar o lead
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  O financeiro precisa marcar todos os itens abaixo antes de mover um lead desta coluna para outra.
+                  Se nenhum item for cadastrado, o lead pode ser movido livremente pelo financeiro.
+                </p>
+
+                <div className="space-y-1.5 mt-2">
+                  {checklistItems.length === 0 && (
+                    <p className="text-xs text-muted-foreground italic py-2">Nenhum critério cadastrado.</p>
+                  )}
+                  {checklistItems.map(item => (
+                    <div key={item.id} className="flex items-center gap-2 rounded-md border bg-card px-3 py-2">
+                      <span className="flex-1 text-sm">{item.label}</span>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeChecklistItem(item.id)}>
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <Input
+                    placeholder="Ex: Cliente foi contactado"
+                    value={newChecklistLabel}
+                    onChange={e => setNewChecklistLabel(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addChecklistItem(); } }}
+                  />
+                  <Button onClick={addChecklistItem} disabled={savingFin || !newChecklistLabel.trim()}>
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </AppLayout>
