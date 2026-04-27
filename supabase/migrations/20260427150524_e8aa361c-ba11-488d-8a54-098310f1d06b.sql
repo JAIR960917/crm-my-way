@@ -1,0 +1,2 @@
+ALTER TABLE public.lead_card_opens DROP CONSTRAINT IF EXISTS lead_card_opens_card_type_check;
+ALTER TABLE public.lead_card_opens ADD CONSTRAINT lead_card_opens_card_type_check CHECK (card_type = ANY (ARRAY['lead'::text, 'renovacao'::text, 'cobranca'::text]));
