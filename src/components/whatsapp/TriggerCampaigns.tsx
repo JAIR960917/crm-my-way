@@ -173,7 +173,7 @@ export default function TriggerCampaigns({ instances }: Props) {
     setModuleKey((c.module || "leads") as ModuleKey);
     setStatusId(c.status_id);
     setInstanceId(c.instance_id || "");
-    setCompanyId(c.company_id || "");
+    setCompanyId(c.company_id || "__GLOBAL__");
     setStartTime((c.start_time || "08:00").slice(0, 5));
     setEndTime((c.end_time || "18:00").slice(0, 5));
     const sorted = [...(c.whatsapp_trigger_steps || [])].sort((a, b) => a.position - b.position);
