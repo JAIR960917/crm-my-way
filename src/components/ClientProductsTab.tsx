@@ -184,12 +184,17 @@ export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId, 
           {!loading && vendas && vendas.length > 0 && vendas.map((v) => (
             <div key={v.id} className="border rounded-lg overflow-hidden">
               <div className="bg-muted/40 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-3 text-xs">
+                <div className="flex items-center gap-3 text-xs flex-wrap">
                   <div className="flex items-center gap-1.5 font-medium">
                     <Calendar className="h-3.5 w-3.5" />
                     {v.data ? format(new Date(v.data + "T00:00:00"), "dd 'de' MMM 'de' yyyy", { locale: ptBR }) : "—"}
                   </div>
                   <span className="text-muted-foreground">Venda #{v.numero}</span>
+                  {v.loja_nome && (
+                    <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
+                      Loja: {v.loja_nome}
+                    </Badge>
+                  )}
                   {v.funcionario?.nome && (
                     <span className="flex items-center gap-1 text-muted-foreground">
                       <User className="h-3 w-3" />
