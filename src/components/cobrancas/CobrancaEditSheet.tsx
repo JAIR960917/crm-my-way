@@ -431,7 +431,7 @@ export default function CobrancaEditSheet(props: Props) {
                 </TabsTrigger>
               </TabsList>
             </Tabs>
-            <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)}>
+            <Button variant="ghost" size="icon" onClick={() => handleSheetOpenChange(false)}>
               <X className="h-4 w-4" />
             </Button>
           </div>
