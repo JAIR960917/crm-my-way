@@ -241,6 +241,10 @@ serve(async (req) => {
       return companyUsersCache.get(companyId)!;
     };
 
+    // Pré-carregados para campanhas globais (company_id IS NULL)
+    const userToCompany = await buildUserToCompanyMap(supabase);
+    const companyToSession = await buildCompanyToSessionMap(supabase);
+
     // ========== PERIOD CAMPAIGNS ==========
     const { data: campaigns } = await supabase.from("whatsapp_campaigns")
       .select("*").eq("is_active", true).lte("start_date", today).gte("end_date", today);
