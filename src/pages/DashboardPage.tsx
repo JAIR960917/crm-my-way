@@ -731,6 +731,107 @@ export default function DashboardPage() {
             </p>
           </CardContent>
         </Card>
+
+        {/* Relatório de Cobranças */}
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Relatório de Cobranças</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Tentativas de contato realizadas em cobranças. Usa os mesmos filtros de empresa,
+                vendedores e período acima.
+              </p>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 mb-4">
+              <SummaryStat label="Contatos" value={cobrancaTotals.contatos} icon={Phone} tone="default" />
+              <SummaryStat label="Atenderam" value={cobrancaTotals.atendeu} icon={Phone} tone="success" />
+              <SummaryStat label="Não atenderam" value={cobrancaTotals.naoAtendeu} icon={PhoneOff} tone="danger" />
+              <SummaryStat label="Renegociaram" value={cobrancaTotals.renegociou} icon={HandCoins} tone="success" />
+              <SummaryStat label="Não renegociaram" value={cobrancaTotals.naoRenegociou} icon={ThumbsDown} tone="warning" />
+            </div>
+
+            {loading ? (
+              <Skeleton className="h-40 w-full" />
+            ) : filteredCobrancaRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">
+                Nenhuma tentativa de contato em cobranças no período selecionado.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Vendedor</TableHead>
+                      <TableHead>Empresa</TableHead>
+                      <TableHead className="text-center">
+                        <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" /> Contatos</span>
+                      </TableHead>
+                      <TableHead className="text-center">
+                        <span className="inline-flex items-center gap-1 text-emerald-600"><Phone className="h-3.5 w-3.5" /> Atenderam</span>
+                      </TableHead>
+                      <TableHead className="text-center">
+                        <span className="inline-flex items-center gap-1 text-destructive"><PhoneOff className="h-3.5 w-3.5" /> Não atenderam</span>
+                      </TableHead>
+                      <TableHead className="text-center">
+                        <span className="inline-flex items-center gap-1 text-emerald-600"><ThumbsUp className="h-3.5 w-3.5" /> Renegociaram</span>
+                      </TableHead>
+                      <TableHead className="text-center">
+                        <span className="inline-flex items-center gap-1 text-amber-600"><ThumbsDown className="h-3.5 w-3.5" /> Não renegociaram</span>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredCobrancaRows.map((row) => (
+                      <TableRow key={row.user_id}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Avatar className="h-7 w-7">
+                              <AvatarImage src={row.avatar_url ?? undefined} />
+                              <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                                {(row.full_name || "?").slice(0, 2).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="font-medium">{row.full_name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">{row.company_name}</TableCell>
+                        <TableCell className="text-center font-semibold">{row.contatos}</TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 bg-emerald-500/10">
+                            {row.atendeu}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className="border-destructive/40 text-destructive bg-destructive/10">
+                            {row.naoAtendeu}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 bg-emerald-500/10">
+                            {row.renegociou}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className="border-amber-500/40 text-amber-700 bg-amber-500/10">
+                            {row.naoRenegociou}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            <p className="text-[11px] text-muted-foreground mt-4">
+              <Phone className="h-3 w-3 inline mr-1" />
+              Cada "Contato" é uma tentativa registrada na cobrança. "Renegociaram" e "Não renegociaram"
+              são contadas apenas quando o cliente atendeu.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </AppLayout>
   );
