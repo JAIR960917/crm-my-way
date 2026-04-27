@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Users, Receipt, CalendarHeart, Phone, PhoneOff, CalendarCheck, CalendarX, Calendar as CalIcon, Building2, ChevronDown, X } from "lucide-react";
+import { Users, Receipt, CalendarHeart, Phone, PhoneOff, CalendarCheck, CalendarX, Calendar as CalIcon, Building2, ChevronDown, X, ThumbsUp, ThumbsDown, HandCoins } from "lucide-react";
 
 type Profile = { user_id: string; full_name: string; avatar_url: string | null; company_id: string | null };
 type Company = { id: string; name: string };
@@ -31,6 +31,19 @@ type SellerRow = {
   agendou: number;
   naoAtendeu: number;
   atendeuSemAgendar: number;
+};
+
+type CobrancaRow = {
+  user_id: string;
+  full_name: string;
+  avatar_url: string | null;
+  company_id: string | null;
+  company_name: string;
+  contatos: number;
+  atendeu: number;
+  naoAtendeu: number;
+  renegociou: number;
+  naoRenegociou: number;
 };
 
 const ALL = "__all__";
@@ -58,6 +71,7 @@ export default function DashboardPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [allRows, setAllRows] = useState<SellerRow[]>([]);
+  const [cobrancaRows, setCobrancaRows] = useState<CobrancaRow[]>([]);
   const [dateMode, setDateMode] = useState<"day" | "range">("day");
   const [selectedDate, setSelectedDate] = useState<string>(formatDateForInput(new Date()));
   const [startDate, setStartDate] = useState<string>(formatDateForInput(new Date()));
@@ -255,12 +269,78 @@ export default function DashboardPage() {
     setAllRows(rows);
   };
 
+  const fetchCobrancaReport = async (startStr: string, endStr: string) => {
+    const { startISO, endISO } = rangeBounds(startStr, endStr);
+
+    const [{ data: profilesData }, { data: companiesData }, { data: adminRoles }] = await Promise.all([
+      supabase.from("profiles").select("user_id, full_name, avatar_url, company_id"),
+      supabase.from("companies").select("id, name").order("name"),
+      supabase.from("user_roles").select("user_id").eq("role", "admin"),
+    ]);
+    const profs = (profilesData || []) as Profile[];
+    const comps = (companiesData || []) as Company[];
+    const adminSet = new Set<string>((adminRoles || []).map((r: any) => r.user_id));
+    const compById = new Map(comps.map((c) => [c.id, c.name]));
+
+    const { data: notes } = await supabase
+      .from("crm_cobranca_notes")
+      .select("user_id, cobranca_id, content, created_at")
+      .gte("created_at", startISO)
+      .lte("created_at", endISO);
+
+    type Stats = { contatos: number; atendeu: number; naoAtendeu: number; renegociou: number; naoRenegociou: number };
+    const byUser = new Map<string, Stats>();
+
+    (notes || []).forEach((n: any) => {
+      if (adminSet.has(n.user_id)) return;
+      const content: string = n.content || "";
+      if (!content.startsWith("📞 Tentativa de contato")) return;
+
+      if (!byUser.has(n.user_id)) {
+        byUser.set(n.user_id, { contatos: 0, atendeu: 0, naoAtendeu: 0, renegociou: 0, naoRenegociou: 0 });
+      }
+      const s = byUser.get(n.user_id)!;
+      s.contatos += 1;
+
+      if (content.includes("NÃO ATENDEU")) {
+        s.naoAtendeu += 1;
+      } else if (content.includes("ATENDEU")) {
+        s.atendeu += 1;
+        if (content.includes("✅ Cliente RENEGOCIOU")) s.renegociou += 1;
+        else if (content.includes("❌ Cliente NÃO renegociou")) s.naoRenegociou += 1;
+      }
+    });
+
+    const rows: CobrancaRow[] = Array.from(byUser.entries()).map(([uid, s]) => {
+      const p = profs.find((x) => x.user_id === uid);
+      return {
+        user_id: uid,
+        full_name: p?.full_name || "(usuário desconhecido)",
+        avatar_url: p?.avatar_url || null,
+        company_id: p?.company_id || null,
+        company_name: p?.company_id ? compById.get(p.company_id) || "—" : "—",
+        contatos: s.contatos,
+        atendeu: s.atendeu,
+        naoAtendeu: s.naoAtendeu,
+        renegociou: s.renegociou,
+        naoRenegociou: s.naoRenegociou,
+      };
+    });
+
+    rows.sort((a, b) => b.contatos - a.contatos);
+    setCobrancaRows(rows);
+  };
+
   useEffect(() => {
     if (!canSee || !user) return;
     setLoading(true);
     const start = dateMode === "day" ? selectedDate : startDate;
     const end = dateMode === "day" ? selectedDate : endDate;
-    Promise.all([fetchTotals(companyFilter), fetchReport(start, end)]).finally(() => setLoading(false));
+    Promise.all([
+      fetchTotals(companyFilter),
+      fetchReport(start, end),
+      fetchCobrancaReport(start, end),
+    ]).finally(() => setLoading(false));
   }, [canSee, user, dateMode, selectedDate, startDate, endDate, companyFilter]);
 
   // Realtime: refresh report when opens or notes change
@@ -277,6 +357,7 @@ export default function DashboardPage() {
         const start = dateMode === "day" ? selectedDate : startDate;
         const end = dateMode === "day" ? selectedDate : endDate;
         fetchReport(start, end);
+        fetchCobrancaReport(start, end);
         fetchTotals(companyFilter);
       }, 400);
     };
@@ -286,6 +367,7 @@ export default function DashboardPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "lead_card_opens" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "crm_lead_notes" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "crm_renovacao_notes" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "crm_cobranca_notes" }, refresh)
       .subscribe();
 
     return () => {
@@ -326,6 +408,27 @@ export default function DashboardPage() {
       { atendidos: 0, agendou: 0, naoAtendeu: 0, atendeuSemAgendar: 0 },
     );
   }, [filteredRows]);
+
+  const filteredCobrancaRows = useMemo(() => {
+    return cobrancaRows.filter((r) => {
+      if (companyFilter !== ALL && r.company_id !== companyFilter) return false;
+      if (sellerFilter.length > 0 && !sellerFilter.includes(r.user_id)) return false;
+      return true;
+    });
+  }, [cobrancaRows, companyFilter, sellerFilter]);
+
+  const cobrancaTotals = useMemo(() => {
+    return filteredCobrancaRows.reduce(
+      (acc, r) => ({
+        contatos: acc.contatos + r.contatos,
+        atendeu: acc.atendeu + r.atendeu,
+        naoAtendeu: acc.naoAtendeu + r.naoAtendeu,
+        renegociou: acc.renegociou + r.renegociou,
+        naoRenegociou: acc.naoRenegociou + r.naoRenegociou,
+      }),
+      { contatos: 0, atendeu: 0, naoAtendeu: 0, renegociou: 0, naoRenegociou: 0 },
+    );
+  }, [filteredCobrancaRows]);
 
   const toggleSeller = (uid: string) => {
     setSellerFilter((prev) =>
@@ -625,6 +728,107 @@ export default function DashboardPage() {
               <Phone className="h-3 w-3 inline mr-1" />
               "Atendidos" = cards distintos abertos pelo vendedor no dia. "Agendaram", "Não atenderam" e
               "Sem agendar" vêm das tentativas de contato registradas em cada card.
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Relatório de Cobranças */}
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Relatório de Cobranças</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Tentativas de contato realizadas em cobranças. Usa os mesmos filtros de empresa,
+                vendedores e período acima.
+              </p>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 mb-4">
+              <SummaryStat label="Contatos" value={cobrancaTotals.contatos} icon={Phone} tone="default" />
+              <SummaryStat label="Atenderam" value={cobrancaTotals.atendeu} icon={Phone} tone="success" />
+              <SummaryStat label="Não atenderam" value={cobrancaTotals.naoAtendeu} icon={PhoneOff} tone="danger" />
+              <SummaryStat label="Renegociaram" value={cobrancaTotals.renegociou} icon={HandCoins} tone="success" />
+              <SummaryStat label="Não renegociaram" value={cobrancaTotals.naoRenegociou} icon={ThumbsDown} tone="warning" />
+            </div>
+
+            {loading ? (
+              <Skeleton className="h-40 w-full" />
+            ) : filteredCobrancaRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">
+                Nenhuma tentativa de contato em cobranças no período selecionado.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Vendedor</TableHead>
+                      <TableHead>Empresa</TableHead>
+                      <TableHead className="text-center">
+                        <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" /> Contatos</span>
+                      </TableHead>
+                      <TableHead className="text-center">
+                        <span className="inline-flex items-center gap-1 text-emerald-600"><Phone className="h-3.5 w-3.5" /> Atenderam</span>
+                      </TableHead>
+                      <TableHead className="text-center">
+                        <span className="inline-flex items-center gap-1 text-destructive"><PhoneOff className="h-3.5 w-3.5" /> Não atenderam</span>
+                      </TableHead>
+                      <TableHead className="text-center">
+                        <span className="inline-flex items-center gap-1 text-emerald-600"><ThumbsUp className="h-3.5 w-3.5" /> Renegociaram</span>
+                      </TableHead>
+                      <TableHead className="text-center">
+                        <span className="inline-flex items-center gap-1 text-amber-600"><ThumbsDown className="h-3.5 w-3.5" /> Não renegociaram</span>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredCobrancaRows.map((row) => (
+                      <TableRow key={row.user_id}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Avatar className="h-7 w-7">
+                              <AvatarImage src={row.avatar_url ?? undefined} />
+                              <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                                {(row.full_name || "?").slice(0, 2).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="font-medium">{row.full_name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">{row.company_name}</TableCell>
+                        <TableCell className="text-center font-semibold">{row.contatos}</TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 bg-emerald-500/10">
+                            {row.atendeu}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className="border-destructive/40 text-destructive bg-destructive/10">
+                            {row.naoAtendeu}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 bg-emerald-500/10">
+                            {row.renegociou}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className="border-amber-500/40 text-amber-700 bg-amber-500/10">
+                            {row.naoRenegociou}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            <p className="text-[11px] text-muted-foreground mt-4">
+              <Phone className="h-3 w-3 inline mr-1" />
+              Cada "Contato" é uma tentativa registrada na cobrança. "Renegociaram" e "Não renegociaram"
+              são contadas apenas quando o cliente atendeu.
             </p>
           </CardContent>
         </Card>
