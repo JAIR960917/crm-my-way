@@ -40,7 +40,11 @@ type Cobranca = {
 
 type CrmStatus = {
   id: string; key: string; label: string; position: number; color: string;
+  financeiro_visible?: boolean;
 };
+
+type ChecklistItem = { id: string; status_id: string; label: string; position: number };
+type ChecklistCompletion = { id: string; cobranca_id: string; status_id: string; checklist_item_id: string };
 
 type Profile = { user_id: string; full_name: string; avatar_url?: string | null };
 type Company = { id: string; name: string };
