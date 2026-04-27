@@ -21,13 +21,14 @@ export async function recordCardOpen(params: {
   if (params.cardType === "cobranca" && !params.cobrancaId) return;
 
   try {
-    await supabase.from("lead_card_opens").insert({
+    const { error } = await supabase.from("lead_card_opens").insert({
       user_id: params.userId,
       card_type: params.cardType,
       lead_id: params.cardType === "lead" ? params.leadId ?? null : null,
       renovacao_id: params.cardType === "renovacao" ? params.renovacaoId ?? null : null,
       cobranca_id: params.cardType === "cobranca" ? params.cobrancaId ?? null : null,
     } as any);
+    if (error) console.warn("recordCardOpen insert error", error);
   } catch (err) {
     // Non-blocking
     console.warn("recordCardOpen failed", err);
