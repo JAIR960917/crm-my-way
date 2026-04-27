@@ -195,9 +195,31 @@ export default function CobrancaEditSheet(props: Props) {
       setTab("atividade");
       setNewComment("");
       setTaskOpen(false);
+      setContactRegisteredInSession(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, cobrancaId, ssoticaClienteId, ssoticaCompanyId]);
+
+  // Financeiro must register a contact attempt in this session before closing/saving.
+  const requiresContactRegistration = isFinanceiro && !isAdmin && !!cobrancaId;
+  const canCloseOrSave = !requiresContactRegistration || contactRegisteredInSession;
+
+  const handleSheetOpenChange = (v: boolean) => {
+    if (!v && !canCloseOrSave) {
+      toast.error("Registre uma tentativa de contato antes de fechar este card.");
+      return;
+    }
+    onOpenChange(v);
+  };
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    if (!canCloseOrSave) {
+      e.preventDefault();
+      toast.error("Registre uma tentativa de contato antes de salvar.");
+      return;
+    }
+    onSave(e);
+  };
 
   const timeline = useMemo(() => {
     const items = [
