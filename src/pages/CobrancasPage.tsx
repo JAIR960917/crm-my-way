@@ -9,8 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Plus, Search, Pencil, Trash2, Phone, Building2, AlertTriangle, CalendarClock, CheckCircle2, Clock, Loader2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatPhoneBR } from "@/lib/phoneFormat";
@@ -45,8 +43,8 @@ type CrmStatus = {
   financeiro_visible?: boolean;
 };
 
-type ChecklistItem = { id: string; status_id: string; label: string; position: number };
-type ChecklistCompletion = { id: string; cobranca_id: string; status_id: string; checklist_item_id: string };
+
+
 
 type Profile = { user_id: string; full_name: string; avatar_url?: string | null };
 type Company = { id: string; name: string };
@@ -70,11 +68,7 @@ export default function CobrancasPage() {
   const [activities, setActivities] = useState<CobrancaActivity[]>([]);
   const [noteIds, setNoteIds] = useState<Set<string>>(new Set());
   const [allStatuses, setAllStatuses] = useState<CrmStatus[]>([]);
-  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
-  const [completions, setCompletions] = useState<ChecklistCompletion[]>([]);
-  const [checklistDialog, setChecklistDialog] = useState<{
-    cobranca: Cobranca; fromStatus: string; toStatus: string;
-  } | null>(null);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCobranca, setEditingCobranca] = useState<Cobranca | null>(null);
   const [formData, setFormData] = useState<Record<string, any>>({ nome: "", telefone: "", descricao: "" });
@@ -124,7 +118,7 @@ export default function CobrancasPage() {
   const loadMeta = useCallback(async () => {
     const [
       { data: sts }, { data: profs }, { data: comps }, { data: roles },
-      { data: acts }, { data: notes }, { data: checklist }, { data: comps2 }
+      { data: acts }, { data: notes }
     ] = await Promise.all([
       supabase.from("crm_cobranca_statuses").select("*").order("position"),
       supabase.rpc("get_profile_names"),
@@ -132,8 +126,6 @@ export default function CobrancasPage() {
       supabase.from("user_roles").select("user_id, role").eq("role", "financeiro"),
       supabase.from("cobranca_activities").select("id, cobranca_id, title, scheduled_date, completed_at"),
       supabase.from("crm_cobranca_notes").select("cobranca_id"),
-      supabase.from("crm_cobranca_status_checklist" as any).select("*").order("position"),
-      supabase.from("crm_cobranca_checklist_completions" as any).select("id, cobranca_id, status_id, checklist_item_id"),
     ]);
     const allSts = ((sts || []) as unknown) as CrmStatus[];
     setAllStatuses(allSts);
@@ -147,8 +139,6 @@ export default function CobrancasPage() {
     setFinanceiroIds(new Set((roles || []).map((r: any) => r.user_id)));
     setActivities((acts || []) as CobrancaActivity[]);
     setNoteIds(new Set((notes || []).map((n: any) => n.cobranca_id)));
-    setChecklistItems(((checklist || []) as unknown) as ChecklistItem[]);
-    setCompletions(((comps2 || []) as unknown) as ChecklistCompletion[]);
   }, [isFinanceiro, isAdmin, isGerente]);
 
   useEffect(() => { loadMeta(); }, [loadMeta]);
@@ -249,21 +239,6 @@ export default function CobrancasPage() {
     setDeleteConfirmId(null);
   };
 
-  // Verifica se a coluna de origem tem checklist e se está completo para esta cobrança
-  const getColumnChecklistStatus = useCallback((cobrancaId: string, fromStatusKey: string) => {
-    const fromSt = allStatuses.find(s => s.key === fromStatusKey);
-    if (!fromSt) return { items: [] as ChecklistItem[], pending: [] as ChecklistItem[], complete: true };
-    const items = checklistItems.filter(i => i.status_id === fromSt.id);
-    if (items.length === 0) return { items, pending: [], complete: true };
-    const done = new Set(
-      completions
-        .filter(c => c.cobranca_id === cobrancaId && c.status_id === fromSt.id)
-        .map(c => c.checklist_item_id)
-    );
-    const pending = items.filter(i => !done.has(i.id));
-    return { items, pending, complete: pending.length === 0 };
-  }, [allStatuses, checklistItems, completions]);
-
   const onDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
     const newStatus = result.destination.droppableId;
@@ -273,59 +248,8 @@ export default function CobrancasPage() {
     const item = paginatedColumns[fromStatus]?.items.find((it) => it.id === cobrancaId)
       || (searchResults || []).find((it) => it.id === cobrancaId);
 
-    // Admin pode mover livremente; outros precisam respeitar o checklist da coluna de origem
-    if (!isAdmin) {
-      const { complete } = getColumnChecklistStatus(cobrancaId, fromStatus);
-      if (!complete) {
-        if (isFinanceiro && item) {
-          // Abre diálogo para o financeiro preencher o checklist
-          setChecklistDialog({ cobranca: item as Cobranca, fromStatus, toStatus: newStatus });
-        } else {
-          toast.error("Esta coluna está aguardando o financeiro liberar o lead.");
-        }
-        return;
-      }
-    }
-
     updateItemStatus(cobrancaId, fromStatus, newStatus, item);
     await supabase.from("crm_cobrancas").update({ status: newStatus }).eq("id", cobrancaId);
-  };
-
-  const confirmChecklistAndMove = async () => {
-    if (!checklistDialog) return;
-    const { cobranca, fromStatus, toStatus } = checklistDialog;
-    const { complete } = getColumnChecklistStatus(cobranca.id, fromStatus);
-    if (!complete) {
-      toast.error("Marque todos os critérios antes de liberar o lead.");
-      return;
-    }
-    updateItemStatus(cobranca.id, fromStatus, toStatus, cobranca);
-    await supabase.from("crm_cobrancas").update({ status: toStatus }).eq("id", cobranca.id);
-    setChecklistDialog(null);
-    toast.success("Lead liberado para a próxima coluna");
-  };
-
-  const toggleChecklistItem = async (itemId: string, statusId: string, cobrancaId: string, currentlyDone: boolean) => {
-    if (currentlyDone) {
-      const existing = completions.find(c => c.cobranca_id === cobrancaId && c.checklist_item_id === itemId && c.status_id === statusId);
-      if (!existing) return;
-      const { error } = await supabase.from("crm_cobranca_checklist_completions" as any).delete().eq("id", existing.id);
-      if (error) { toast.error("Erro ao desmarcar"); return; }
-      setCompletions(prev => prev.filter(c => c.id !== existing.id));
-    } else {
-      const { data, error } = await supabase
-        .from("crm_cobranca_checklist_completions" as any)
-        .insert({
-          cobranca_id: cobrancaId,
-          status_id: statusId,
-          checklist_item_id: itemId,
-          completed_by: user?.id,
-        } as any)
-        .select()
-        .single();
-      if (error) { toast.error("Erro ao marcar"); return; }
-      setCompletions(prev => [...prev, (data as unknown) as ChecklistCompletion]);
-    }
   };
 
   const getProfileName = (userId: string | null) => {
@@ -363,13 +287,17 @@ export default function CobrancasPage() {
     return ids;
   }, [activities, noteIds]);
 
-  const sortByTaskPriority = useCallback(<T extends { id: string }>(items: T[]) => {
+  const sortByTaskPriority = useCallback(<T extends { id: string; data?: any }>(items: T[]) => {
     return [...items].sort((a, b) => {
-      // 1) Pending task always dominates: cards with pending tasks go to the TOP
+      // 1) Cards já tratados (renegociou definido) vão SEMPRE para o final
+      const aTreated = (a as any)?.data?.renegociou ? 1 : 0;
+      const bTreated = (b as any)?.data?.renegociou ? 1 : 0;
+      if (aTreated !== bTreated) return aTreated - bTreated;
+      // 2) Pending task domina: cards com tarefa pendente vão para o TOPO
       const aPrio = cobrancaTaskPriority.get(a.id) || 0;
       const bPrio = cobrancaTaskPriority.get(b.id) || 0;
       if (aPrio !== bPrio) return bPrio - aPrio;
-      // 2) When no pending task, cards with recent interaction go to the END
+      // 3) Sem tarefa pendente, interação recente vai para o final
       const aHasRecent = cobrancasWithRecentActivity.has(a.id) ? 1 : 0;
       const bHasRecent = cobrancasWithRecentActivity.has(b.id) ? 1 : 0;
       return aHasRecent - bHasRecent;
@@ -402,6 +330,7 @@ export default function CobrancasPage() {
 
   const renderCard = (cobranca: Cobranca) => {
     const d = cobranca.data as Record<string, any>;
+    const renegociou = (d?.renegociou as string | undefined) || null;
     const cobActivities = activities.filter(a => a.cobranca_id === cobranca.id);
     const pending = cobActivities.filter(a => !a.completed_at);
     const overdue = pending.filter(a => new Date(a.scheduled_date) < new Date());
@@ -415,7 +344,10 @@ export default function CobrancasPage() {
     const hasPending = pending.length > 0 && !hasOverdue && !hasToday;
 
     let cardBorderClass = "";
-    if (hasOverdue) cardBorderClass = "border-red-500 bg-red-500/10 shadow-red-500/20 shadow-md";
+    // Renegociação tem prioridade visual sobre tarefas
+    if (renegociou === "sim") cardBorderClass = "border-emerald-500 bg-emerald-500/10 shadow-emerald-500/20 shadow-md";
+    else if (renegociou === "nao") cardBorderClass = "border-red-500 bg-red-500/10 shadow-red-500/20 shadow-md";
+    else if (hasOverdue) cardBorderClass = "border-red-500 bg-red-500/10 shadow-red-500/20 shadow-md";
     else if (hasToday) cardBorderClass = "border-amber-400 bg-amber-500/5";
     else if (hasPending) cardBorderClass = "border-blue-400/50 bg-blue-500/5";
 
@@ -474,6 +406,16 @@ export default function CobrancasPage() {
         })()}
 
         <div className="pt-2 border-t">
+          {renegociou === "sim" && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-white bg-emerald-600 px-2 py-0.5 rounded-full uppercase mr-1">
+              ✅ Renegociou
+            </span>
+          )}
+          {renegociou === "nao" && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-white bg-red-600 px-2 py-0.5 rounded-full uppercase mr-1">
+              ❌ Não renegociou
+            </span>
+          )}
           {hasOverdue && (
             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-white bg-red-500 px-2 py-0.5 rounded-full uppercase">
               <AlertTriangle className="h-3 w-3" />Atrasada
@@ -508,31 +450,7 @@ export default function CobrancasPage() {
           )}
         </div>
 
-        {(() => {
-          const { items: clItems, pending: clPending } = getColumnChecklistStatus(cobranca.id, cobranca.status);
-          if (clItems.length === 0) return null;
-          const done = clItems.length - clPending.length;
-          return (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                // Abre só o checklist (sem mover) usando próprio status como "destino" temporário
-                setChecklistDialog({ cobranca, fromStatus: cobranca.status, toStatus: cobranca.status });
-              }}
-              className={`w-full text-[11px] flex items-center justify-between gap-2 rounded-md px-2 py-1.5 border transition-colors ${
-                clPending.length === 0
-                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 hover:bg-emerald-500/20"
-                  : "bg-amber-500/10 border-amber-500/40 text-amber-700 hover:bg-amber-500/20"
-              }`}
-            >
-              <span className="font-medium">
-                {clPending.length === 0 ? "Critérios concluídos" : "Critérios pendentes"}
-              </span>
-              <span>{done}/{clItems.length}</span>
-            </button>
-          );
-        })()}
+
 
         <div className="flex gap-1 justify-end pt-1">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(cobranca)}>
@@ -749,57 +667,6 @@ export default function CobrancasPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={!!checklistDialog} onOpenChange={(open) => !open && setChecklistDialog(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Liberar lead para próxima coluna</DialogTitle>
-            <DialogDescription>
-              Marque todos os critérios abaixo para confirmar que o atendimento desta etapa foi concluído.
-            </DialogDescription>
-          </DialogHeader>
-          {checklistDialog && (() => {
-            const fromSt = allStatuses.find(s => s.key === checklistDialog.fromStatus);
-            const toSt = allStatuses.find(s => s.key === checklistDialog.toStatus);
-            if (!fromSt) return null;
-            const items = checklistItems.filter(i => i.status_id === fromSt.id);
-            const doneIds = new Set(
-              completions
-                .filter(c => c.cobranca_id === checklistDialog.cobranca.id && c.status_id === fromSt.id)
-                .map(c => c.checklist_item_id)
-            );
-            const allDone = items.every(i => doneIds.has(i.id));
-            return (
-              <div className="space-y-4">
-                <div className="rounded-lg border bg-muted/30 p-3 text-xs space-y-1">
-                  <p><span className="text-muted-foreground">De:</span> <span className="font-medium">{fromSt.label}</span></p>
-                  <p><span className="text-muted-foreground">Para:</span> <span className="font-medium">{toSt?.label || checklistDialog.toStatus}</span></p>
-                </div>
-                <div className="space-y-2">
-                  {items.map(it => {
-                    const isDone = doneIds.has(it.id);
-                    return (
-                      <label key={it.id} className="flex items-start gap-3 rounded-md border bg-card p-3 cursor-pointer hover:bg-accent/30">
-                        <Checkbox
-                          checked={isDone}
-                          onCheckedChange={() => toggleChecklistItem(it.id, fromSt.id, checklistDialog.cobranca.id, isDone)}
-                          className="mt-0.5"
-                        />
-                        <span className={`text-sm flex-1 ${isDone ? "line-through text-muted-foreground" : ""}`}>{it.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setChecklistDialog(null)}>Fechar</Button>
-                  <Button onClick={confirmChecklistAndMove} disabled={!allDone}>
-                    Liberar lead
-                  </Button>
-                </DialogFooter>
-              </div>
-            );
-          })()}
-        </DialogContent>
-      </Dialog>
     </AppLayout>
   );
 }

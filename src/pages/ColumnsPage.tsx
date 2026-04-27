@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { Plus, Trash2, GripVertical, Pencil, Settings, Eye, EyeOff } from "lucide-react";
+import { Plus, Trash2, GripVertical, Pencil, Settings, EyeOff } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
 type CrmStatus = {
@@ -20,13 +20,6 @@ type CrmStatus = {
   position: number;
   color: string;
   financeiro_visible?: boolean;
-};
-
-type ChecklistItem = {
-  id: string;
-  status_id: string;
-  label: string;
-  position: number;
 };
 
 const COLORS = [
@@ -71,9 +64,6 @@ export default function ColumnsPage() {
   const [finDialogOpen, setFinDialogOpen] = useState(false);
   const [finStatus, setFinStatus] = useState<CrmStatus | null>(null);
   const [finVisible, setFinVisible] = useState(true);
-  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
-  const [newChecklistLabel, setNewChecklistLabel] = useState("");
-  const [savingFin, setSavingFin] = useState(false);
 
   const fetchStatuses = async () => {
     const [{ data: leads }, { data: cobrancas }, { data: renovacoes }] = await Promise.all([
@@ -142,16 +132,9 @@ export default function ColumnsPage() {
     await Promise.all(statuses.map((s, i) => supabase.from(table as any).update({ position: i } as any).eq("id", s.id)));
   };
 
-  const openFinanceiroConfig = async (status: CrmStatus) => {
+  const openFinanceiroConfig = (status: CrmStatus) => {
     setFinStatus(status);
     setFinVisible(status.financeiro_visible !== false);
-    const { data } = await supabase
-      .from("crm_cobranca_status_checklist" as any)
-      .select("*")
-      .eq("status_id", status.id)
-      .order("position");
-    setChecklistItems(((data || []) as unknown) as ChecklistItem[]);
-    setNewChecklistLabel("");
     setFinDialogOpen(true);
   };
 
@@ -163,29 +146,6 @@ export default function ColumnsPage() {
       .update({ financeiro_visible: value } as any)
       .eq("id", finStatus.id);
     setCobrancaStatuses(prev => prev.map(s => s.id === finStatus.id ? { ...s, financeiro_visible: value } : s));
-  };
-
-  const addChecklistItem = async () => {
-    if (!finStatus || !newChecklistLabel.trim()) return;
-    setSavingFin(true);
-    const maxPos = checklistItems.length > 0 ? Math.max(...checklistItems.map(i => i.position)) + 1 : 0;
-    const { data, error } = await supabase
-      .from("crm_cobranca_status_checklist" as any)
-      .insert({ status_id: finStatus.id, label: newChecklistLabel.trim(), position: maxPos } as any)
-      .select()
-      .single();
-    if (error) toast.error("Erro ao adicionar item");
-    else {
-      setChecklistItems(prev => [...prev, (data as unknown) as ChecklistItem]);
-      setNewChecklistLabel("");
-    }
-    setSavingFin(false);
-  };
-
-  const removeChecklistItem = async (id: string) => {
-    const { error } = await supabase.from("crm_cobranca_status_checklist" as any).delete().eq("id", id);
-    if (error) toast.error("Erro ao remover");
-    else setChecklistItems(prev => prev.filter(i => i.id !== id));
   };
 
   if (!isAdmin) {
@@ -338,42 +298,6 @@ export default function ColumnsPage() {
                 <Switch checked={finVisible} onCheckedChange={toggleFinVisible} />
               </div>
 
-              <div className="space-y-2">
-                <Label className="text-sm flex items-center gap-2">
-                  <Eye className="h-4 w-4" />
-                  Critérios para liberar o lead
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  O financeiro precisa marcar todos os itens abaixo antes de mover um lead desta coluna para outra.
-                  Se nenhum item for cadastrado, o lead pode ser movido livremente pelo financeiro.
-                </p>
-
-                <div className="space-y-1.5 mt-2">
-                  {checklistItems.length === 0 && (
-                    <p className="text-xs text-muted-foreground italic py-2">Nenhum critério cadastrado.</p>
-                  )}
-                  {checklistItems.map(item => (
-                    <div key={item.id} className="flex items-center gap-2 rounded-md border bg-card px-3 py-2">
-                      <span className="flex-1 text-sm">{item.label}</span>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeChecklistItem(item.id)}>
-                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex gap-2 pt-1">
-                  <Input
-                    placeholder="Ex: Cliente foi contactado"
-                    value={newChecklistLabel}
-                    onChange={e => setNewChecklistLabel(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addChecklistItem(); } }}
-                  />
-                  <Button onClick={addChecklistItem} disabled={savingFin || !newChecklistLabel.trim()}>
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
             </div>
           )}
         </DialogContent>
@@ -381,3 +305,4 @@ export default function ColumnsPage() {
     </AppLayout>
   );
 }
+
