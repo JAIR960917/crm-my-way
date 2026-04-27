@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { Plus, Trash2, GripVertical, Pencil } from "lucide-react";
+import { Plus, Trash2, GripVertical, Pencil, Settings, Eye, EyeOff } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 type CrmStatus = {
   id: string;
@@ -18,6 +19,14 @@ type CrmStatus = {
   label: string;
   position: number;
   color: string;
+  financeiro_visible?: boolean;
+};
+
+type ChecklistItem = {
+  id: string;
+  status_id: string;
+  label: string;
+  position: number;
 };
 
 const COLORS = [
