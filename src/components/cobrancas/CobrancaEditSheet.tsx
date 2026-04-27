@@ -643,6 +643,7 @@ export default function CobrancaEditSheet(props: Props) {
                 <ClientProductsTab
                   ssoticaClienteId={ssoticaClienteId ?? null}
                   ssoticaCompanyId={ssoticaCompanyId ?? null}
+                  cpf={formData?.documento ?? formData?.cpf ?? null}
                 />
               )}
 
