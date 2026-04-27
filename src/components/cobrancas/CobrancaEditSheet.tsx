@@ -41,6 +41,7 @@ type ParcelaInfo = {
   dias_atraso: number | null;
   status: string;
   is_current: boolean;
+  loja_nome?: string | null;
 };
 
 type Props = {
