@@ -306,10 +306,3 @@ export default function ColumnsPage() {
   );
 }
 
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </AppLayout>
-  );
-}
