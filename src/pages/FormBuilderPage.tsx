@@ -177,6 +177,15 @@ export default function FormBuilderPage() {
       ? options.split(",").map((o) => o.trim()).filter(Boolean)
       : null;
 
+    // Combina mapeamento por valor (select/checkbox) com a chave especial __any__ (qualquer resposta)
+    const combinedMapping: Record<string, string> = {};
+    if (isStatusField) {
+      Object.entries(statusMapping).forEach(([k, v]) => { if (v) combinedMapping[k] = v; });
+    }
+    if (isAnyAnswerRedirect && anyAnswerStatusKey) {
+      combinedMapping["__any__"] = anyAnswerStatusKey;
+    }
+
     const payload = {
       label: label.trim(),
       field_type: fieldType,
@@ -187,7 +196,7 @@ export default function FormBuilderPage() {
       show_on_card: showOnCard,
       parent_field_id: parentFieldId === "__none__" ? null : parentFieldId,
       parent_trigger_value: parentFieldId === "__none__" ? null : (parentTriggerValues.length > 0 ? JSON.stringify(parentTriggerValues) : null),
-      status_mapping: isStatusField && Object.keys(statusMapping).length > 0 ? statusMapping : null,
+      status_mapping: Object.keys(combinedMapping).length > 0 ? combinedMapping : null,
       date_status_ranges: isDateStatusField ? dateStatusRanges : null,
     };
 
