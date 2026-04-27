@@ -509,6 +509,34 @@ export default function FormBuilderPage() {
               </div>
             )}
 
+            {/* Redirecionamento simples (qualquer resposta) — disponível para qualquer tipo */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={isAnyAnswerRedirect}
+                  onCheckedChange={(v) => { setIsAnyAnswerRedirect(v); if (!v) setAnyAnswerStatusKey(""); }}
+                />
+                <Label>Redirecionar lead para uma coluna ao responder esta pergunta</Label>
+              </div>
+              {isAnyAnswerRedirect && (
+                <div className="p-3 border rounded-md bg-muted/30 space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Quando o cliente responder esta pergunta (qualquer resposta), o lead vai automaticamente para a coluna escolhida.
+                    Se o lead responder mais de uma pergunta com redirecionamento, vence a primeira pergunta (ordem do formulário).
+                  </p>
+                  <Select value={anyAnswerStatusKey || "__none__"} onValueChange={(v) => setAnyAnswerStatusKey(v === "__none__" ? "" : v)}>
+                    <SelectTrigger><SelectValue placeholder="Selecione a coluna" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">— Nenhuma —</SelectItem>
+                      {statuses.map(s => (
+                        <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+
             {/* Status mapping */}
             {["select", "checkbox_group"].includes(fieldType) && (
               <div className="space-y-2">
