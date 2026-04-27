@@ -583,6 +583,7 @@ export default function WhatsAppPage() {
                       {!editingId && (
                         <SelectItem value="__ALL__">🏢 Todas as empresas (cria uma por empresa)</SelectItem>
                       )}
+                      <SelectItem value="__GLOBAL__">🌐 Global (uma única para todas as empresas)</SelectItem>
                       {companies.map(c => (
                         <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                       ))}
@@ -617,15 +618,21 @@ export default function WhatsAppPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Instância WhatsApp *</Label>
-                  <Select value={instanceId} onValueChange={setInstanceId}>
-                    <SelectTrigger><SelectValue placeholder="Selecione a instância..." /></SelectTrigger>
-                    <SelectContent>
-                      {instances.filter(i => i.is_active).map(i => (
-                        <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Instância WhatsApp {companyId === "__GLOBAL__" ? "" : "*"}</Label>
+                  {companyId === "__GLOBAL__" ? (
+                    <div className="flex items-center h-10 px-3 rounded-md border border-dashed border-border text-xs text-muted-foreground">
+                      🌐 Será usada a instância da empresa de cada lead
+                    </div>
+                  ) : (
+                    <Select value={instanceId} onValueChange={setInstanceId}>
+                      <SelectTrigger><SelectValue placeholder="Selecione a instância..." /></SelectTrigger>
+                      <SelectContent>
+                        {instances.filter(i => i.is_active).map(i => (
+                          <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Data início *</Label>
