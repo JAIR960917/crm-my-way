@@ -298,7 +298,7 @@ export default function WhatsAppPage() {
     setName(c.name); setMessage(c.message); setImageUrl(c.image_url || null);
     setModuleKey((c.module || "leads") as ModuleKey);
     setStatusId(c.status_id);
-    setInstanceId(c.instance_id || ""); setCompanyId(c.company_id || "");
+    setInstanceId(c.instance_id || ""); setCompanyId(c.company_id || "__GLOBAL__");
     setStartTime((c.start_time || "08:00").slice(0, 5));
     setEndTime((c.end_time || "18:00").slice(0, 5));
     setStartDate(c.start_date); setEndDate(c.end_date); setEditingId(c.id); setShowForm(true);
@@ -331,10 +331,10 @@ export default function WhatsAppPage() {
 
     let error: any = null;
     if (editingId) {
-      // Edição: mantém comportamento de uma única campanha
+      // Edição: mantém comportamento de uma única campanha (global se __GLOBAL__)
       ({ error } = await supabase
         .from("whatsapp_campaigns")
-        .update({ ...basePayload, company_id: companyId === "__ALL__" ? null : companyId })
+        .update({ ...basePayload, company_id: companyId === "__ALL__" || companyId === "__GLOBAL__" ? null : companyId })
         .eq("id", editingId));
     } else if (companyId === "__ALL__") {
       // Criar uma campanha para CADA empresa disponível
@@ -349,6 +349,9 @@ export default function WhatsAppPage() {
         company_id: c.id,
       }));
       ({ error } = await supabase.from("whatsapp_campaigns").insert(rows));
+    } else if (companyId === "__GLOBAL__") {
+      // Uma única campanha global — usa instância da empresa do lead
+      ({ error } = await supabase.from("whatsapp_campaigns").insert({ ...basePayload, company_id: null, instance_id: null }));
     } else {
       ({ error } = await supabase.from("whatsapp_campaigns").insert({ ...basePayload, company_id: companyId }));
     }
@@ -360,7 +363,9 @@ export default function WhatsAppPage() {
           ? "Campanha atualizada!"
           : companyId === "__ALL__"
             ? `${companies.length} campanhas criadas (uma por empresa)!`
-            : "Campanha criada!"
+            : companyId === "__GLOBAL__"
+              ? "Campanha global criada (rodará para todas as empresas)!"
+              : "Campanha criada!"
       );
       resetForm();
       fetchData();
