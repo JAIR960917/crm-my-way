@@ -151,6 +151,14 @@ export default function AppSidebar({ onNavigate }: Props) {
 
       <div className="space-y-2 border-t border-sidebar-border px-3 py-4 flex-shrink-0">
         <button
+          onClick={handleUpdateSystem}
+          disabled={updating}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-emerald-400 transition-colors hover:bg-sidebar-accent/50 disabled:pointer-events-none disabled:opacity-60"
+        >
+          <RefreshCw className={cn("h-4 w-4", updating && "animate-spin")} />
+          {updating ? "Atualizando..." : "Atualizar Sistema"}
+        </button>
+        <button
           onClick={() => handleNav("/instalar")}
           className={cn(
             "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
