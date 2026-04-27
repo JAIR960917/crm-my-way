@@ -37,7 +37,7 @@ type CrmStatus = {
   id: string; key: string; label: string; position: number; color: string;
 };
 type Company = { id: string; name: string };
-type FormFieldInfo = { id: string; label: string; is_name_field: boolean; is_phone_field: boolean; show_on_card?: boolean; status_mapping?: Record<string, string> | null; date_status_ranges?: { ranges: { max_years: number; status_key: string }[]; above_all: string; no_answer: string } | null };
+type FormFieldInfo = { id: string; label: string; position?: number; is_name_field: boolean; is_phone_field: boolean; show_on_card?: boolean; status_mapping?: Record<string, string> | null; date_status_ranges?: { ranges: { max_years: number; status_key: string }[]; above_all: string; no_answer: string } | null };
 type LeadActivity = { id: string; lead_id: string; title: string; scheduled_date: string; completed_at: string | null };
 
 const colorMap: Record<string, { header: string; badge: string }> = {
@@ -185,7 +185,7 @@ export default function LeadsPage() {
         supabase.from("crm_statuses").select("*").order("position"),
         supabase.from("profiles").select("company_id").eq("user_id", user!.id).maybeSingle(),
         supabase.from("manager_companies").select("company_id").eq("user_id", user!.id),
-        supabase.from("crm_form_fields").select("id, label, is_name_field, is_phone_field, show_on_card, status_mapping, date_status_ranges").order("position"),
+        supabase.from("crm_form_fields").select("id, label, position, is_name_field, is_phone_field, show_on_card, status_mapping, date_status_ranges").order("position"),
         supabase.from("crm_form_fields").select("*").order("position"),
         supabase.from("profiles").select("user_id, full_name, avatar_url, company_id"),
       ]);
@@ -362,13 +362,16 @@ export default function LeadsPage() {
       if (config.above_all) return config.above_all;
     }
 
-    // Then check option-based mapping
+    // Then check option-based mapping (incluindo a chave especial __any__ = qualquer resposta)
     const mappingFields = formFields.filter(f => f.status_mapping && Object.keys(f.status_mapping).length > 0);
     if (mappingFields.length === 0 && dateFields.length === 0) return formStatus;
-    for (const mf of [...mappingFields].reverse()) {
+    // Primeira pergunta (ordem do formulário) com redirecionamento vence
+    const orderedMappingFields = [...mappingFields].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    for (const mf of orderedMappingFields) {
       const fieldKey = `field_${mf.id}`;
       const answer = data[fieldKey];
-      if (!answer || (typeof answer === "string" && !answer.trim())) continue;
+      const hasAnswer = !(answer === undefined || answer === null || answer === "" || (Array.isArray(answer) && answer.length === 0));
+      if (!hasAnswer) continue;
       const mapping = mf.status_mapping!;
       if (typeof answer === "string" && mapping[answer]) return mapping[answer];
       if (Array.isArray(answer)) {
@@ -376,6 +379,8 @@ export default function LeadsPage() {
           if (mapping[v]) return mapping[v];
         }
       }
+      // Fallback: redirecionamento "qualquer resposta"
+      if (mapping["__any__"]) return mapping["__any__"];
     }
     return defaultStatus;
   };

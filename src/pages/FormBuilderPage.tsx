@@ -65,6 +65,8 @@ export default function FormBuilderPage() {
   const [statuses, setStatuses] = useState<CrmStatus[]>([]);
   const [statusMapping, setStatusMapping] = useState<Record<string, string>>({});
   const [isStatusField, setIsStatusField] = useState(false);
+  const [isAnyAnswerRedirect, setIsAnyAnswerRedirect] = useState(false);
+  const [anyAnswerStatusKey, setAnyAnswerStatusKey] = useState<string>("");
   const [isDateStatusField, setIsDateStatusField] = useState(false);
   const [dateStatusRanges, setDateStatusRanges] = useState<DateStatusConfig>({
     ranges: [
@@ -102,6 +104,8 @@ export default function FormBuilderPage() {
     setEditingField(null);
     setIsStatusField(false);
     setStatusMapping({});
+    setIsAnyAnswerRedirect(false);
+    setAnyAnswerStatusKey("");
     setIsDateStatusField(false);
     setDateStatusRanges({
       ranges: [
@@ -146,8 +150,15 @@ export default function FormBuilderPage() {
     setShowOnCard(field.show_on_card);
     setParentFieldId(field.parent_field_id || "__none__");
     setParentTriggerValues(parseTriggerValues(field.parent_trigger_value));
-    setIsStatusField(!!field.status_mapping);
-    setStatusMapping(field.status_mapping || {});
+    const mapping = field.status_mapping || {};
+    const anyKey = mapping["__any__"];
+    setIsAnyAnswerRedirect(!!anyKey);
+    setAnyAnswerStatusKey(anyKey || "");
+    // Mapeamento por valor: ignora a chave especial __any__
+    const valueMapping: Record<string, string> = {};
+    Object.entries(mapping).forEach(([k, v]) => { if (k !== "__any__") valueMapping[k] = v; });
+    setIsStatusField(Object.keys(valueMapping).length > 0);
+    setStatusMapping(valueMapping);
     setIsDateStatusField(!!field.date_status_ranges);
     if (field.date_status_ranges) {
       setDateStatusRanges(field.date_status_ranges as DateStatusConfig);
@@ -166,6 +177,15 @@ export default function FormBuilderPage() {
       ? options.split(",").map((o) => o.trim()).filter(Boolean)
       : null;
 
+    // Combina mapeamento por valor (select/checkbox) com a chave especial __any__ (qualquer resposta)
+    const combinedMapping: Record<string, string> = {};
+    if (isStatusField) {
+      Object.entries(statusMapping).forEach(([k, v]) => { if (v) combinedMapping[k] = v; });
+    }
+    if (isAnyAnswerRedirect && anyAnswerStatusKey) {
+      combinedMapping["__any__"] = anyAnswerStatusKey;
+    }
+
     const payload = {
       label: label.trim(),
       field_type: fieldType,
@@ -176,7 +196,7 @@ export default function FormBuilderPage() {
       show_on_card: showOnCard,
       parent_field_id: parentFieldId === "__none__" ? null : parentFieldId,
       parent_trigger_value: parentFieldId === "__none__" ? null : (parentTriggerValues.length > 0 ? JSON.stringify(parentTriggerValues) : null),
-      status_mapping: isStatusField && Object.keys(statusMapping).length > 0 ? statusMapping : null,
+      status_mapping: Object.keys(combinedMapping).length > 0 ? combinedMapping : null,
       date_status_ranges: isDateStatusField ? dateStatusRanges : null,
     };
 
@@ -488,6 +508,34 @@ export default function FormBuilderPage() {
                 </div>
               </div>
             )}
+
+            {/* Redirecionamento simples (qualquer resposta) — disponível para qualquer tipo */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={isAnyAnswerRedirect}
+                  onCheckedChange={(v) => { setIsAnyAnswerRedirect(v); if (!v) setAnyAnswerStatusKey(""); }}
+                />
+                <Label>Redirecionar lead para uma coluna ao responder esta pergunta</Label>
+              </div>
+              {isAnyAnswerRedirect && (
+                <div className="p-3 border rounded-md bg-muted/30 space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Quando o cliente responder esta pergunta (qualquer resposta), o lead vai automaticamente para a coluna escolhida.
+                    Se o lead responder mais de uma pergunta com redirecionamento, vence a primeira pergunta (ordem do formulário).
+                  </p>
+                  <Select value={anyAnswerStatusKey || "__none__"} onValueChange={(v) => setAnyAnswerStatusKey(v === "__none__" ? "" : v)}>
+                    <SelectTrigger><SelectValue placeholder="Selecione a coluna" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">— Nenhuma —</SelectItem>
+                      {statuses.map(s => (
+                        <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
 
             {/* Status mapping */}
             {["select", "checkbox_group"].includes(fieldType) && (
