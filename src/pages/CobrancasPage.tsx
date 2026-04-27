@@ -508,6 +508,32 @@ export default function CobrancasPage() {
           )}
         </div>
 
+        {(() => {
+          const { items: clItems, pending: clPending } = getColumnChecklistStatus(cobranca.id, cobranca.status);
+          if (clItems.length === 0) return null;
+          const done = clItems.length - clPending.length;
+          return (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                // Abre só o checklist (sem mover) usando próprio status como "destino" temporário
+                setChecklistDialog({ cobranca, fromStatus: cobranca.status, toStatus: cobranca.status });
+              }}
+              className={`w-full text-[11px] flex items-center justify-between gap-2 rounded-md px-2 py-1.5 border transition-colors ${
+                clPending.length === 0
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 hover:bg-emerald-500/20"
+                  : "bg-amber-500/10 border-amber-500/40 text-amber-700 hover:bg-amber-500/20"
+              }`}
+            >
+              <span className="font-medium">
+                {clPending.length === 0 ? "Critérios concluídos" : "Critérios pendentes"}
+              </span>
+              <span>{done}/{clItems.length}</span>
+            </button>
+          );
+        })()}
+
         <div className="flex gap-1 justify-end pt-1">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(cobranca)}>
             <Pencil className="h-3.5 w-3.5" />
