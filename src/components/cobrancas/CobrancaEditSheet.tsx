@@ -633,7 +633,7 @@ export default function CobrancaEditSheet(props: Props) {
                       userId={user.id}
                       userName={getProfile(user.id)?.full_name}
                       cobrancaData={formData}
-                      onSaved={() => { fetchTimeline(); }}
+                      onSaved={() => { setContactRegisteredInSession(true); fetchTimeline(); }}
                     />
                   )}
                   {tab === "atividade" && timeline.length === 0 && (
