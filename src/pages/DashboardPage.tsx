@@ -472,14 +472,13 @@ export default function DashboardPage() {
   const cobrancaTotals = useMemo(() => {
     return filteredCobrancaRows.reduce(
       (acc, r) => ({
-        aberturas: acc.aberturas + r.aberturas,
         contatos: acc.contatos + r.contatos,
         atendeu: acc.atendeu + r.atendeu,
         naoAtendeu: acc.naoAtendeu + r.naoAtendeu,
         renegociou: acc.renegociou + r.renegociou,
         naoRenegociou: acc.naoRenegociou + r.naoRenegociou,
       }),
-      { aberturas: 0, contatos: 0, atendeu: 0, naoAtendeu: 0, renegociou: 0, naoRenegociou: 0 },
+      { contatos: 0, atendeu: 0, naoAtendeu: 0, renegociou: 0, naoRenegociou: 0 },
     );
   }, [filteredCobrancaRows]);
 
