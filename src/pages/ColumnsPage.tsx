@@ -67,6 +67,14 @@ export default function ColumnsPage() {
   const [color, setColor] = useState("blue");
   const [saving, setSaving] = useState(false);
 
+  // Financeiro config dialog state
+  const [finDialogOpen, setFinDialogOpen] = useState(false);
+  const [finStatus, setFinStatus] = useState<CrmStatus | null>(null);
+  const [finVisible, setFinVisible] = useState(true);
+  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
+  const [newChecklistLabel, setNewChecklistLabel] = useState("");
+  const [savingFin, setSavingFin] = useState(false);
+
   const fetchStatuses = async () => {
     const [{ data: leads }, { data: cobrancas }, { data: renovacoes }] = await Promise.all([
       supabase.from("crm_statuses").select("*").order("position"),
