@@ -228,10 +228,37 @@ export default function FormBuilderPage() {
     else { toast.success("Pergunta excluída"); fetchFields(); }
   };
 
+  /**
+   * Handler de drag-and-drop. Reordena tanto perguntas raiz quanto subperguntas condicionais.
+   * - droppableId "root" => reordena perguntas raiz
+   * - droppableId "child::<parentId>::<trigger>" => reordena filhos de um pai dentro de um trigger específico
+   * - droppableId "child::<parentId>::__notrigger__" => reordena filhos sem trigger específico
+   * Não permite arrastar entre droppables diferentes (mantém o agrupamento).
+   */
   const onDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
-    const rootFields = fields.filter((f) => !f.parent_field_id);
-    const reordered = [...rootFields];
+    if (result.source.droppableId !== result.destination.droppableId) return;
+
+    const dropId = result.source.droppableId;
+    let group: FormField[] = [];
+
+    if (dropId === "root") {
+      group = fields.filter((f) => !f.parent_field_id).sort((a, b) => a.position - b.position);
+    } else if (dropId.startsWith("child::")) {
+      const [, parentId, trigger] = dropId.split("::");
+      group = fields
+        .filter((f) => f.parent_field_id === parentId)
+        .filter((f) => {
+          const vals = parseTriggerValues(f.parent_trigger_value);
+          if (trigger === "__notrigger__") return vals.length === 0;
+          return vals.includes(trigger);
+        })
+        .sort((a, b) => a.position - b.position);
+    } else {
+      return;
+    }
+
+    const reordered = [...group];
     const [moved] = reordered.splice(result.source.index, 1);
     reordered.splice(result.destination.index, 0, moved);
 
@@ -268,100 +295,142 @@ export default function FormBuilderPage() {
 
   const typeLabel = (t: string) => FIELD_TYPES.find((ft) => ft.value === t)?.label || t;
 
-  const renderField = (field: FormField, depth: number = 0) => {
+  /**
+   * Renderiza o "miolo" de um card de pergunta (sem o wrapper externo de Draggable).
+   * dragHandleRef opcional permite anexar o handle de arrastar do react-beautiful-dnd.
+   */
+  const renderFieldCard = (field: FormField, depth: number, dragHandleProps?: any) => {
+    const hasOptions = ["select", "checkbox_group"].includes(field.field_type) && field.options && field.options.length > 0;
+    return (
+      <div
+        className={`flex items-center gap-2 p-3 rounded-lg border bg-card mb-2 group ${
+          depth > 0 ? "ml-6 sm:ml-10 border-l-2 border-l-primary/30" : ""
+        }`}
+      >
+        <span {...(dragHandleProps || {})} className="shrink-0 cursor-grab active:cursor-grabbing">
+          {depth === 0 ? (
+            <GripVertical className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <CornerDownRight className="h-4 w-4 text-primary/50" />
+          )}
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-sm truncate">
+            {field.label}
+            {field.is_required && <span className="text-destructive ml-1">*</span>}
+          </p>
+          <div className="flex flex-wrap gap-1.5 mt-1">
+            <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+              {typeLabel(field.field_type)}
+            </span>
+            {field.is_name_field && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">📛 Nome</span>
+            )}
+            {field.is_phone_field && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">📞 Telefone</span>
+            )}
+            {field.parent_trigger_value && (() => {
+              const vals = parseTriggerValues(field.parent_trigger_value);
+              return (
+                <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                  Quando: {vals.map(v => `"${v}"`).join(", ")}
+                </span>
+              );
+            })()}
+            {field.options && field.options.length > 0 && (
+              <span className="text-xs text-muted-foreground">{field.options.length} opções</span>
+            )}
+          </div>
+        </div>
+        {isAdmin && (
+          <div className="flex gap-1 shrink-0">
+            {hasOptions && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                title="Adicionar sub-pergunta"
+                onClick={() => openCreate(field.id)}
+              >
+                <Plus className="h-3.5 w-3.5 text-primary" />
+              </Button>
+            )}
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(field)}>
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(field.id)}>
+              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /**
+   * Renderiza recursivamente uma pergunta e seus filhos.
+   * Os filhos são agrupados por valor de gatilho (trigger) e cada grupo vira um Droppable
+   * independente, permitindo reordenar as subperguntas via drag-and-drop.
+   */
+  const renderField = (field: FormField, depth: number = 0, dragHandleProps?: any) => {
     const children = getChildren(field.id);
     const hasOptions = ["select", "checkbox_group"].includes(field.field_type) && field.options && field.options.length > 0;
+    const noTriggerChildren = children.filter((c) => !c.parent_trigger_value);
 
     return (
       <div key={field.id}>
-        <div
-          className={`flex items-center gap-2 p-3 rounded-lg border bg-card mb-2 group ${
-            depth > 0 ? "ml-6 sm:ml-10 border-l-2 border-l-primary/30" : ""
-          }`}
-        >
-          {depth === 0 && (
-            <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab shrink-0" />
-          )}
-          {depth > 0 && (
-            <CornerDownRight className="h-4 w-4 text-primary/50 shrink-0" />
-          )}
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-sm truncate">
-              {field.label}
-              {field.is_required && <span className="text-destructive ml-1">*</span>}
-            </p>
-            <div className="flex flex-wrap gap-1.5 mt-1">
-              <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                {typeLabel(field.field_type)}
-              </span>
-              {field.is_name_field && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
-                  📛 Nome
-                </span>
-              )}
-              {field.is_phone_field && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
-                  📞 Telefone
-                </span>
-              )}
-              {field.parent_trigger_value && (() => {
-                const vals = parseTriggerValues(field.parent_trigger_value);
-                return (
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                    Quando: {vals.map(v => `"${v}"`).join(", ")}
-                  </span>
-                );
-              })()}
-              {field.options && field.options.length > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  {field.options.length} opções
-                </span>
-              )}
-            </div>
-          </div>
-          {isAdmin && (
-            <div className="flex gap-1 shrink-0">
-              {hasOptions && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  title="Adicionar sub-pergunta"
-                  onClick={() => openCreate(field.id)}
-                >
-                  <Plus className="h-3.5 w-3.5 text-primary" />
-                </Button>
-              )}
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(field)}>
-                <Pencil className="h-3.5 w-3.5" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(field.id)}>
-                <Trash2 className="h-3.5 w-3.5 text-destructive" />
-              </Button>
-            </div>
-          )}
-        </div>
+        {renderFieldCard(field, depth, dragHandleProps)}
 
-        {/* Render children grouped by trigger value */}
+        {/* Filhos agrupados por opção (trigger value) — cada grupo é um Droppable separado */}
         {hasOptions && field.options!.map((opt) => {
-          const optChildren = children.filter((c) => {
-            const triggerVals = parseTriggerValues(c.parent_trigger_value);
-            return triggerVals.includes(opt);
-          });
+          const optChildren = children.filter((c) => parseTriggerValues(c.parent_trigger_value).includes(opt));
           if (optChildren.length === 0) return null;
+          const dropId = `child::${field.id}::${opt}`;
           return (
             <div key={opt}>
               <div className="ml-6 sm:ml-10 mb-1 flex items-center gap-1.5">
                 <ChevronRight className="h-3 w-3 text-muted-foreground" />
                 <span className="text-xs font-medium text-muted-foreground">Se "{opt}":</span>
               </div>
-              {optChildren.map((child) => renderField(child, depth + 1))}
+              <Droppable droppableId={dropId}>
+                {(prov) => (
+                  <div ref={prov.innerRef} {...prov.droppableProps}>
+                    {optChildren.map((child, idx) => (
+                      <Draggable key={child.id} draggableId={child.id} index={idx}>
+                        {(p) => (
+                          <div ref={p.innerRef} {...p.draggableProps}>
+                            {renderField(child, depth + 1, p.dragHandleProps)}
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {prov.placeholder}
+                  </div>
+                )}
+              </Droppable>
             </div>
           );
         })}
 
-        {/* Children without specific trigger */}
-        {children.filter((c) => !c.parent_trigger_value).map((child) => renderField(child, depth + 1))}
+        {/* Filhos sem trigger específico — Droppable separado */}
+        {noTriggerChildren.length > 0 && (
+          <Droppable droppableId={`child::${field.id}::__notrigger__`}>
+            {(prov) => (
+              <div ref={prov.innerRef} {...prov.droppableProps}>
+                {noTriggerChildren.map((child, idx) => (
+                  <Draggable key={child.id} draggableId={child.id} index={idx}>
+                    {(p) => (
+                      <div ref={p.innerRef} {...p.draggableProps}>
+                        {renderField(child, depth + 1, p.dragHandleProps)}
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {prov.placeholder}
+              </div>
+            )}
+          </Droppable>
+        )}
       </div>
     );
   };
@@ -383,14 +452,14 @@ export default function FormBuilderPage() {
       </div>
 
       <DragDropContext onDragEnd={onDragEnd}>
-        <Droppable droppableId="fields">
+        <Droppable droppableId="root">
           {(provided) => (
             <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-1">
               {rootFields.map((field, index) => (
                 <Draggable key={field.id} draggableId={field.id} index={index}>
-                  {(provided) => (
-                    <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
-                      {renderField(field)}
+                  {(prov) => (
+                    <div ref={prov.innerRef} {...prov.draggableProps}>
+                      {renderField(field, 0, prov.dragHandleProps)}
                     </div>
                   )}
                 </Draggable>
