@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Pencil, Trash2, GripVertical, ChevronRight, CornerDownRight } from "lucide-react";
-import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
+import { DragDropContext, Droppable, Draggable, DropResult, DragStart } from "@hello-pangea/dnd";
 
 type DateStatusRange = { max_years: number; status_key: string };
 type DateStatusConfig = { ranges: DateStatusRange[]; above_all: string; no_answer: string };
@@ -62,6 +62,7 @@ export default function FormBuilderPage() {
   const [parentFieldId, setParentFieldId] = useState<string>("__none__");
   const [parentTriggerValues, setParentTriggerValues] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [activeDragGroup, setActiveDragGroup] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<CrmStatus[]>([]);
   const [statusMapping, setStatusMapping] = useState<Record<string, string>>({});
   const [isStatusField, setIsStatusField] = useState(false);
@@ -137,6 +138,43 @@ export default function FormBuilderPage() {
       if (Array.isArray(parsed)) return parsed;
     } catch {}
     return val ? [val] : [];
+  };
+
+  /**
+   * Gera uma chave estável para um grupo de gatilhos, evitando renderizar a mesma
+   * subpergunta em múltiplos droppables quando ela depende de mais de uma opção.
+   */
+  const getTriggerGroupKey = (val: string | null) => {
+    const values = parseTriggerValues(val).slice().sort();
+    return values.length === 0 ? "__notrigger__" : encodeURIComponent(JSON.stringify(values));
+  };
+
+  /**
+   * Agrupa os filhos pelo conjunto exato de gatilhos configurados.
+   */
+  const getChildGroups = (parentId: string) => {
+    const grouped = new Map<string, { triggerValues: string[]; items: FormField[] }>();
+
+    fields
+      .filter((f) => f.parent_field_id === parentId)
+      .sort((a, b) => a.position - b.position)
+      .forEach((field) => {
+        const triggerValues = parseTriggerValues(field.parent_trigger_value).slice().sort();
+        const key = getTriggerGroupKey(field.parent_trigger_value);
+        const current = grouped.get(key);
+
+        if (current) {
+          current.items.push(field);
+        } else {
+          grouped.set(key, { triggerValues, items: [field] });
+        }
+      });
+
+    return Array.from(grouped.entries()).map(([key, group]) => ({
+      key,
+      triggerValues: group.triggerValues,
+      items: group.items,
+    }));
   };
 
   const openEdit = (field: FormField) => {
@@ -235,9 +273,15 @@ export default function FormBuilderPage() {
    * - droppableId "child::<parentId>::__notrigger__" => reordena filhos sem trigger específico
    * Não permite arrastar entre droppables diferentes (mantém o agrupamento).
    */
+  const onDragStart = (start: DragStart) => {
+    setActiveDragGroup(start.source.droppableId);
+  };
+
   const onDragEnd = async (result: DropResult) => {
+    setActiveDragGroup(null);
     if (!result.destination) return;
     if (result.source.droppableId !== result.destination.droppableId) return;
+    if (result.source.index === result.destination.index) return;
 
     const dropId = result.source.droppableId;
     let group: FormField[] = [];
@@ -245,14 +289,10 @@ export default function FormBuilderPage() {
     if (dropId === "root") {
       group = fields.filter((f) => !f.parent_field_id).sort((a, b) => a.position - b.position);
     } else if (dropId.startsWith("child::")) {
-      const [, parentId, trigger] = dropId.split("::");
+      const [, parentId, triggerGroupKey] = dropId.split("::");
       group = fields
         .filter((f) => f.parent_field_id === parentId)
-        .filter((f) => {
-          const vals = parseTriggerValues(f.parent_trigger_value);
-          if (trigger === "__notrigger__") return vals.length === 0;
-          return vals.includes(trigger);
-        })
+        .filter((f) => getTriggerGroupKey(f.parent_trigger_value) === triggerGroupKey)
         .sort((a, b) => a.position - b.position);
     } else {
       return;
@@ -272,8 +312,13 @@ export default function FormBuilderPage() {
       return copy.sort((a, b) => a.position - b.position);
     });
 
-    for (const u of updates) {
-      await supabase.from("crm_form_fields").update({ position: u.position }).eq("id", u.id);
+    const results = await Promise.all(
+      updates.map((u) => supabase.from("crm_form_fields").update({ position: u.position }).eq("id", u.id))
+    );
+
+    if (results.some(({ error }) => error)) {
+      toast.error("Erro ao salvar a nova ordem");
+      fetchFields();
     }
   };
 
@@ -374,29 +419,36 @@ export default function FormBuilderPage() {
    * independente, permitindo reordenar as subperguntas via drag-and-drop.
    */
   const renderField = (field: FormField, depth: number = 0, dragHandleProps?: any) => {
-    const children = getChildren(field.id);
+    const childGroups = getChildGroups(field.id);
     const hasOptions = ["select", "checkbox_group"].includes(field.field_type) && field.options && field.options.length > 0;
-    const noTriggerChildren = children.filter((c) => !c.parent_trigger_value);
 
     return (
       <div key={field.id}>
         {renderFieldCard(field, depth, dragHandleProps)}
 
-        {/* Filhos agrupados por opção (trigger value) — cada grupo é um Droppable separado */}
-        {hasOptions && field.options!.map((opt) => {
-          const optChildren = children.filter((c) => parseTriggerValues(c.parent_trigger_value).includes(opt));
-          if (optChildren.length === 0) return null;
-          const dropId = `child::${field.id}::${opt}`;
+        {/* Filhos agrupados pelo conjunto exato de gatilhos para evitar duplicidade no DnD */}
+        {hasOptions && childGroups.map((group) => {
+          const dropId = `child::${field.id}::${group.key}`;
+          const isNoTriggerGroup = group.triggerValues.length === 0;
+
           return (
-            <div key={opt}>
-              <div className="ml-6 sm:ml-10 mb-1 flex items-center gap-1.5">
-                <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                <span className="text-xs font-medium text-muted-foreground">Se "{opt}":</span>
-              </div>
-              <Droppable droppableId={dropId}>
+            <div key={group.key}>
+              {!isNoTriggerGroup && (
+                <div className="ml-6 sm:ml-10 mb-1 flex items-center gap-1.5">
+                  <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Se {group.triggerValues.map((value) => `"${value}"`).join(", ")}:
+                  </span>
+                </div>
+              )}
+              <Droppable
+                droppableId={dropId}
+                type={dropId}
+                isDropDisabled={activeDragGroup !== null && activeDragGroup !== dropId}
+              >
                 {(prov) => (
-                  <div ref={prov.innerRef} {...prov.droppableProps}>
-                    {optChildren.map((child, idx) => (
+                  <div ref={prov.innerRef} {...prov.droppableProps} className="min-h-[1px]">
+                    {group.items.map((child, idx) => (
                       <Draggable key={child.id} draggableId={child.id} index={idx}>
                         {(p) => (
                           <div ref={p.innerRef} {...p.draggableProps}>
@@ -412,26 +464,6 @@ export default function FormBuilderPage() {
             </div>
           );
         })}
-
-        {/* Filhos sem trigger específico — Droppable separado */}
-        {noTriggerChildren.length > 0 && (
-          <Droppable droppableId={`child::${field.id}::__notrigger__`}>
-            {(prov) => (
-              <div ref={prov.innerRef} {...prov.droppableProps}>
-                {noTriggerChildren.map((child, idx) => (
-                  <Draggable key={child.id} draggableId={child.id} index={idx}>
-                    {(p) => (
-                      <div ref={p.innerRef} {...p.draggableProps}>
-                        {renderField(child, depth + 1, p.dragHandleProps)}
-                      </div>
-                    )}
-                  </Draggable>
-                ))}
-                {prov.placeholder}
-              </div>
-            )}
-          </Droppable>
-        )}
       </div>
     );
   };
@@ -452,10 +484,10 @@ export default function FormBuilderPage() {
         )}
       </div>
 
-      <DragDropContext onDragEnd={onDragEnd}>
-        <Droppable droppableId="root">
+      <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
+        <Droppable droppableId="root" type="root" isDropDisabled={activeDragGroup !== null && activeDragGroup !== "root"}>
           {(provided) => (
-            <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-1">
+            <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-1 min-h-[1px]">
               {rootFields.map((field, index) => (
                 <Draggable key={field.id} draggableId={field.id} index={index}>
                   {(prov) => (
