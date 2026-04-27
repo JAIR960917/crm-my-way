@@ -24,6 +24,8 @@ type ItemVenda = {
 
 type Venda = {
   id: number;
+  ssotica_company_id?: string | null;
+  loja_nome?: string | null;
   data: string;
   hora: string;
   numero: number;
@@ -38,6 +40,8 @@ type Venda = {
 type Props = {
   ssoticaClienteId: number | null | undefined;
   ssoticaCompanyId: string | null | undefined;
+  /** CPF do cliente — quando informado, busca vendas em todas as lojas do mesmo CPF */
+  cpf?: string | null;
 };
 
 const fmtBRL = (v: number) =>
