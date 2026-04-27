@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Users, Receipt, CalendarHeart, Phone, PhoneOff, CalendarCheck, CalendarX, Calendar as CalIcon, Building2, ChevronDown, X, ThumbsUp, ThumbsDown, HandCoins, FolderOpen } from "lucide-react";
+import { Users, Receipt, CalendarHeart, Phone, PhoneOff, CalendarCheck, CalendarX, Calendar as CalIcon, Building2, ChevronDown, X, ThumbsUp, ThumbsDown, HandCoins } from "lucide-react";
 
 type Profile = { user_id: string; full_name: string; avatar_url: string | null; company_id: string | null };
 type Company = { id: string; name: string };
@@ -39,7 +39,6 @@ type CobrancaRow = {
   avatar_url: string | null;
   company_id: string | null;
   company_name: string;
-  aberturas: number;
   contatos: number;
   atendeu: number;
   naoAtendeu: number;
@@ -293,54 +292,65 @@ export default function DashboardPage() {
       .from("crm_cobranca_notes")
       .select("user_id, cobranca_id, content, created_at")
       .gte("created_at", startISO)
-      .lte("created_at", endISO);
+      .lte("created_at", endISO)
+      .order("created_at", { ascending: true });
 
-    // Aberturas de card de cobrança no período
-    const { data: cobOpens } = await supabase
-      .from("lead_card_opens")
-      .select("user_id, cobranca_id, opened_at, card_type")
-      .eq("card_type", "cobranca")
-      .gte("opened_at", startISO)
-      .lte("opened_at", endISO);
+    type LeadOutcome = {
+      atendeu: boolean;
+      naoAtendeu: boolean;
+      renegociou: boolean;
+      naoRenegociou: boolean;
+    };
+    // Por (user_id|cobranca_id) consolidamos o desfecho do lead no período.
+    // Assim, abrir o mesmo lead várias vezes e mudar o status não infla os números.
+    const byUserLead = new Map<string, LeadOutcome>();
 
-    type Stats = { aberturas: number; contatos: number; atendeu: number; naoAtendeu: number; renegociou: number; naoRenegociou: number };
+    (notes || []).forEach((n: any) => {
+      if (adminSet.has(n.user_id)) return;
+      if (!n.cobranca_id) return;
+      const content: string = n.content || "";
+      if (!content.startsWith("📞 Tentativa de contato")) return;
+
+      const key = `${n.user_id}|${n.cobranca_id}`;
+      const cur = byUserLead.get(key) || {
+        atendeu: false,
+        naoAtendeu: false,
+        renegociou: false,
+        naoRenegociou: false,
+      };
+
+      if (content.includes("ATENDEU") && !content.includes("NÃO ATENDEU")) {
+        cur.atendeu = true;
+        if (content.includes("✅ Cliente RENEGOCIOU")) cur.renegociou = true;
+        else if (content.includes("❌ Cliente NÃO renegociou")) cur.naoRenegociou = true;
+      } else if (content.includes("NÃO ATENDEU")) {
+        cur.naoAtendeu = true;
+      }
+
+      byUserLead.set(key, cur);
+    });
+
+    type Stats = { contatos: number; atendeu: number; naoAtendeu: number; renegociou: number; naoRenegociou: number };
     const byUser = new Map<string, Stats>();
     const ensure = (uid: string) => {
       if (!byUser.has(uid)) {
-        byUser.set(uid, { aberturas: 0, contatos: 0, atendeu: 0, naoAtendeu: 0, renegociou: 0, naoRenegociou: 0 });
+        byUser.set(uid, { contatos: 0, atendeu: 0, naoAtendeu: 0, renegociou: 0, naoRenegociou: 0 });
       }
       return byUser.get(uid)!;
     };
 
-    // Conta aberturas distintas por (usuário, cobrança, dia) para evitar inflar
-    const openKeys = new Set<string>();
-    const dayKey = (iso: string) => {
-      const d = new Date(iso);
-      return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    };
-    (cobOpens || []).forEach((o: any) => {
-      if (adminSet.has(o.user_id)) return;
-      if (!o.cobranca_id) return;
-      const key = `${o.user_id}|${dayKey(o.opened_at)}|${o.cobranca_id}`;
-      if (openKeys.has(key)) return;
-      openKeys.add(key);
-      ensure(o.user_id).aberturas += 1;
-    });
-
-    (notes || []).forEach((n: any) => {
-      if (adminSet.has(n.user_id)) return;
-      const content: string = n.content || "";
-      if (!content.startsWith("📞 Tentativa de contato")) return;
-
-      const s = ensure(n.user_id);
+    byUserLead.forEach((outcome, key) => {
+      const uid = key.split("|")[0];
+      const s = ensure(uid);
+      // Cada lead único conta como 1 contato
       s.contatos += 1;
-
-      if (content.includes("NÃO ATENDEU")) {
-        s.naoAtendeu += 1;
-      } else if (content.includes("ATENDEU")) {
+      // Prioridade: se atendeu em algum momento, conta como atendido (sobrepõe não atendeu)
+      if (outcome.atendeu) {
         s.atendeu += 1;
-        if (content.includes("✅ Cliente RENEGOCIOU")) s.renegociou += 1;
-        else if (content.includes("❌ Cliente NÃO renegociou")) s.naoRenegociou += 1;
+        if (outcome.renegociou) s.renegociou += 1;
+        else if (outcome.naoRenegociou) s.naoRenegociou += 1;
+      } else if (outcome.naoAtendeu) {
+        s.naoAtendeu += 1;
       }
     });
 
@@ -352,7 +362,6 @@ export default function DashboardPage() {
         avatar_url: p?.avatar_url || null,
         company_id: p?.company_id || null,
         company_name: p?.company_id ? compById.get(p.company_id) || "—" : "—",
-        aberturas: s.aberturas,
         contatos: s.contatos,
         atendeu: s.atendeu,
         naoAtendeu: s.naoAtendeu,
@@ -361,7 +370,7 @@ export default function DashboardPage() {
       };
     });
 
-    rows.sort((a, b) => (b.aberturas + b.contatos) - (a.aberturas + a.contatos));
+    rows.sort((a, b) => b.contatos - a.contatos);
     setCobrancaRows(rows);
   };
 
@@ -463,14 +472,13 @@ export default function DashboardPage() {
   const cobrancaTotals = useMemo(() => {
     return filteredCobrancaRows.reduce(
       (acc, r) => ({
-        aberturas: acc.aberturas + r.aberturas,
         contatos: acc.contatos + r.contatos,
         atendeu: acc.atendeu + r.atendeu,
         naoAtendeu: acc.naoAtendeu + r.naoAtendeu,
         renegociou: acc.renegociou + r.renegociou,
         naoRenegociou: acc.naoRenegociou + r.naoRenegociou,
       }),
-      { aberturas: 0, contatos: 0, atendeu: 0, naoAtendeu: 0, renegociou: 0, naoRenegociou: 0 },
+      { contatos: 0, atendeu: 0, naoAtendeu: 0, renegociou: 0, naoRenegociou: 0 },
     );
   }, [filteredCobrancaRows]);
 
@@ -849,8 +857,7 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6 mb-4">
-              <SummaryStat label="Aberturas" value={cobrancaTotals.aberturas} icon={FolderOpen} tone="default" />
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 mb-4">
               <SummaryStat label="Contatos" value={cobrancaTotals.contatos} icon={Phone} tone="default" />
               <SummaryStat label="Atenderam" value={cobrancaTotals.atendeu} icon={Phone} tone="success" />
               <SummaryStat label="Não atenderam" value={cobrancaTotals.naoAtendeu} icon={PhoneOff} tone="danger" />
@@ -862,7 +869,7 @@ export default function DashboardPage() {
               <Skeleton className="h-40 w-full" />
             ) : filteredCobrancaRows.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
-                Nenhuma abertura de card ou tentativa de contato em cobranças no período selecionado.
+                Nenhuma tentativa de contato em cobranças no período selecionado.
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -871,9 +878,6 @@ export default function DashboardPage() {
                     <TableRow>
                       <TableHead>Vendedor</TableHead>
                       <TableHead>Empresa</TableHead>
-                      <TableHead className="text-center">
-                        <span className="inline-flex items-center gap-1"><FolderOpen className="h-3.5 w-3.5" /> Aberturas</span>
-                      </TableHead>
                       <TableHead className="text-center">
                         <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" /> Contatos</span>
                       </TableHead>
@@ -906,7 +910,6 @@ export default function DashboardPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground text-sm">{row.company_name}</TableCell>
-                        <TableCell className="text-center font-semibold">{row.aberturas}</TableCell>
                         <TableCell className="text-center font-semibold">{row.contatos}</TableCell>
                         <TableCell className="text-center">
                           <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 bg-emerald-500/10">
@@ -936,11 +939,9 @@ export default function DashboardPage() {
             )}
 
             <p className="text-[11px] text-muted-foreground mt-4">
-              <FolderOpen className="h-3 w-3 inline mr-1" />
-              "Aberturas" conta cards de cobrança únicos abertos no dia.{" "}
-              <Phone className="h-3 w-3 inline mx-1" />
-              Cada "Contato" é uma tentativa registrada. "Renegociaram" e "Não renegociaram"
-              são contadas apenas quando o cliente atendeu.
+              <Phone className="h-3 w-3 inline mr-1" />
+              "Contatos" conta cada lead único com tentativa registrada (mesmo que aberto várias vezes no dia).
+              "Renegociaram" e "Não renegociaram" são contadas apenas quando o cliente atendeu.
             </p>
           </CardContent>
         </Card>
