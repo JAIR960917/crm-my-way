@@ -295,18 +295,44 @@ export default function DashboardPage() {
       .gte("created_at", startISO)
       .lte("created_at", endISO);
 
-    type Stats = { contatos: number; atendeu: number; naoAtendeu: number; renegociou: number; naoRenegociou: number };
+    // Aberturas de card de cobrança no período
+    const { data: cobOpens } = await supabase
+      .from("lead_card_opens")
+      .select("user_id, cobranca_id, opened_at, card_type")
+      .eq("card_type", "cobranca")
+      .gte("opened_at", startISO)
+      .lte("opened_at", endISO);
+
+    type Stats = { aberturas: number; contatos: number; atendeu: number; naoAtendeu: number; renegociou: number; naoRenegociou: number };
     const byUser = new Map<string, Stats>();
+    const ensure = (uid: string) => {
+      if (!byUser.has(uid)) {
+        byUser.set(uid, { aberturas: 0, contatos: 0, atendeu: 0, naoAtendeu: 0, renegociou: 0, naoRenegociou: 0 });
+      }
+      return byUser.get(uid)!;
+    };
+
+    // Conta aberturas distintas por (usuário, cobrança, dia) para evitar inflar
+    const openKeys = new Set<string>();
+    const dayKey = (iso: string) => {
+      const d = new Date(iso);
+      return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    };
+    (cobOpens || []).forEach((o: any) => {
+      if (adminSet.has(o.user_id)) return;
+      if (!o.cobranca_id) return;
+      const key = `${o.user_id}|${dayKey(o.opened_at)}|${o.cobranca_id}`;
+      if (openKeys.has(key)) return;
+      openKeys.add(key);
+      ensure(o.user_id).aberturas += 1;
+    });
 
     (notes || []).forEach((n: any) => {
       if (adminSet.has(n.user_id)) return;
       const content: string = n.content || "";
       if (!content.startsWith("📞 Tentativa de contato")) return;
 
-      if (!byUser.has(n.user_id)) {
-        byUser.set(n.user_id, { contatos: 0, atendeu: 0, naoAtendeu: 0, renegociou: 0, naoRenegociou: 0 });
-      }
-      const s = byUser.get(n.user_id)!;
+      const s = ensure(n.user_id);
       s.contatos += 1;
 
       if (content.includes("NÃO ATENDEU")) {
@@ -326,6 +352,7 @@ export default function DashboardPage() {
         avatar_url: p?.avatar_url || null,
         company_id: p?.company_id || null,
         company_name: p?.company_id ? compById.get(p.company_id) || "—" : "—",
+        aberturas: s.aberturas,
         contatos: s.contatos,
         atendeu: s.atendeu,
         naoAtendeu: s.naoAtendeu,
@@ -334,7 +361,7 @@ export default function DashboardPage() {
       };
     });
 
-    rows.sort((a, b) => b.contatos - a.contatos);
+    rows.sort((a, b) => (b.aberturas + b.contatos) - (a.aberturas + a.contatos));
     setCobrancaRows(rows);
   };
 
@@ -436,13 +463,14 @@ export default function DashboardPage() {
   const cobrancaTotals = useMemo(() => {
     return filteredCobrancaRows.reduce(
       (acc, r) => ({
+        aberturas: acc.aberturas + r.aberturas,
         contatos: acc.contatos + r.contatos,
         atendeu: acc.atendeu + r.atendeu,
         naoAtendeu: acc.naoAtendeu + r.naoAtendeu,
         renegociou: acc.renegociou + r.renegociou,
         naoRenegociou: acc.naoRenegociou + r.naoRenegociou,
       }),
-      { contatos: 0, atendeu: 0, naoAtendeu: 0, renegociou: 0, naoRenegociou: 0 },
+      { aberturas: 0, contatos: 0, atendeu: 0, naoAtendeu: 0, renegociou: 0, naoRenegociou: 0 },
     );
   }, [filteredCobrancaRows]);
 
