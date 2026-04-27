@@ -287,13 +287,17 @@ export default function CobrancasPage() {
     return ids;
   }, [activities, noteIds]);
 
-  const sortByTaskPriority = useCallback(<T extends { id: string }>(items: T[]) => {
+  const sortByTaskPriority = useCallback(<T extends { id: string; data?: any }>(items: T[]) => {
     return [...items].sort((a, b) => {
-      // 1) Pending task always dominates: cards with pending tasks go to the TOP
+      // 1) Cards já tratados (renegociou definido) vão SEMPRE para o final
+      const aTreated = (a as any)?.data?.renegociou ? 1 : 0;
+      const bTreated = (b as any)?.data?.renegociou ? 1 : 0;
+      if (aTreated !== bTreated) return aTreated - bTreated;
+      // 2) Pending task domina: cards com tarefa pendente vão para o TOPO
       const aPrio = cobrancaTaskPriority.get(a.id) || 0;
       const bPrio = cobrancaTaskPriority.get(b.id) || 0;
       if (aPrio !== bPrio) return bPrio - aPrio;
-      // 2) When no pending task, cards with recent interaction go to the END
+      // 3) Sem tarefa pendente, interação recente vai para o final
       const aHasRecent = cobrancasWithRecentActivity.has(a.id) ? 1 : 0;
       const bHasRecent = cobrancasWithRecentActivity.has(b.id) ? 1 : 0;
       return aHasRecent - bHasRecent;
