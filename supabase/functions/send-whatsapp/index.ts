@@ -432,6 +432,14 @@ serve(async (req) => {
         const statusKey = await resolveStatusKey(supabase, cfg.statusTable, tc.status_id);
         if (!statusKey) continue;
 
+        // Busca label da coluna para o log
+        const { data: tcStatusRow } = await supabase
+          .from(cfg.statusTable)
+          .select("label, key")
+          .eq("id", tc.status_id)
+          .single();
+        const tcStatusLabel = tcStatusRow?.label || statusKey;
+
         const { data: cardsRaw } = await supabase.from(cfg.dataTable)
           .select("id, data, status, updated_at, created_by, assigned_to").eq("status", statusKey);
         if (!cardsRaw || cardsRaw.length === 0) continue;
@@ -456,9 +464,21 @@ serve(async (req) => {
           }
         }
 
+        // Cards que tinham steps pendentes ANTES desta execução
+        const totalSteps = steps.length;
+        const cardsWithPendingBefore = cards.filter((c: any) => {
+          const sent = sendsByCard.get(c.id) || new Set();
+          return sent.size < totalSteps;
+        });
+
+        let triggerSentNow = 0;
+        let triggerErrorsNow = 0;
+        let aborted = false;
+
         for (const card of cards) {
           if (!isWithinDailyWindow(tc.start_time, tc.end_time)) {
             skippedOutOfWindow++;
+            aborted = true;
             break;
           }
 
@@ -500,16 +520,52 @@ serve(async (req) => {
               if (result.ok) {
                 await supabase.from("whatsapp_trigger_sends").insert({ campaign_id: tc.id, step_id: step.id, lead_id: card.id, phone: cp, status: "sent", sent_at: new Date().toISOString() });
                 totalSent++;
+                triggerSentNow++;
               } else {
                 await supabase.from("whatsapp_trigger_sends").insert({ campaign_id: tc.id, step_id: step.id, lead_id: card.id, phone: cp, status: "error", error_message: result.errorMessage || "Erro" });
                 totalErrors++;
+                triggerErrorsNow++;
               }
             } catch (e) {
               await supabase.from("whatsapp_trigger_sends").insert({ campaign_id: tc.id, step_id: step.id, lead_id: card.id, phone: cp, status: "error", error_message: e instanceof Error ? e.message : "Unknown error" });
               totalErrors++;
+              triggerErrorsNow++;
             }
 
             break;
+          }
+        }
+
+        // Verifica se TODOS os cards da coluna concluíram TODOS os steps após esta execução
+        if (!aborted && cardsWithPendingBefore.length > 0 && triggerSentNow > 0) {
+          const { data: finalSends } = await supabase.from("whatsapp_trigger_sends")
+            .select("lead_id, step_id, status").eq("campaign_id", tc.id);
+          const finalByCard = new Map<string, Set<string>>();
+          for (const s of (finalSends || []) as any[]) {
+            if (s.status === "sent") {
+              if (!finalByCard.has(s.lead_id)) finalByCard.set(s.lead_id, new Set());
+              finalByCard.get(s.lead_id)!.add(s.step_id);
+            }
+          }
+          const stillPending = cards.filter((c: any) => {
+            const sent = finalByCard.get(c.id) || new Set();
+            return sent.size < totalSteps;
+          });
+          if (stillPending.length === 0) {
+            await supabase.from("whatsapp_completion_logs").insert({
+              source_type: "trigger",
+              source_id: tc.id,
+              source_name: tc.name,
+              module: moduleKey,
+              status_id: tc.status_id,
+              status_label: tcStatusLabel,
+              status_key: statusKey,
+              company_id: tc.company_id,
+              total_cards: cards.length,
+              sent_count: triggerSentNow,
+              error_count: triggerErrorsNow,
+              completed_at: new Date().toISOString(),
+            });
           }
         }
       }
