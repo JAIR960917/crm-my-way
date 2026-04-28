@@ -60,6 +60,34 @@ function statusKeyForDiasAtraso(dias: number): string {
   return "180_dias_ajuizar_manualmente"; // 180+
 }
 
+// Coluna FIXA para clientes com situação "Negativado Serasa" (COLUNA 10).
+const COBRANCA_NEGATIVADO_SERASA_KEY = "65_dias_de_atraso_receber_informe_de_negativao";
+// Coluna FIXA para clientes com situação "Ajuizado(A) Saniely" / "Ajuizado(A) Návde".
+const COBRANCA_AJUIZADO_KEY = "ajuizados_manual";
+// A partir desta coluna (COLUNA 9 — "61 negativação") o sync NÃO altera mais o
+// status do card automaticamente, mesmo que dias_atraso aumente. O card só sai
+// dessa coluna quando a Brenda registra a tratativa e o fluxo configurado avança.
+const COBRANCA_LOCKED_KEYS = new Set<string>([
+  "61_negativao",
+  "65_dias_de_atraso_receber_informe_de_negativao",
+  "75_dias_de_atraso_proposta_de_negociao_ps_negativao",
+  "90_dias_de_atraso_ligao_para_tentativa_de_negociao_ps_negativao",
+  "105_dias_de_atraso_notificao_extra_judicial_altomtico",
+  "120_dias_de_atraso_ligao_informe_judicial",
+  "135_dias_de_atraso_oferta_de_negativao_automatico",
+  "150_dias_de_atraso_enviar_para_o_advogado",
+  "180_dias_ajuizar_manualmente",
+  "ajuizados_manual",
+  "inadimplncia_sem_ajuizamento_manual",
+]);
+
+// Quando o card é NOVO (ou retorna da renovação) e a regra por dias indicaria
+// uma coluna "travada" (>= COLUNA 9), paramos no "61 negativação" — o card só
+// avança dali se a Brenda configurar o fluxo e registrar a tratativa.
+function clampToLockedEntry(key: string): string {
+  if (COBRANCA_LOCKED_KEYS.has(key)) return "61_negativao";
+  return key;
+
 // Mapeia dias desde a última compra para a key da coluna em crm_renovacao_statuses.
 // Re-classifica sempre (a cada sync) para acompanhar a passagem do tempo.
 function statusKeyForRenovacao(diasDesdeUltimaCompra: number | null): string {
