@@ -316,6 +316,11 @@ export default function WhatsAppPage() {
     if (!user) return;
     setSaving(true);
 
+    // Para Cobranças, força a instância oticaJoonker mesmo se empresa for Global
+    const joonkerInstance = instances.find(i => i.is_active && i.name?.toLowerCase().includes("oticajoonker"));
+    const forcedInstanceId = moduleKey === "cobrancas" && joonkerInstance ? joonkerInstance.id : null;
+    const effectiveInstanceId = forcedInstanceId || instanceId || null;
+
     const basePayload: any = {
       name: name.trim(), message: message.trim(),
       module: moduleKey,
@@ -325,7 +330,7 @@ export default function WhatsAppPage() {
       start_time: startTime,
       end_time: endTime,
       created_by: user.id,
-      instance_id: instanceId || null,
+      instance_id: effectiveInstanceId,
       image_url: imageUrl,
     };
 
@@ -351,8 +356,8 @@ export default function WhatsAppPage() {
       }));
       ({ error } = await supabase.from("whatsapp_campaigns").insert(rows));
     } else if (companyId === "__GLOBAL__") {
-      // Uma única campanha global — usa instância da empresa do lead
-      ({ error } = await supabase.from("whatsapp_campaigns").insert({ ...basePayload, company_id: null, instance_id: null, is_active: false }));
+      // Global: normalmente usa instância da empresa do lead, mas para Cobranças força oticaJoonker
+      ({ error } = await supabase.from("whatsapp_campaigns").insert({ ...basePayload, company_id: null, instance_id: forcedInstanceId, is_active: false }));
     } else {
       ({ error } = await supabase.from("whatsapp_campaigns").insert({ ...basePayload, company_id: companyId, is_active: false }));
     }
