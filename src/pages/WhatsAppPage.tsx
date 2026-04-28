@@ -632,8 +632,12 @@ export default function WhatsAppPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Instância WhatsApp {companyId === "__GLOBAL__" ? "" : "*"}</Label>
-                  {companyId === "__GLOBAL__" ? (
+                  <Label>Instância WhatsApp {companyId === "__GLOBAL__" && moduleKey !== "cobrancas" ? "" : "*"}</Label>
+                  {moduleKey === "cobrancas" ? (
+                    <div className="flex items-center h-10 px-3 rounded-md border border-dashed border-primary/40 text-xs text-muted-foreground">
+                      📌 Cobranças usa sempre a instância <span className="font-semibold ml-1">oticaJoonker</span>
+                    </div>
+                  ) : companyId === "__GLOBAL__" ? (
                     <div className="flex items-center h-10 px-3 rounded-md border border-dashed border-border text-xs text-muted-foreground">
                       🌐 Será usada a instância da empresa de cada lead
                     </div>
