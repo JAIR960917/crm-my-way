@@ -8,9 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, RefreshCw, History, Filter } from "lucide-react";
+import { ArrowRight, RefreshCw, History, Filter, CheckCircle2, MessageSquare, Zap } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -48,11 +49,34 @@ const classifyEvent = (l: TransitionLog): EventKind => {
   return "other";
 };
 
+type CompletionLog = {
+  id: string;
+  source_type: "campaign" | "trigger";
+  source_id: string;
+  source_name: string;
+  module: string;
+  status_label: string | null;
+  status_key: string | null;
+  company_id: string | null;
+  total_cards: number;
+  sent_count: number;
+  error_count: number;
+  completed_at: string;
+};
+
+const moduleNiceLabel = (m: string) =>
+  m === "leads" ? "Leads" : m === "cobrancas" ? "Cobranças" : m === "renovacoes" ? "Renovações" : m;
+
 export default function TransitionLogsPage() {
   const { isAdmin, loading: authLoading } = useAuth();
   const [logs, setLogs] = useState<TransitionLog[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Logs de conclusão de campanha/gatilho
+  const [completionLogs, setCompletionLogs] = useState<CompletionLog[]>([]);
+  const [completionLoading, setCompletionLoading] = useState(true);
+  const [completionSourceFilter, setCompletionSourceFilter] = useState<"all" | "campaign" | "trigger">("all");
 
   // Filtros
   const [startDate, setStartDate] = useState("");
@@ -92,6 +116,27 @@ export default function TransitionLogsPage() {
     setLoading(false);
   };
 
+  const loadCompletionLogs = async () => {
+    setCompletionLoading(true);
+    let q = (supabase as any)
+      .from("whatsapp_completion_logs")
+      .select("*")
+      .order("completed_at", { ascending: false })
+      .limit(500);
+    if (completionSourceFilter !== "all") q = q.eq("source_type", completionSourceFilter);
+    if (companyId !== "all") q = q.eq("company_id", companyId);
+    if (startDate) q = q.gte("completed_at", `${startDate}T00:00:00`);
+    if (endDate) q = q.lte("completed_at", `${endDate}T23:59:59`);
+    const { data, error } = await q;
+    if (error) {
+      toast.error("Erro ao carregar logs de campanhas: " + error.message);
+      setCompletionLogs([]);
+    } else {
+      setCompletionLogs((data ?? []) as CompletionLog[]);
+    }
+    setCompletionLoading(false);
+  };
+
   useEffect(() => {
     if (!isAdmin) return;
     supabase
@@ -100,6 +145,7 @@ export default function TransitionLogsPage() {
       .order("name")
       .then(({ data }) => setCompanies((data ?? []) as Company[]));
     load();
+    loadCompletionLogs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
@@ -134,11 +180,25 @@ export default function TransitionLogsPage() {
               </p>
             </div>
           </div>
-          <Button onClick={load} variant="outline" size="sm" disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+          <Button onClick={() => { load(); loadCompletionLogs(); }} variant="outline" size="sm" disabled={loading || completionLoading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${(loading || completionLoading) ? "animate-spin" : ""}`} />
             Atualizar
           </Button>
         </header>
+
+        <Tabs defaultValue="movimentacao" className="w-full">
+          <TabsList>
+            <TabsTrigger value="movimentacao">
+              <ArrowRight className="h-4 w-4 mr-2" />
+              Movimentação de cards
+            </TabsTrigger>
+            <TabsTrigger value="campanhas">
+              <CheckCircle2 className="h-4 w-4 mr-2" />
+              Campanhas concluídas
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="movimentacao" className="space-y-6 mt-4">
 
         <Card className="p-4">
           <div className="flex items-center gap-2 mb-4 text-sm font-medium text-muted-foreground">
@@ -320,6 +380,113 @@ export default function TransitionLogsPage() {
             </div>
           )}
         </Card>
+          </TabsContent>
+
+          <TabsContent value="campanhas" className="space-y-6 mt-4">
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-4 text-sm font-medium text-muted-foreground">
+                <Filter className="h-4 w-4" /> Filtros
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-1.5">
+                  <Label>Tipo</Label>
+                  <Select value={completionSourceFilter} onValueChange={(v: any) => setCompletionSourceFilter(v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="campaign">Campanhas</SelectItem>
+                      <SelectItem value="trigger">Gatilhos</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Empresa</Label>
+                  <Select value={companyId} onValueChange={setCompanyId}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas</SelectItem>
+                      {companies.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Data inicial</Label>
+                  <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Data final</Label>
+                  <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                </div>
+              </div>
+              <div className="flex justify-end mt-4">
+                <Button size="sm" onClick={loadCompletionLogs} disabled={completionLoading}>
+                  Aplicar filtros
+                </Button>
+              </div>
+            </Card>
+
+            <Card className="overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Data / Hora</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Nome</TableHead>
+                    <TableHead>Módulo</TableHead>
+                    <TableHead>Coluna</TableHead>
+                    <TableHead>Empresa</TableHead>
+                    <TableHead className="text-right">Cards</TableHead>
+                    <TableHead className="text-right">Enviados</TableHead>
+                    <TableHead className="text-right">Erros</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {completionLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                        Carregando...
+                      </TableCell>
+                    </TableRow>
+                  ) : completionLogs.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                        Nenhuma campanha concluída registrada
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    completionLogs.map((cl) => (
+                      <TableRow key={cl.id}>
+                        <TableCell className="whitespace-nowrap text-sm">
+                          {format(new Date(cl.completed_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                        </TableCell>
+                        <TableCell>
+                          {cl.source_type === "campaign" ? (
+                            <Badge variant="outline" className="border-blue-300 bg-blue-500/10 text-blue-700">
+                              <MessageSquare className="h-3 w-3 mr-1" /> Campanha
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="border-purple-300 bg-purple-500/10 text-purple-700">
+                              <Zap className="h-3 w-3 mr-1" /> Gatilho
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-medium">{cl.source_name}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{moduleNiceLabel(cl.module)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{cl.status_label ?? cl.status_key ?? "—"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{companyName(cl.company_id)}</TableCell>
+                        <TableCell className="text-right text-sm">{cl.total_cards}</TableCell>
+                        <TableCell className="text-right text-sm text-emerald-600 font-medium">{cl.sent_count}</TableCell>
+                        <TableCell className="text-right text-sm text-red-600 font-medium">{cl.error_count}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </AppLayout>
   );
