@@ -1633,7 +1633,16 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ========== MODO 2: iniciar backfill de 96 meses (botão "Resincronizar tudo") ==========
+    // ========== MODO 2: consolidar cobranças cross-store sem reimportar dados ==========
+    if (mode === "consolidate_only") {
+      const consolidation = await consolidateCrossStoreCobrancas(supabase);
+      console.log(`[ssotica-sync][consolidation-only] groups_merged=${consolidation.groups_merged} cards_removed=${consolidation.cards_removed}`);
+      return new Response(JSON.stringify({ ok: true, mode, consolidation }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ========== MODO 3: iniciar backfill de 96 meses (botão "Resincronizar tudo") ==========
     if (mode === "start_backfill") {
       if (!onlyIntegrationId) {
         return new Response(JSON.stringify({ ok: false, error: "integration_id obrigatório" }), {
@@ -1671,7 +1680,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ========== MODO 3 (default): sync incremental ==========
+    // ========== MODO 4 (default): sync incremental ==========
     const query = supabase
       .from("ssotica_integrations")
       .select("*")
@@ -1849,6 +1858,8 @@ Deno.serve(async (req) => {
 
         // 1. Contas a Receber primeiro (para que Renovações saibam quem tem dívida)
         const cr = await syncContasReceber(supabase, integ, undefined, { manualRecent: manualRecent && !!onlyIntegrationId });
+        const consolidationAfterReceber = await consolidateCrossStoreCobrancas(supabase);
+        console.log(`[ssotica-sync][consolidation-after-cobrancas] empresa=${integ.company_id} groups_merged=${consolidationAfterReceber.groups_merged} cards_removed=${consolidationAfterReceber.cards_removed}`);
         // 2. Vendas
         const v = await syncVendas(supabase, integ, forceFull, cr.clientesQuitados);
         // 3. Reconciliação: garante que ninguém com cobrança aberta esteja em Renovação
@@ -1871,11 +1882,11 @@ Deno.serve(async (req) => {
             items_processed: cr.processed + v.processed,
             items_created: cr.created + v.created,
             items_updated: cr.updated + v.updated,
-            details: { contas_receber: cr, vendas: v, backfill_chunks_run: backfillChunkResults.length },
+            details: { contas_receber: cr, vendas: v, consolidation_after_cobrancas: consolidationAfterReceber, backfill_chunks_run: backfillChunkResults.length },
           }).eq("id", logId);
         }
 
-        results.push({ integration_id: integ.id, ok: true, contas_receber: cr, vendas: v, backfill_chunks_run: backfillChunkResults });
+        results.push({ integration_id: integ.id, ok: true, contas_receber: cr, vendas: v, consolidation_after_cobrancas: consolidationAfterReceber, backfill_chunks_run: backfillChunkResults });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`[ssotica-sync] integration ${integ.id} failed:`, msg);
