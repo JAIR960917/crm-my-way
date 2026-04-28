@@ -87,6 +87,7 @@ const COBRANCA_LOCKED_KEYS = new Set<string>([
 function clampToLockedEntry(key: string): string {
   if (COBRANCA_LOCKED_KEYS.has(key)) return "61_negativao";
   return key;
+}
 
 // Mapeia dias desde a última compra para a key da coluna em crm_renovacao_statuses.
 // Re-classifica sempre (a cada sync) para acompanhar a passagem do tempo.
