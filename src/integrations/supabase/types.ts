@@ -1607,13 +1607,6 @@ export type Database = {
             referencedRelation: "whatsapp_instances"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "whatsapp_campaigns_status_id_fkey"
-            columns: ["status_id"]
-            isOneToOne: false
-            referencedRelation: "crm_statuses"
-            referencedColumns: ["id"]
-          },
         ]
       }
       whatsapp_completion_logs: {
@@ -1761,13 +1754,6 @@ export type Database = {
             columns: ["instance_id"]
             isOneToOne: false
             referencedRelation: "whatsapp_instances"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "whatsapp_trigger_campaigns_status_id_fkey"
-            columns: ["status_id"]
-            isOneToOne: false
-            referencedRelation: "crm_statuses"
             referencedColumns: ["id"]
           },
         ]
