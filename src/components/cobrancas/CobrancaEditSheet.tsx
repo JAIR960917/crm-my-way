@@ -684,6 +684,7 @@ export default function CobrancaEditSheet(props: Props) {
                       userId={user.id}
                       userName={getProfile(user.id)?.full_name}
                       cobrancaData={formData}
+                      cobrancaStatus={formStatus}
                       onSaved={() => { setContactRegisteredInSession(true); fetchTimeline(); }}
                     />
                   )}
