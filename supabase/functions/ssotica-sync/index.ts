@@ -529,6 +529,18 @@ async function syncContasReceber(
         // Aceitamos diasAtraso negativo (parcela "a vencer" / pendente) — vai
         // para a coluna "pendente". Casos especiais (Negativado Serasa /
         // Ajuizado) entram independente de diasAtraso (coluna fixa).
+        // ⚠️ REGRA: parcelas que ainda faltam mais de 1 dia para vencer
+        // (diasAtraso <= -2) NÃO entram na cobrança como parcela "ativa", a
+        // menos que o cliente tenha outras parcelas em atraso ou seja caso
+        // especial. Isso evita que vendas recém-feitas apareçam na coluna
+        // "1 Dia antes do vencimento" semanas/meses antes do vencimento.
+        if (diasAtraso <= -2 && !isNegativadoSerasa && !isAjuizado) {
+          // Marca como "vista" para não ser apagada como pago, mas não vira card.
+          if (parcela.id) parcelasInativasIds.add(Number(parcela.id));
+          const cliFut = parcela.titulo?.cliente ?? parcela.cliente ?? {};
+          if (cliFut?.id) clientesAfetados.add(Number(cliFut.id));
+          continue;
+        }
 
         if (parcela.id) parcelasAtivasIds.add(Number(parcela.id));
 
