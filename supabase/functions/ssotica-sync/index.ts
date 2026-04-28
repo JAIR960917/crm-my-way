@@ -1648,7 +1648,7 @@ async function runBackfillChunk(
   // 1 chunk em caso de timeout, mas evita loop infinito que trava 100% do backfill.
   const nextIdxOptimistic = idx + 1;
   const finishedOptimistic = nextIdxOptimistic >= total;
-  const nextRunAtOptimistic = finishedOptimistic ? null : new Date(Date.now() + 3 * 60 * 1000).toISOString();
+  const nextRunAtOptimistic = finishedOptimistic ? null : new Date(Date.now() + 30 * 1000).toISOString();
   await supabase.from("ssotica_integrations").update({
     backfill_chunk_index: nextIdxOptimistic,
     backfill_next_run_at: nextRunAtOptimistic,
@@ -1693,8 +1693,8 @@ async function runBackfillChunk(
       }).eq("id", logId);
     }
 
-    const nextRunAt = finished ? null : new Date(Date.now() + 3 * 60 * 1000).toISOString();
-    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} OK. ${finished ? 'CONCLUÍDO!' : `próximo em 3min (${nextRunAt})`}`);
+    const nextRunAt = finished ? null : new Date(Date.now() + 30 * 1000).toISOString();
+    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} OK. ${finished ? 'CONCLUÍDO!' : `próximo em 30s (${nextRunAt})`}`);
 
     // RECONCILIAÇÃO: roda APENAS no chunk final (quando todos os dados já foram sincronizados).
     // Antes era a cada chunk, mas em lojas grandes (~7000 cobranças) isso causava timeout
@@ -1860,7 +1860,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({
         ok: true,
         mode: "start_backfill",
-        message: "Backfill de 96 meses iniciado. Os próximos 15 chunks rodarão automaticamente, 1 a cada 3 minutos.",
+        message: "Backfill de 96 meses iniciado. Os próximos 15 chunks rodarão automaticamente, 1 a cada 30 segundos.",
         first_chunk: r,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
