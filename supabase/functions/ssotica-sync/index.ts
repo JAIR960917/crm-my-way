@@ -1620,6 +1620,7 @@ Deno.serve(async (req) => {
     const mode: string = body.mode ?? (body.start_backfill ? "start_backfill" : "incremental");
     const onlyIntegrationId: string | undefined = body.integration_id;
     const forceFull: boolean = body.force_full === true;
+    const manualRecent: boolean = body.manual_recent === true;
 
     // ========== MODO 1: tick do cron — processa próximo chunk de qualquer integração pronta ==========
     if (mode === "backfill_tick") {
@@ -1871,7 +1872,7 @@ Deno.serve(async (req) => {
         logId = log?.id ?? null;
 
         // 1. Contas a Receber primeiro (para que Renovações saibam quem tem dívida)
-        const cr = await syncContasReceber(supabase, integ);
+        const cr = await syncContasReceber(supabase, integ, undefined, { manualRecent: manualRecent && !!onlyIntegrationId });
         // 2. Vendas
         const v = await syncVendas(supabase, integ, forceFull, cr.clientesQuitados);
         // 3. Reconciliação: garante que ninguém com cobrança aberta esteja em Renovação
