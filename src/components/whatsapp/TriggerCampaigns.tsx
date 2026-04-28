@@ -449,7 +449,11 @@ export default function TriggerCampaigns({ instances }: Props) {
             </div>
             <div className="space-y-2">
               <Label>Instância WhatsApp</Label>
-              {companyId === "__GLOBAL__" ? (
+              {moduleKey === "cobrancas" ? (
+                <div className="flex items-center h-10 px-3 rounded-md border border-dashed border-primary/40 text-xs text-muted-foreground">
+                  📌 Cobranças usa sempre a instância <span className="font-semibold ml-1">oticaJoonker</span>
+                </div>
+              ) : companyId === "__GLOBAL__" ? (
                 <div className="flex items-center h-10 px-3 rounded-md border border-dashed border-border text-xs text-muted-foreground">
                   🌐 Será usada a instância da empresa de cada lead
                 </div>
