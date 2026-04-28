@@ -357,7 +357,7 @@ async function syncContasReceber(
     let page = 1;
     while (true) {
       const url =
-        `${SSOTICA_BASE}/financeiro/contas-a-receber/periodo?empresa=${encodeURIComponent(empresaParam)}&inicio_periodo=${w.start}&fim_periodo=${w.end}&page=${page}&perPage=100`;
+        `${SSOTICA_BASE}/financeiro/contas-a-receber/periodo?cnpj=${encodeURIComponent(cnpjParam)}&inicio_periodo=${w.start}&fim_periodo=${w.end}&page=${page}&perPage=100`;
       const json = await fetchSSotica(url, integ.bearer_token) as {
         currentPage?: number;
         totalPages?: number;
