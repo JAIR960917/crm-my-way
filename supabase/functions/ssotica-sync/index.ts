@@ -40,8 +40,11 @@ function daysBetween(a: Date, b: Date): number {
 
 // Mapeia dias de atraso para a key da coluna em crm_cobranca_statuses.
 // dias < 0 = ainda vai vencer; dias >= 0 = já venceu.
+// IMPORTANTE: a coluna "pendente" ("1 Dia antes do vencimento") só recebe
+// parcelas que vencem em até 1 dia (dias === -1). Parcelas com vencimento
+// mais distante (-2 ou menos) ainda não devem aparecer na cobrança.
 function statusKeyForDiasAtraso(dias: number): string {
-  if (dias <= -1) return "pendente";                                   // 1 dia antes do vencimento (ou mais)
+  if (dias === -1) return "pendente";                                  // exatamente 1 dia antes do vencimento
   if (dias >= 0 && dias <= 4) return "em_cobranca";                    // 1 a 4 dias de atraso
   if (dias >= 5 && dias <= 14) return "5_dias_de_atraso";              // 5 a 14 dias
   if (dias >= 15 && dias <= 29) return "atrasado";                     // 15 a 29 dias
