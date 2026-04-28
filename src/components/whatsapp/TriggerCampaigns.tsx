@@ -281,10 +281,10 @@ export default function TriggerCampaigns({ instances }: Props) {
         }
         toast.success(`${companies.length} campanhas criadas (uma por empresa)!`);
       } else if (companyId === "__GLOBAL__") {
-        // Uma única campanha global (company_id = null) — usa instância da empresa do lead
+        // Global: normalmente usa instância da empresa do lead, mas para Cobranças força oticaJoonker
         const { data, error } = await supabase
           .from("whatsapp_trigger_campaigns")
-          .insert({ ...basePayload, company_id: null, instance_id: null, is_active: false })
+          .insert({ ...basePayload, company_id: null, instance_id: forcedInstanceId, is_active: false })
           .select("id")
           .single();
         if (error) throw error;
