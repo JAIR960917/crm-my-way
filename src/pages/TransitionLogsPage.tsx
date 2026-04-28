@@ -49,11 +49,34 @@ const classifyEvent = (l: TransitionLog): EventKind => {
   return "other";
 };
 
+type CompletionLog = {
+  id: string;
+  source_type: "campaign" | "trigger";
+  source_id: string;
+  source_name: string;
+  module: string;
+  status_label: string | null;
+  status_key: string | null;
+  company_id: string | null;
+  total_cards: number;
+  sent_count: number;
+  error_count: number;
+  completed_at: string;
+};
+
+const moduleNiceLabel = (m: string) =>
+  m === "leads" ? "Leads" : m === "cobrancas" ? "Cobranças" : m === "renovacoes" ? "Renovações" : m;
+
 export default function TransitionLogsPage() {
   const { isAdmin, loading: authLoading } = useAuth();
   const [logs, setLogs] = useState<TransitionLog[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Logs de conclusão de campanha/gatilho
+  const [completionLogs, setCompletionLogs] = useState<CompletionLog[]>([]);
+  const [completionLoading, setCompletionLoading] = useState(true);
+  const [completionSourceFilter, setCompletionSourceFilter] = useState<"all" | "campaign" | "trigger">("all");
 
   // Filtros
   const [startDate, setStartDate] = useState("");
