@@ -49,6 +49,7 @@ const navItems: NavItem[] = [
   { path: "/relatorio-vendas",     label: "Relatório de Vendas",    icon: FileBarChart, roles: ["admin"] },
   { path: "/",                     label: "Leads",                  icon: LayoutDashboard },
   { path: "/cobrancas",            label: "Cobranças",              icon: Receipt,      roles: ["admin", "financeiro"] },
+  { path: "/cobrancas/fluxo",      label: "Fluxo Cobrança",         icon: Workflow,     roles: ["admin"] },
   { path: "/agendamentos",         label: "Agendamentos",           icon: CalendarCheck },
   { path: "/clientes-ativos",      label: "Renovação",              icon: UserCheck },
   { path: "/usuarios",             label: "Usuários",               icon: Users,        roles: ["admin", "gerente"] },
