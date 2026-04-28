@@ -544,6 +544,36 @@ export default function SSoticaIntegrationsPage() {
                         {integ.last_error && (
                           <div className="text-destructive break-words">⚠ {integ.last_error.slice(0, 120)}</div>
                         )}
+                        {(() => {
+                          const total = (integ as any).backfill_total_chunks ?? 16;
+                          const done = (integ as any).backfill_chunk_index ?? 0;
+                          const status = (integ as any).backfill_status;
+                          const remaining = Math.max(0, total - done);
+                          const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                          const isActive = status === "running" || status === "scheduled";
+                          const isDone = status === "done";
+                          if (!isActive && !isDone && done === 0) return null;
+                          return (
+                            <div className="pt-1 space-y-1">
+                              <div className="flex items-center justify-between text-foreground">
+                                <span className="font-medium">
+                                  Sincronizações: {done}/{total}
+                                  {isActive && remaining > 0 && (
+                                    <span className="text-muted-foreground font-normal"> · faltam {remaining}</span>
+                                  )}
+                                  {isDone && <span className="text-emerald-600 font-normal"> · concluído</span>}
+                                </span>
+                                <span className="text-muted-foreground">{pct}%</span>
+                              </div>
+                              <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full transition-all ${isDone ? "bg-emerald-500" : "bg-primary"}`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <p className="text-sm text-muted-foreground">
