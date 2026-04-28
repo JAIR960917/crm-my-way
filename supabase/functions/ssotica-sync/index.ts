@@ -1860,7 +1860,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({
         ok: true,
         mode: "start_backfill",
-        message: "Backfill de 96 meses iniciado. Os próximos 15 chunks rodarão automaticamente, 1 a cada 3 minutos.",
+        message: "Backfill de 96 meses iniciado. Os próximos 15 chunks rodarão automaticamente, 1 a cada 30 segundos.",
         first_chunk: r,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
