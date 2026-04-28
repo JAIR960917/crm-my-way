@@ -47,7 +47,7 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+    <div className="flex min-h-screen items-center justify-center bg-black p-4">
       <Card className="w-full max-w-sm shadow-xl border-0">
         <CardHeader className="text-center pb-2">
           {/* Logo Joonker */}
