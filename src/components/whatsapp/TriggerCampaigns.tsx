@@ -220,6 +220,11 @@ export default function TriggerCampaigns({ instances }: Props) {
     setSaving(true);
 
     try {
+      // Para Cobranças, força a instância oticaJoonker mesmo se empresa for Global
+      const joonkerInstance = instances.find(i => i.is_active && i.name?.toLowerCase().includes("oticajoonker"));
+      const forcedInstanceId = moduleKey === "cobrancas" && joonkerInstance ? joonkerInstance.id : null;
+      const effectiveInstanceId = forcedInstanceId || instanceId || null;
+
       const basePayload: any = {
         name: name.trim(),
         module: moduleKey,
@@ -227,7 +232,7 @@ export default function TriggerCampaigns({ instances }: Props) {
         start_time: startTime,
         end_time: endTime,
         created_by: user.id,
-        instance_id: instanceId || null,
+        instance_id: effectiveInstanceId,
       };
 
       const buildSteps = (campaignId: string) =>
