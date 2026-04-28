@@ -1648,7 +1648,7 @@ async function runBackfillChunk(
   // 1 chunk em caso de timeout, mas evita loop infinito que trava 100% do backfill.
   const nextIdxOptimistic = idx + 1;
   const finishedOptimistic = nextIdxOptimistic >= total;
-  const nextRunAtOptimistic = finishedOptimistic ? null : new Date(Date.now() + 3 * 60 * 1000).toISOString();
+  const nextRunAtOptimistic = finishedOptimistic ? null : new Date(Date.now() + 30 * 1000).toISOString();
   await supabase.from("ssotica_integrations").update({
     backfill_chunk_index: nextIdxOptimistic,
     backfill_next_run_at: nextRunAtOptimistic,
