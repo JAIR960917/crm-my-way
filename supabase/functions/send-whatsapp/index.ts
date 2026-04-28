@@ -296,6 +296,14 @@ serve(async (req) => {
         const statusKey = await resolveStatusKey(supabase, cfg.statusTable, campaign.status_id);
         if (!statusKey) continue;
 
+        // Busca label da coluna para o log
+        const { data: statusRow } = await supabase
+          .from(cfg.statusTable)
+          .select("label, key")
+          .eq("id", campaign.status_id)
+          .single();
+        const statusLabel = statusRow?.label || statusKey;
+
         const { data: cards } = await supabase.from(cfg.dataTable)
           .select("id, data, created_by, assigned_to").eq("status", statusKey);
         if (!cards) continue;
@@ -315,10 +323,16 @@ serve(async (req) => {
         const sentIds = new Set((existingSends || []).filter((s: any) => s.status === "sent").map((s: any) => s.lead_id));
         const pendingCards = scopedCards.filter((l: any) => !sentIds.has(l.id));
 
+        // Conta envios feitos nesta execução para detectar conclusão da coluna
+        let campaignSentNow = 0;
+        let campaignErrorsNow = 0;
+        let aborted = false;
+
         for (const card of pendingCards) {
           // Re-check window mid-batch (in case we cross end_time)
           if (!isWithinDailyWindow(campaign.start_time, campaign.end_time)) {
             skippedOutOfWindow++;
+            aborted = true;
             break;
           }
 
@@ -351,13 +365,41 @@ serve(async (req) => {
             if (result.ok) {
               await supabase.from("whatsapp_campaign_sends").insert({ campaign_id: campaign.id, lead_id: card.id, phone: cp, status: "sent", sent_at: new Date().toISOString() });
               totalSent++;
+              campaignSentNow++;
             } else {
               await supabase.from("whatsapp_campaign_sends").insert({ campaign_id: campaign.id, lead_id: card.id, phone: cp, status: "error", error_message: result.errorMessage || "Erro" });
               totalErrors++;
+              campaignErrorsNow++;
             }
           } catch (e) {
             await supabase.from("whatsapp_campaign_sends").insert({ campaign_id: campaign.id, lead_id: card.id, phone: cp, status: "error", error_message: e instanceof Error ? e.message : "Unknown error" });
             totalErrors++;
+            campaignErrorsNow++;
+          }
+        }
+
+        // Se processamos todos os cards pendentes (não abortou) e havia algo a fazer, registra conclusão
+        if (!aborted && pendingCards.length > 0) {
+          // Verifica se realmente todos os cards da coluna agora têm envio
+          const { data: finalSends } = await supabase.from("whatsapp_campaign_sends")
+            .select("lead_id, status").eq("campaign_id", campaign.id);
+          const finalSentIds = new Set((finalSends || []).filter((s: any) => s.status === "sent").map((s: any) => s.lead_id));
+          const stillPending = scopedCards.filter((c: any) => !finalSentIds.has(c.id));
+          if (stillPending.length === 0) {
+            await supabase.from("whatsapp_completion_logs").insert({
+              source_type: "campaign",
+              source_id: campaign.id,
+              source_name: campaign.name,
+              module: moduleKey,
+              status_id: campaign.status_id,
+              status_label: statusLabel,
+              status_key: statusKey,
+              company_id: campaign.company_id,
+              total_cards: scopedCards.length,
+              sent_count: campaignSentNow,
+              error_count: campaignErrorsNow,
+              completed_at: new Date().toISOString(),
+            });
           }
         }
       }
