@@ -60,6 +60,35 @@ function statusKeyForDiasAtraso(dias: number): string {
   return "180_dias_ajuizar_manualmente"; // 180+
 }
 
+// Coluna FIXA para clientes com situação "Negativado Serasa" (COLUNA 10).
+const COBRANCA_NEGATIVADO_SERASA_KEY = "65_dias_de_atraso_receber_informe_de_negativao";
+// Coluna FIXA para clientes com situação "Ajuizado(A) Saniely" / "Ajuizado(A) Návde".
+const COBRANCA_AJUIZADO_KEY = "ajuizados_manual";
+// A partir desta coluna (COLUNA 9 — "61 negativação") o sync NÃO altera mais o
+// status do card automaticamente, mesmo que dias_atraso aumente. O card só sai
+// dessa coluna quando a Brenda registra a tratativa e o fluxo configurado avança.
+const COBRANCA_LOCKED_KEYS = new Set<string>([
+  "61_negativao",
+  "65_dias_de_atraso_receber_informe_de_negativao",
+  "75_dias_de_atraso_proposta_de_negociao_ps_negativao",
+  "90_dias_de_atraso_ligao_para_tentativa_de_negociao_ps_negativao",
+  "105_dias_de_atraso_notificao_extra_judicial_altomtico",
+  "120_dias_de_atraso_ligao_informe_judicial",
+  "135_dias_de_atraso_oferta_de_negativao_automatico",
+  "150_dias_de_atraso_enviar_para_o_advogado",
+  "180_dias_ajuizar_manualmente",
+  "ajuizados_manual",
+  "inadimplncia_sem_ajuizamento_manual",
+]);
+
+// Quando o card é NOVO (ou retorna da renovação) e a regra por dias indicaria
+// uma coluna "travada" (>= COLUNA 9), paramos no "61 negativação" — o card só
+// avança dali se a Brenda configurar o fluxo e registrar a tratativa.
+function clampToLockedEntry(key: string): string {
+  if (COBRANCA_LOCKED_KEYS.has(key)) return "61_negativao";
+  return key;
+}
+
 // Mapeia dias desde a última compra para a key da coluna em crm_renovacao_statuses.
 // Re-classifica sempre (a cada sync) para acompanhar a passagem do tempo.
 function statusKeyForRenovacao(diasDesdeUltimaCompra: number | null): string {
@@ -357,7 +386,7 @@ async function syncContasReceber(
   const parcelasInativasIds = new Set<number>(); // parcelas vistas pagas/canceladas/renegociadas/baixadas
   const clientesAfetados = new Set<number>();
   // Agrupa todas as parcelas em atraso por cliente para upsert único depois
-  const parcelasPorCliente = new Map<number, { cliente: any; parcelas: any[] }>();
+  const parcelasPorCliente = new Map<number, { cliente: any; parcelas: any[]; hasNegativadoSerasa: boolean; hasAjuizado: boolean }>();
 
   // Janela única (definida por overallStart/overallEnd) dividida em sub-janelas de 30 dias
   // por causa do limite da API SSótica.
@@ -387,16 +416,21 @@ async function syncContasReceber(
           .trim();
         situacoesVistas.set(situacao, (situacoesVistas.get(situacao) ?? 0) + 1);
 
-        const isAtiva =
-          situacao === "em aberto" ||
-          situacao === "vencido" ||
-          situacao === "vencida" ||
+        // ⚠️ REGRA: só puxamos para o CRM parcelas com situação "Em atraso"
+        // (e variantes), além dos casos especiais "Negativado Serasa" e
+        // "Ajuizado(A) Saniely / Návde", que têm coluna fixa.
+        // Situações como "em aberto", "vencido", "a vencer" NÃO entram mais.
+        const isAjuizado =
+          situacao.startsWith("ajuizado") &&
+          (situacao.includes("saniely") || situacao.includes("navde"));
+        const isNegativadoSerasa =
+          situacao.startsWith("negativado") && situacao.includes("serasa");
+        const isEmAtraso =
           situacao === "em atraso" ||
           situacao === "atrasado" ||
-          situacao === "atrasada" ||
-          situacao.startsWith("negativado") ||
-          situacao === "a vencer" ||
-          situacao === "vencer";
+          situacao === "atrasada";
+
+        const isAtiva = isEmAtraso || isNegativadoSerasa || isAjuizado;
 
         const renegociacaoObj = parcela.renegociacao ?? parcela.renegociacao_info ?? null;
         const temObjetoRenegociacao =
@@ -406,11 +440,11 @@ async function syncContasReceber(
           (renegociacaoObj.id != null || renegociacaoObj.valor_renegociacao != null);
         const foiRenegociada = situacao.startsWith("renegoc") || temObjetoRenegociacao;
 
-        // Negativado SERASA = dívida AINDA ATIVA. A SSótica pode marcar
-        // cancelado_em/baixado_em/estornado_em quando negativa a parcela,
-        // mas a dívida continua válida e o cliente deve permanecer na cobrança
-        // na coluna correspondente à parcela mais antiga em aberto.
-        const isNegativada = situacao.startsWith("negativado");
+        // Negativado SERASA / Ajuizado(a) Saniely / Návde = dívida AINDA ATIVA.
+        // A SSótica pode marcar cancelado_em/baixado_em/estornado_em quando
+        // negativa ou ajuíza a parcela, mas a dívida continua válida e o
+        // cliente deve permanecer na cobrança na coluna correspondente.
+        const isNegativada = isNegativadoSerasa || isAjuizado;
 
         const foiBaixada = !isNegativada && !!parcela.baixado_em;
         const foiCancelada = !isNegativada && !!parcela.cancelado_em;
@@ -452,9 +486,13 @@ async function syncContasReceber(
         const vencDate = new Date(vencimento + "T00:00:00Z");
         const diasAtraso = daysBetween(vencDate, today);
 
-        // Aceita parcelas em atraso (>=0) e parcelas que vencem amanhã (=-1)
-        // para popular a coluna "1 Dia antes do vencimento" (status `pendente`).
-        if (diasAtraso < -1) { skipped.naoEmAtraso++; continue; }
+        // Para "Em atraso" exigimos diasAtraso >= 0 (parcela realmente vencida).
+        // Casos especiais (Negativado Serasa / Ajuizado) podem entrar mesmo sem
+        // estarem vencidas (regra fixa: vão direto para a coluna correspondente).
+        if (!isNegativadoSerasa && !isAjuizado && diasAtraso < 0) {
+          skipped.naoEmAtraso++;
+          continue;
+        }
 
         if (parcela.id) parcelasAtivasIds.add(Number(parcela.id));
 
@@ -465,9 +503,11 @@ async function syncContasReceber(
         const clienteIdNum = Number(cliente.id);
         let bucket = parcelasPorCliente.get(clienteIdNum);
         if (!bucket) {
-          bucket = { cliente, parcelas: [] };
+          bucket = { cliente, parcelas: [], hasNegativadoSerasa: false, hasAjuizado: false };
           parcelasPorCliente.set(clienteIdNum, bucket);
         }
+        if (isNegativadoSerasa) bucket.hasNegativadoSerasa = true;
+        if (isAjuizado) bucket.hasAjuizado = true;
         // Dedup: a API SSótica pode retornar a mesma parcela em múltiplas janelas/páginas.
         // Evita acumular duplicatas que inflariam o valor total e confundiriam a UI.
         const parcelaIdNum = parcela.id ? Number(parcela.id) : null;
@@ -499,12 +539,23 @@ async function syncContasReceber(
   console.log(`[ssotica-sync][cobrancas] empresa=${integ.company_id} janela=${ymd(overallStart)}→${ymd(overallEnd)} processed=${processed} clientes_em_atraso=${parcelasPorCliente.size} backfill_chunk=${isBackfillChunk}${manualRecentWindow ? " manual_recent=true" : incrementalWindow ? ` slot=${incrementalWindow.slot + 1}/${INCREMENTAL_COBRANCAS_SLICES}` : ""}`);
 
   // ===== Upsert por cliente: 1 card com a lista de TODAS as parcelas em atraso =====
-  for (const [clienteIdNum, { cliente, parcelas }] of parcelasPorCliente.entries()) {
+  for (const [clienteIdNum, bucket] of parcelasPorCliente.entries()) {
+    const { cliente, parcelas, hasNegativadoSerasa, hasAjuizado } = bucket;
     // Ordena parcelas pelo vencimento mais antigo primeiro
     parcelas.sort((a, b) => (a.vencimento < b.vencimento ? -1 : a.vencimento > b.vencimento ? 1 : 0));
     const maisAntiga = parcelas[0];
     const totalAtraso = parcelas.reduce((s, p) => s + p.valor, 0);
-    const colunaKey = statusKeyForDiasAtraso(maisAntiga.dias_atraso);
+
+    // Regra de coluna:
+    //  • Ajuizado(A) Saniely / Návde → COLUNA "Ajuizados (Manual)"
+    //  • Negativado Serasa            → COLUNA 10 (informe de negativação)
+    //  • Demais ("Em atraso")         → coluna por dias, mas tudo que cairia
+    //    em coluna >= 9 (61_negativao em diante) é travado em "61_negativao"
+    //    e só sai dali via tratativa + fluxo configurado.
+    let colunaKeyAlvo: string;
+    if (hasAjuizado) colunaKeyAlvo = COBRANCA_AJUIZADO_KEY;
+    else if (hasNegativadoSerasa) colunaKeyAlvo = COBRANCA_NEGATIVADO_SERASA_KEY;
+    else colunaKeyAlvo = clampToLockedEntry(statusKeyForDiasAtraso(maisAntiga.dias_atraso));
 
     const telefone = cliente.telefone_principal ?? cliente.telefone ?? "";
     const documento = cliente.documento ?? cliente.cpf_cnpj ?? cliente.cpf ?? "";
@@ -523,6 +574,7 @@ async function syncContasReceber(
       parcelas_atrasadas: parcelas,
       total_atraso: totalAtraso,
       qtd_parcelas_atrasadas: parcelas.length,
+      situacao_especial: hasAjuizado ? "ajuizado" : hasNegativadoSerasa ? "negativado_serasa" : null,
       ssotica_raw: maisAntiga.ssotica_raw,
     };
 
@@ -537,6 +589,17 @@ async function syncContasReceber(
       .maybeSingle();
 
     const existingCobranca = existingSameStore as ExistingCobranca | null;
+
+    // Decide o status final que será gravado:
+    //  • Casos especiais (Serasa / Ajuizado) sempre forçam a coluna fixa.
+    //  • Card já existente em coluna travada (>= COLUNA 9) NÃO é movido pelo
+    //    sync — quem move dali é o fluxo manual (cobranca-flow-advance).
+    let colunaKey = colunaKeyAlvo;
+    if (existingCobranca && !hasAjuizado && !hasNegativadoSerasa) {
+      if (COBRANCA_LOCKED_KEYS.has(existingCobranca.status)) {
+        colunaKey = existingCobranca.status; // mantém a coluna atual (travada)
+      }
+    }
 
     if (existingCobranca) {
       await supabase
