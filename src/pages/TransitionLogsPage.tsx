@@ -116,6 +116,27 @@ export default function TransitionLogsPage() {
     setLoading(false);
   };
 
+  const loadCompletionLogs = async () => {
+    setCompletionLoading(true);
+    let q = (supabase as any)
+      .from("whatsapp_completion_logs")
+      .select("*")
+      .order("completed_at", { ascending: false })
+      .limit(500);
+    if (completionSourceFilter !== "all") q = q.eq("source_type", completionSourceFilter);
+    if (companyId !== "all") q = q.eq("company_id", companyId);
+    if (startDate) q = q.gte("completed_at", `${startDate}T00:00:00`);
+    if (endDate) q = q.lte("completed_at", `${endDate}T23:59:59`);
+    const { data, error } = await q;
+    if (error) {
+      toast.error("Erro ao carregar logs de campanhas: " + error.message);
+      setCompletionLogs([]);
+    } else {
+      setCompletionLogs((data ?? []) as CompletionLog[]);
+    }
+    setCompletionLoading(false);
+  };
+
   useEffect(() => {
     if (!isAdmin) return;
     supabase
@@ -124,6 +145,7 @@ export default function TransitionLogsPage() {
       .order("name")
       .then(({ data }) => setCompanies((data ?? []) as Company[]));
     load();
+    loadCompletionLogs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
