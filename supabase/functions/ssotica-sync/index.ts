@@ -626,10 +626,16 @@ async function syncContasReceber(
     // Parcelas FORA da janela atual ficam intactas até o slot que as cobre rodar.
     const novasKeys = new Set(parcelas.map(parcelaKey));
     const existingParcelas = ((existingCobranca?.data as any)?.parcelas_atrasadas ?? []) as any[];
+    const currentCompany = String(integ.company_id);
     const preservadas = existingParcelas.filter((p) => {
       const k = parcelaKey(p);
       // Se já vem nas novas, ignora (será substituída pela versão fresca).
       if (novasKeys.has(k)) return false;
+      // Parcela pertence a OUTRA loja (consolidação cross-store) → SEMPRE preserva.
+      // O sync desta loja não tem visibilidade das parcelas de outras lojas e
+      // não pode decidir removê-las. A consolidação cross-store cuidará disso.
+      const parcelaCompany = p?.ssotica_company_id ? String(p.ssotica_company_id) : null;
+      if (parcelaCompany && parcelaCompany !== currentCompany) return true;
       // Fora da janela atual → preserva (não temos evidência atualizada).
       if (!isParcelaInWindow(p?.vencimento)) return true;
       // Dentro da janela: se a API retornou status pago/cancelado/etc para essa
@@ -637,7 +643,10 @@ async function syncContasReceber(
       // (estava na janela revisada e sumiu).
       return false;
     });
-    const parcelasMerged = [...preservadas, ...parcelas];
+    // Marca as parcelas novas com a loja atual para que futuras sincronizações
+    // de OUTRAS lojas não as removam por engano.
+    const parcelasComLoja = parcelas.map((p) => ({ ...p, ssotica_company_id: currentCompany }));
+    const parcelasMerged = [...preservadas, ...parcelasComLoja];
     // Ordena parcelas pelo vencimento mais antigo primeiro
     parcelasMerged.sort((a, b) => (a.vencimento < b.vencimento ? -1 : a.vencimento > b.vencimento ? 1 : 0));
     const maisAntiga = parcelasMerged[0];
