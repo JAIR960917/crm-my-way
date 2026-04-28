@@ -288,8 +288,13 @@ async function syncContasReceber(
     semCliente: 0,
   };
   const situacoesVistas = new Map<string, number>();
-  // Contas a Receber: usa o Código de Licença se disponível, senão usa o CNPJ.
-  const empresaParam = normalizeIdentifier(integ.license_code || integ.cnpj);
+  // Contas a Receber: usamos `cnpj=` (e não `empresa=<license_code>`), pois o
+  // license_code é compartilhado entre lojas do mesmo grupo e o endpoint de
+  // contas-a-receber só retorna as parcelas filtradas corretamente quando o
+  // CNPJ específico da loja é informado. Sem isso, lojas "filhas" (ex.: Catolé
+  // do Rocha) acabam retornando 0 parcelas e os boletos do cliente em mais de
+  // uma loja não chegam ao CRM (impedindo a posterior consolidação cross-store).
+  const cnpjParam = normalizeIdentifier(integ.cnpj);
 
   // Atribui novas cobranças à Brenda automaticamente (responsável padrão por cobranças)
   const { data: brendaProfile } = await supabase
