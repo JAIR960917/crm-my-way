@@ -87,6 +87,13 @@ function getIncrementalCobrancaWindow(now = new Date()): { start: Date; end: Dat
   return { start, end, slot };
 }
 
+function getManualRecentCobrancaWindow(now = new Date()): { start: Date; end: Date } {
+  return {
+    start: addDays(now, -365),
+    end: addDays(now, COBRANCAS_FUTURE_DAYS),
+  };
+}
+
 // Quebra um intervalo em janelas de até 30 dias (limite SSótica)
 function buildWindows(start: Date, end: Date): Array<{ start: string; end: string }> {
   const windows: Array<{ start: string; end: string }> = [];
@@ -259,6 +266,7 @@ async function syncContasReceber(
   supabase: any,
   integ: Integration,
   windowOverride?: { start: Date; end: Date },
+  options?: { manualRecent?: boolean },
 ): Promise<{ processed: number; created: number; updated: number; removed: number; chunks: number; clientesQuitados: number[] }> {
   // Normaliza "hoje" para meia-noite UTC do dia atual no fuso de Brasília (UTC-3).
   // Sem isso, após 21h de Brasília o `new Date()` em UTC já estaria no dia seguinte,
@@ -269,9 +277,10 @@ async function syncContasReceber(
   // Janela: no incremental processamos 1 fatia por rodada do ciclo de 24 meses,
   // para garantir que toda empresa conclua dentro do tempo do cron.
   // Quando há windowOverride (modo backfill), processa apenas o chunk indicado.
-  const incrementalWindow = windowOverride ? null : getIncrementalCobrancaWindow(today);
-  const overallStart = windowOverride?.start ?? incrementalWindow!.start;
-  const overallEnd = windowOverride?.end ?? incrementalWindow!.end;
+  const manualRecentWindow = !windowOverride && options?.manualRecent ? getManualRecentCobrancaWindow(today) : null;
+  const incrementalWindow = windowOverride || manualRecentWindow ? null : getIncrementalCobrancaWindow(today);
+  const overallStart = windowOverride?.start ?? manualRecentWindow?.start ?? incrementalWindow!.start;
+  const overallEnd = windowOverride?.end ?? manualRecentWindow?.end ?? incrementalWindow!.end;
   const isBackfillChunk = !!windowOverride;
 
   let processed = 0, created = 0, updated = 0, removed = 0;
@@ -487,7 +496,7 @@ async function syncContasReceber(
     }
   }
   const chunksProcessed = 1;
-  console.log(`[ssotica-sync][cobrancas] empresa=${integ.company_id} janela=${ymd(overallStart)}→${ymd(overallEnd)} processed=${processed} clientes_em_atraso=${parcelasPorCliente.size} backfill_chunk=${isBackfillChunk}${incrementalWindow ? ` slot=${incrementalWindow.slot + 1}/${INCREMENTAL_COBRANCAS_SLICES}` : ""}`);
+  console.log(`[ssotica-sync][cobrancas] empresa=${integ.company_id} janela=${ymd(overallStart)}→${ymd(overallEnd)} processed=${processed} clientes_em_atraso=${parcelasPorCliente.size} backfill_chunk=${isBackfillChunk}${manualRecentWindow ? " manual_recent=true" : incrementalWindow ? ` slot=${incrementalWindow.slot + 1}/${INCREMENTAL_COBRANCAS_SLICES}` : ""}`);
 
   // ===== Upsert por cliente: 1 card com a lista de TODAS as parcelas em atraso =====
   for (const [clienteIdNum, { cliente, parcelas }] of parcelasPorCliente.entries()) {
