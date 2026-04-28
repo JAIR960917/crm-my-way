@@ -14,11 +14,13 @@ type Props = {
   userId: string;
   userName?: string;
   cobrancaData: Record<string, any>;
+  /** Status atual do card (ex.: "31_dias_de_atraso_ligao") — usado para registrar tratativa por coluna */
+  cobrancaStatus?: string | null;
   onSaved?: () => void;
 };
 
 export default function CobrancaContactAttemptForm({
-  cobrancaId, userId, userName, cobrancaData, onSaved,
+  cobrancaId, userId, userName, cobrancaData, cobrancaStatus, onSaved,
 }: Props) {
   const [atendeu, setAtendeu] = useState<Atendeu>(null);
   const [observacao, setObservacao] = useState("");
@@ -66,22 +68,42 @@ export default function CobrancaContactAttemptForm({
       });
       if (noteErr) throw noteErr;
 
-      // 2) Se atendeu, atualiza o flag de renegociação no JSON `data` da cobrança
+      // 2) Atualiza o card: marca tratativa para o fluxo + flag de renegociação (se houver)
+      const nowIso = new Date().toISOString();
+      const newData: Record<string, any> = {
+        ...cobrancaData,
+        // Tratativa para o fluxo automático: começa a contar a partir daqui
+        tratativa_em: nowIso,
+        tratativa_status_key: cobrancaStatus || cobrancaData?.tratativa_status_key || null,
+        tratativa_by: userId,
+        tratativa_by_name: userName || null,
+        tratativa_atendeu: atendeu,
+      };
       if (atendeu === "sim" && renegociou) {
-        const newData = {
-          ...cobrancaData,
-          renegociou,
-          renegociou_at: new Date().toISOString(),
-          renegociou_by: userId,
-          renegociou_by_name: userName || null,
-          renegociou_observacao: observacao.trim(),
-        };
-        const { error: updErr } = await supabase
-          .from("crm_cobrancas")
-          .update({ data: newData })
-          .eq("id", cobrancaId);
-        if (updErr) throw updErr;
+        newData.renegociou = renegociou;
+        newData.renegociou_at = nowIso;
+        newData.renegociou_by = userId;
+        newData.renegociou_by_name = userName || null;
+        newData.renegociou_observacao = observacao.trim();
       }
+      const { error: updErr } = await supabase
+        .from("crm_cobrancas")
+        .update({ data: newData })
+        .eq("id", cobrancaId);
+      if (updErr) throw updErr;
+
+      // 3) Registra evento na timeline do fluxo
+      await (supabase as any).from("crm_cobranca_flow_events").insert({
+        cobranca_id: cobrancaId,
+        status_key: cobrancaStatus || null,
+        event_type: "tratativa",
+        created_by: userId,
+        details: {
+          atendeu,
+          renegociou: atendeu === "sim" ? renegociou : null,
+          observacao: atendeu === "sim" ? observacao.trim() : null,
+        },
+      });
 
       toast.success("Contato registrado!");
       reset();
