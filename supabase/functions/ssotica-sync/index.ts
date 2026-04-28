@@ -421,10 +421,13 @@ async function syncContasReceber(
           .trim();
         situacoesVistas.set(situacao, (situacoesVistas.get(situacao) ?? 0) + 1);
 
-        // ⚠️ REGRA: só puxamos para o CRM parcelas com situação "Em atraso"
-        // (e variantes), além dos casos especiais "Negativado Serasa" e
-        // "Ajuizado(A) Saniely / Návde", que têm coluna fixa.
-        // Situações como "em aberto", "vencido", "a vencer" NÃO entram mais.
+        // ⚠️ REGRA: puxamos para o CRM parcelas com situação "Em atraso",
+        // "Em aberto", "Vencido", "A vencer" (e variantes), além dos casos
+        // especiais "Negativado Serasa" e "Ajuizado(A) Saniely / Návde" que
+        // têm coluna fixa. Parcelas com diasAtraso < 31 ficam nas colunas
+        // anteriores (pendente / em_cobranca / 5 dias / atrasado / 30 dias)
+        // conforme o boleto mais antigo. Ao chegar em 31 dias travam e seguem
+        // o fluxo manual configurado.
         const isAjuizado =
           situacao.startsWith("ajuizado") &&
           (situacao.includes("saniely") || situacao.includes("navde"));
@@ -434,8 +437,21 @@ async function syncContasReceber(
           situacao === "em atraso" ||
           situacao === "atrasado" ||
           situacao === "atrasada";
+        const isEmAberto =
+          situacao === "em aberto" ||
+          situacao === "aberto" ||
+          situacao === "aberta";
+        const isVencido =
+          situacao === "vencido" ||
+          situacao === "vencida";
+        const isAVencer =
+          situacao === "a vencer" ||
+          situacao === "avencer" ||
+          situacao === "pendente";
 
-        const isAtiva = isEmAtraso || isNegativadoSerasa || isAjuizado;
+        const isAtiva =
+          isEmAtraso || isEmAberto || isVencido || isAVencer ||
+          isNegativadoSerasa || isAjuizado;
 
         const renegociacaoObj = parcela.renegociacao ?? parcela.renegociacao_info ?? null;
         const temObjetoRenegociacao =
@@ -491,13 +507,9 @@ async function syncContasReceber(
         const vencDate = new Date(vencimento + "T00:00:00Z");
         const diasAtraso = daysBetween(vencDate, today);
 
-        // Para "Em atraso" exigimos diasAtraso >= 0 (parcela realmente vencida).
-        // Casos especiais (Negativado Serasa / Ajuizado) podem entrar mesmo sem
-        // estarem vencidas (regra fixa: vão direto para a coluna correspondente).
-        if (!isNegativadoSerasa && !isAjuizado && diasAtraso < 0) {
-          skipped.naoEmAtraso++;
-          continue;
-        }
+        // Aceitamos diasAtraso negativo (parcela "a vencer" / pendente) — vai
+        // para a coluna "pendente". Casos especiais (Negativado Serasa /
+        // Ajuizado) entram independente de diasAtraso (coluna fixa).
 
         if (parcela.id) parcelasAtivasIds.add(Number(parcela.id));
 
