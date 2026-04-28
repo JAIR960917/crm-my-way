@@ -1693,8 +1693,8 @@ async function runBackfillChunk(
       }).eq("id", logId);
     }
 
-    const nextRunAt = finished ? null : new Date(Date.now() + 3 * 60 * 1000).toISOString();
-    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} OK. ${finished ? 'CONCLUÍDO!' : `próximo em 3min (${nextRunAt})`}`);
+    const nextRunAt = finished ? null : new Date(Date.now() + 30 * 1000).toISOString();
+    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} OK. ${finished ? 'CONCLUÍDO!' : `próximo em 30s (${nextRunAt})`}`);
 
     // RECONCILIAÇÃO: roda APENAS no chunk final (quando todos os dados já foram sincronizados).
     // Antes era a cada chunk, mas em lojas grandes (~7000 cobranças) isso causava timeout
