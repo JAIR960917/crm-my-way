@@ -541,6 +541,11 @@ export default function LeadsPage() {
     const fromStatus = result.source.droppableId;
     const leadId = result.draggableId;
     if (newStatus === fromStatus) return;
+    // Apenas administradores podem mover leads manualmente entre colunas.
+    if (!isAdmin) {
+      toast.error("Apenas administradores podem mover leads entre colunas.");
+      return;
+    }
     const item = paginatedColumns[fromStatus]?.items.find(it => it.id === leadId)
       || (searchResults || []).find(it => it.id === leadId);
     updateItemStatus(leadId, fromStatus, newStatus, item);
