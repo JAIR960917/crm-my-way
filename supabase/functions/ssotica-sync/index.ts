@@ -357,7 +357,7 @@ async function syncContasReceber(
   const parcelasInativasIds = new Set<number>(); // parcelas vistas pagas/canceladas/renegociadas/baixadas
   const clientesAfetados = new Set<number>();
   // Agrupa todas as parcelas em atraso por cliente para upsert único depois
-  const parcelasPorCliente = new Map<number, { cliente: any; parcelas: any[] }>();
+  const parcelasPorCliente = new Map<number, { cliente: any; parcelas: any[]; hasNegativadoSerasa: boolean; hasAjuizado: boolean }>();
 
   // Janela única (definida por overallStart/overallEnd) dividida em sub-janelas de 30 dias
   // por causa do limite da API SSótica.
