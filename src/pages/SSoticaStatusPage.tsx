@@ -348,7 +348,30 @@ export default function SSoticaStatusPage() {
                           <HealthBadge health={health} label={label} />
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">{i.sync_status}</Badge>
+                          {(() => {
+                            const bfActive =
+                              i.backfill_status === "running" ||
+                              i.backfill_status === "scheduled";
+                            const total = i.backfill_total_chunks ?? 16;
+                            const done = i.backfill_chunk_index ?? 0;
+                            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                            if (bfActive) {
+                              return (
+                                <div className="space-y-1 min-w-[140px]">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300">
+                                      backfill {done}/{total}
+                                    </Badge>
+                                    <span className="text-muted-foreground">{pct}%</span>
+                                  </div>
+                                  <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                                    <div className="h-full bg-amber-500 transition-all" style={{ width: `${pct}%` }} />
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return <Badge variant="outline">{i.sync_status}</Badge>;
+                          })()}
                         </TableCell>
                         <TableCell>
                           {i.last_sync_vendas_at
