@@ -40,6 +40,8 @@ interface IntegrationStatus {
   is_active: boolean;
   sync_status: string;
   backfill_status: string | null;
+  backfill_chunk_index: number | null;
+  backfill_total_chunks: number | null;
   last_sync_vendas_at: string | null;
   last_sync_receber_at: string | null;
   updated_at: string;
