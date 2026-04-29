@@ -404,13 +404,33 @@ async function syncContasReceber(
     }
   }
 
+  // Carrega mapeamento de "situação SSÓtica" → coluna do funil, configurado pelo admin
+  // na tela de Fluxo. Cai em fallback caso a tabela esteja vazia.
+  const situacaoMapping: Record<string, string> = {
+    em_atraso: "60_dias_de_atraso_ligao_negativao",
+    negativado_serasa: "65_dias_de_atraso_receber_informe_de_negativao",
+    ajuizado_saniely: "180_dias_ajuizar_manualmente",
+    ajuizado_navde: "180_dias_ajuizar_manualmente",
+  };
+  try {
+    const { data: mapRows } = await supabase
+      .from("crm_cobranca_situacao_mapping")
+      .select("situacao, crm_cobranca_statuses!inner(key)");
+    for (const row of (mapRows || []) as any[]) {
+      const key = row?.crm_cobranca_statuses?.key;
+      if (row?.situacao && key) situacaoMapping[row.situacao] = key;
+    }
+  } catch (_e) {
+    // mantém defaults se a tabela ainda não existir
+  }
+
   // Coletamos IDs de parcelas que ainda estão em aberto/vencidas neste sync.
   // Usamos para detectar cobranças do banco que sumiram da API (foram pagas).
   const parcelasAtivasIds = new Set<number>();
   const parcelasInativasIds = new Set<number>(); // parcelas vistas pagas/canceladas/renegociadas/baixadas
   const clientesAfetados = new Set<number>();
   // Agrupa todas as parcelas em atraso por cliente para upsert único depois
-  const parcelasPorCliente = new Map<number, { cliente: any; parcelas: any[]; hasNegativadoSerasa: boolean; hasAjuizado: boolean }>();
+  const parcelasPorCliente = new Map<number, { cliente: any; parcelas: any[]; hasNegativadoSerasa: boolean; hasAjuizado: boolean; ajuizadoVariant: string | null }>();
 
   // Janela única (definida por overallStart/overallEnd) dividida em sub-janelas de 30 dias
   // por causa do limite da API SSótica.
