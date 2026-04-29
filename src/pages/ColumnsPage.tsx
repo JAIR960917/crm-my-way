@@ -96,7 +96,10 @@ export default function ColumnsPage() {
     const table = sectionConfig[dialogSection].statusTable;
 
     if (editingStatus) {
-      const { error } = await supabase.from(table as any).update({ label: label.trim(), color } as any).eq("id", editingStatus.id);
+      const payload = dialogSection === "cobrancas"
+        ? { label: label.trim(), key: label.trim(), color }
+        : { label: label.trim(), color };
+      const { error } = await supabase.from(table as any).update(payload as any).eq("id", editingStatus.id);
       if (error) toast.error("Erro ao atualizar"); else toast.success("Coluna atualizada");
     } else {
       const statuses = getStatuses(dialogSection);
