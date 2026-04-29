@@ -138,7 +138,7 @@ export default function SSoticaStatusPage() {
     const { data, error } = await supabase
       .from("ssotica_integrations")
       .select(
-        "id, company_id, is_active, sync_status, backfill_status, last_sync_vendas_at, last_sync_receber_at, updated_at, last_error, companies:company_id(name)"
+        "id, company_id, is_active, sync_status, backfill_status, backfill_chunk_index, backfill_total_chunks, last_sync_vendas_at, last_sync_receber_at, updated_at, last_error, companies:company_id(name)"
       )
       .order("updated_at", { ascending: false });
     if (error) {
@@ -157,6 +157,8 @@ export default function SSoticaStatusPage() {
       is_active: row.is_active,
       sync_status: row.sync_status,
       backfill_status: row.backfill_status,
+      backfill_chunk_index: row.backfill_chunk_index,
+      backfill_total_chunks: row.backfill_total_chunks,
       last_sync_vendas_at: row.last_sync_vendas_at,
       last_sync_receber_at: row.last_sync_receber_at,
       updated_at: row.updated_at,
