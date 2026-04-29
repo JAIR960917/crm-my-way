@@ -171,7 +171,7 @@ export default function SSoticaStatusPage() {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 30000);
+    const t = setInterval(load, 10000);
     return () => clearInterval(t);
   }, []);
 
