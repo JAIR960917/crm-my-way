@@ -630,7 +630,7 @@ async function syncContasReceber(
 
   // ===== Upsert por cliente: 1 card com a lista de TODAS as parcelas em atraso =====
   for (const [clienteIdNum, bucket] of parcelasPorCliente.entries()) {
-    const { cliente, parcelas, hasNegativadoSerasa, hasAjuizado } = bucket;
+    const { cliente, parcelas, hasNegativadoSerasa, hasAjuizado, ajuizadoVariant, hasEmAtraso } = bucket;
 
     // Upsert apenas do card desta própria loja. A consolidação cross-store roda
     // ao final da sync e é ela quem decide qual loja vence e quais parcelas serão unificadas.
