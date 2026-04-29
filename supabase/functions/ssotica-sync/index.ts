@@ -571,11 +571,16 @@ async function syncContasReceber(
         const clienteIdNum = Number(cliente.id);
         let bucket = parcelasPorCliente.get(clienteIdNum);
         if (!bucket) {
-          bucket = { cliente, parcelas: [], hasNegativadoSerasa: false, hasAjuizado: false };
+          bucket = { cliente, parcelas: [], hasNegativadoSerasa: false, hasAjuizado: false, ajuizadoVariant: null };
           parcelasPorCliente.set(clienteIdNum, bucket);
         }
         if (isNegativadoSerasa) bucket.hasNegativadoSerasa = true;
-        if (isAjuizado) bucket.hasAjuizado = true;
+        if (isAjuizado) {
+          bucket.hasAjuizado = true;
+          if (!bucket.ajuizadoVariant) {
+            bucket.ajuizadoVariant = situacao.includes("saniely") ? "ajuizado_saniely" : "ajuizado_navde";
+          }
+        }
         // Dedup: a API SSótica pode retornar a mesma parcela em múltiplas janelas/páginas.
         // Evita acumular duplicatas que inflariam o valor total e confundiriam a UI.
         const parcelaIdNum = parcela.id ? Number(parcela.id) : null;
