@@ -62,6 +62,7 @@ const navItems: NavItem[] = [
   { path: "/whatsapp",             label: "WhatsApp",               icon: MessageSquare, roles: ["admin", "gerente"] },
   { path: "/importar",             label: "Importar Leads",         icon: Upload,       roles: ["admin"] },
   { path: "/integracoes-ssotica",  label: "Integrações SSótica",    icon: Plug,         roles: ["admin"] },
+  { path: "/status-ssotica",       label: "Status SSótica",         icon: Activity,     roles: ["admin"] },
   { path: "/logs-movimentacao",    label: "Logs Movimentação",      icon: History,      roles: ["admin"] },
 ];
 
