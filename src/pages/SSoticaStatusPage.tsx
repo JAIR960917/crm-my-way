@@ -40,6 +40,8 @@ interface IntegrationStatus {
   is_active: boolean;
   sync_status: string;
   backfill_status: string | null;
+  backfill_chunk_index: number | null;
+  backfill_total_chunks: number | null;
   last_sync_vendas_at: string | null;
   last_sync_receber_at: string | null;
   updated_at: string;
@@ -60,10 +62,13 @@ function getHealth(i: IntegrationStatus): { health: Health; label: string } {
   const updatedMs = new Date(i.updated_at).getTime();
   const ageMin = (Date.now() - updatedMs) / 60000;
 
+  const backfillActive =
+    i.backfill_status === "running" || i.backfill_status === "scheduled";
+
   if (i.sync_status === "running" && ageMin > STUCK_MINUTES) {
     return { health: "stuck", label: `Travada (${Math.round(ageMin)}min)` };
   }
-  if (i.sync_status === "running") {
+  if (i.sync_status === "running" || backfillActive) {
     return { health: "warning", label: "Sincronizando" };
   }
   if (i.sync_status === "error" || (i.last_error && i.last_error.length > 0)) {
@@ -133,7 +138,7 @@ export default function SSoticaStatusPage() {
     const { data, error } = await supabase
       .from("ssotica_integrations")
       .select(
-        "id, company_id, is_active, sync_status, backfill_status, last_sync_vendas_at, last_sync_receber_at, updated_at, last_error, companies:company_id(name)"
+        "id, company_id, is_active, sync_status, backfill_status, backfill_chunk_index, backfill_total_chunks, last_sync_vendas_at, last_sync_receber_at, updated_at, last_error, companies:company_id(name)"
       )
       .order("updated_at", { ascending: false });
     if (error) {
@@ -152,6 +157,8 @@ export default function SSoticaStatusPage() {
       is_active: row.is_active,
       sync_status: row.sync_status,
       backfill_status: row.backfill_status,
+      backfill_chunk_index: row.backfill_chunk_index,
+      backfill_total_chunks: row.backfill_total_chunks,
       last_sync_vendas_at: row.last_sync_vendas_at,
       last_sync_receber_at: row.last_sync_receber_at,
       updated_at: row.updated_at,
@@ -164,7 +171,7 @@ export default function SSoticaStatusPage() {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 30000);
+    const t = setInterval(load, 10000);
     return () => clearInterval(t);
   }, []);
 
@@ -341,7 +348,30 @@ export default function SSoticaStatusPage() {
                           <HealthBadge health={health} label={label} />
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">{i.sync_status}</Badge>
+                          {(() => {
+                            const bfActive =
+                              i.backfill_status === "running" ||
+                              i.backfill_status === "scheduled";
+                            const total = i.backfill_total_chunks ?? 16;
+                            const done = i.backfill_chunk_index ?? 0;
+                            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                            if (bfActive) {
+                              return (
+                                <div className="space-y-1 min-w-[140px]">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300">
+                                      backfill {done}/{total}
+                                    </Badge>
+                                    <span className="text-muted-foreground">{pct}%</span>
+                                  </div>
+                                  <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                                    <div className="h-full bg-amber-500 transition-all" style={{ width: `${pct}%` }} />
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return <Badge variant="outline">{i.sync_status}</Badge>;
+                          })()}
                         </TableCell>
                         <TableCell>
                           {i.last_sync_vendas_at
