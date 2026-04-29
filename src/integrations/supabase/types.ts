@@ -1944,6 +1944,7 @@ export type Database = {
       is_same_company: { Args: { _user_id: string }; Returns: boolean }
       manage_ssotica_cron: { Args: never; Returns: undefined }
       manage_whatsapp_cron: { Args: never; Returns: undefined }
+      reclassify_cobrancas_by_situacao: { Args: never; Returns: number }
       ssotica_enqueue_sync: {
         Args: {
           _auth: string
