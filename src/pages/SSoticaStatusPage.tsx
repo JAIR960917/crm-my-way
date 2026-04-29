@@ -62,10 +62,13 @@ function getHealth(i: IntegrationStatus): { health: Health; label: string } {
   const updatedMs = new Date(i.updated_at).getTime();
   const ageMin = (Date.now() - updatedMs) / 60000;
 
+  const backfillActive =
+    i.backfill_status === "running" || i.backfill_status === "scheduled";
+
   if (i.sync_status === "running" && ageMin > STUCK_MINUTES) {
     return { health: "stuck", label: `Travada (${Math.round(ageMin)}min)` };
   }
-  if (i.sync_status === "running") {
+  if (i.sync_status === "running" || backfillActive) {
     return { health: "warning", label: "Sincronizando" };
   }
   if (i.sync_status === "error" || (i.last_error && i.last_error.length > 0)) {
