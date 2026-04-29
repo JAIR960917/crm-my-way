@@ -1859,22 +1859,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      _export_auth_users_temp: {
-        Args: never
-        Returns: {
-          created_at: string
-          email: string
-          email_confirmed_at: string
-          encrypted_password: string
-          id: string
-          last_sign_in_at: string
-          phone: string
-          phone_confirmed_at: string
-          raw_app_meta_data: Json
-          raw_user_meta_data: Json
-          updated_at: string
-        }[]
-      }
       _get_encryption_key: { Args: never; Returns: string }
       admin_decrypt_license: {
         Args: { _integration_id: string }
