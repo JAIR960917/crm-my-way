@@ -571,10 +571,11 @@ async function syncContasReceber(
         const clienteIdNum = Number(cliente.id);
         let bucket = parcelasPorCliente.get(clienteIdNum);
         if (!bucket) {
-          bucket = { cliente, parcelas: [], hasNegativadoSerasa: false, hasAjuizado: false, ajuizadoVariant: null };
+          bucket = { cliente, parcelas: [], hasNegativadoSerasa: false, hasAjuizado: false, ajuizadoVariant: null, hasEmAtraso: false };
           parcelasPorCliente.set(clienteIdNum, bucket);
         }
         if (isNegativadoSerasa) bucket.hasNegativadoSerasa = true;
+        if (isEmAtraso) bucket.hasEmAtraso = true;
         if (isAjuizado) {
           bucket.hasAjuizado = true;
           if (!bucket.ajuizadoVariant) {
