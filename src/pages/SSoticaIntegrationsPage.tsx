@@ -354,8 +354,10 @@ export default function SSoticaIntegrationsPage() {
         // Backfill iniciado: 1º chunk já rodou, próximos chunks seguem automaticamente
         toast({
           title: "Backfill de 96 meses iniciado",
-          description: "O 1º chunk foi processado e os próximos continuarão automaticamente até concluir.",
+          description: "Acompanhe o progresso no banner azul no topo da página. Os chunks rodam a cada ~3 min.",
         });
+        // Scroll para o topo para o usuário ver o banner de progresso
+        window.scrollTo({ top: 0, behavior: "smooth" });
       } else {
         const result = data?.results?.[0];
         if (result?.ok) {
