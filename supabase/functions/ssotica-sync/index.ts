@@ -327,20 +327,23 @@ async function decryptIntegration<T extends { bearer_token?: string | null; lice
   return item;
 }
 
-async function enqueueSsoticaSyncJob(
-  supabase: any,
-  payload: Record<string, unknown>,
-  timeoutMilliseconds = 600000,
-): Promise<void> {
-  const { error } = await supabase.rpc("ssotica_enqueue_job", {
-    _url: `${getBaseUrlForFanout()}/functions/v1/ssotica-sync`,
-    _auth: `Bearer ${getRequiredEnv("SUPABASE_ANON_KEY")}`,
-    _payload: payload,
-    _timeout_milliseconds: timeoutMilliseconds,
+function triggerNextBackfillTick(): void {
+  const fnUrl = `${getBaseUrlForFanout()}/functions/v1/ssotica-sync`;
+  const authHeader = `Bearer ${getRequiredEnv("SUPABASE_ANON_KEY")}`;
+  const request = fetch(fnUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: authHeader,
+    },
+    body: JSON.stringify({ mode: "backfill_tick" }),
+  }).catch((error) => {
+    console.error("[ssotica-sync][backfill] falha ao disparar próximo tick:", error);
   });
 
-  if (error) {
-    throw new Error(`Falha ao enfileirar job SSÓtica: ${error.message}`);
+  const edgeRuntime = (globalThis as any).EdgeRuntime;
+  if (edgeRuntime?.waitUntil) {
+    edgeRuntime.waitUntil(request);
   }
 }
 
