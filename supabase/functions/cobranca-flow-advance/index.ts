@@ -271,7 +271,9 @@ serve(async (req) => {
         event_type: "avancou_coluna",
         next_status_key: nextStatus.key,
         next_status_label: nextStatus.label,
-        details: { reason: flow.column_type, days_elapsed: Math.round(elapsedDays) },
+        details: modoParcelas
+          ? { reason: "parcelas", parcelas_atrasadas: parcelasAtrasadas.length, min_parcelas: minParcelas }
+          : { reason: flow.column_type, days_to_advance: daysToAdvance, min_parcelas: minParcelas },
       });
       stats.avancados++;
     }
