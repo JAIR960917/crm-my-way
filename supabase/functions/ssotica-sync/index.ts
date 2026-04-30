@@ -688,19 +688,17 @@ async function syncContasReceber(
     });
 
     // Regra de coluna (configurável via tabela crm_cobranca_situacao_mapping):
-    //  • Ajuizado(A) Saniely / Návde → coluna mapeada para a variante (default: 180_dias_ajuizar_manualmente)
-    //  • Negativado Serasa            → coluna mapeada (default: COLUNA 10)
-    //  • Em atraso (situação SSÓtica) → coluna mapeada (default: COLUNA 8)
-    //  • Demais (a vencer / vencido)  → escala por dias com cap nas locked
+    //  • Ajuizado(A) Saniely / Návde → coluna mapeada (default: ajuizados_manual)
+    //  • Negativado Serasa            → coluna mapeada (default: COLUNA 9)
+    //  • Em atraso / a vencer / vencido → escala por dias (1 antes / 1 atraso / 30 atraso)
     let colunaKeyAlvo: string;
     if (hasAjuizadoMerged) {
       const variantKey = ajuizadoVariantMerged ?? "ajuizado_saniely";
-      colunaKeyAlvo = situacaoMapping[variantKey] ?? situacaoMapping["ajuizado_saniely"] ?? "180_dias_ajuizar_manualmente";
+      colunaKeyAlvo = situacaoMapping[variantKey] ?? situacaoMapping["ajuizado_saniely"] ?? "ajuizados_manual";
     } else if (hasNegativadoSerasaMerged) {
-      colunaKeyAlvo = situacaoMapping["negativado_serasa"] ?? "65_dias_de_atraso_receber_informe_de_negativao";
-    } else if (hasEmAtrasoMerged) {
-      colunaKeyAlvo = situacaoMapping["em_atraso"] ?? "60_dias_de_atraso_ligao_negativao";
+      colunaKeyAlvo = situacaoMapping["negativado_serasa"] ?? "coluna_9_negativacao";
     } else {
+      // Inclui hasEmAtrasoMerged: agora "em atraso" segue por dias também.
       colunaKeyAlvo = clampToLockedEntry(statusKeyForDiasAtraso(maisAntiga.dias_atraso));
     }
 
@@ -727,16 +725,16 @@ async function syncContasReceber(
 
     // Decide o status final que será gravado:
     //  • Casos especiais (Serasa / Ajuizado) sempre forçam a coluna fixa.
-    //  • Card já existente em coluna travada (>= COLUNA 9) NÃO é movido pelo
+    //  • Card já existente em coluna travada (>= "30 dias de atraso") NÃO é movido pelo
     //    sync — quem move dali é o fluxo manual (cobranca-flow-advance).
     let colunaKey = colunaKeyAlvo;
     if (existingCobranca && !hasAjuizadoMerged && !hasNegativadoSerasaMerged) {
       if (COBRANCA_LOCKED_KEYS.has(existingCobranca.status)) {
-        // Cards após a COLUNA 8 (60 dias) só podem permanecer lá se houver
-        // parcela "Negativado Serasa". Como não há, voltam para a COLUNA 8
-        // e aguardam tratativa da Brenda.
-        colunaKey = COLUNAS_APOS_8.has(existingCobranca.status)
-          ? "60_dias_de_atraso_ligao_negativao"
+        // Cards posteriores à negativação só permanecem lá se ainda houver
+        // parcela "Negativado Serasa". Como não há, voltam para a COLUNA 9
+        // e aguardam novo encaminhamento.
+        colunaKey = COLUNAS_APOS_NEGATIVACAO.has(existingCobranca.status)
+          ? "coluna_9_negativacao"
           : existingCobranca.status; // mantém a coluna atual (travada)
       }
     }
