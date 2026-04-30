@@ -403,9 +403,10 @@ async function syncContasReceber(
   // Cache de labels das colunas de cobrança (key -> label) para registro de logs
   const { data: cobStatusRows } = await supabase
     .from("crm_cobranca_statuses")
-    .select("key,label");
+    .select("key,label,position");
+  const cobStatuses = (cobStatusRows ?? []) as Array<{ key: string; label?: string | null; position?: number | null }>;
   const cobStatusLabelByKey = new Map<string, string>(
-    (cobStatusRows ?? []).map((s: any) => [s.key, s.label]),
+    cobStatuses.map((s) => [s.key, s.label ?? s.key]),
   );
 
   // Helper: registra movimentação automática entre Renovação e Cobrança
@@ -458,6 +459,8 @@ async function syncContasReceber(
   } catch (_e) {
     // mantém defaults se a tabela ainda não existir
   }
+  const cobStatusRouting = buildCobrancaStageRouting(cobStatuses, situacaoMapping);
+  const knownCobrancaStatusKeys = new Set(cobStatuses.map((status) => status.key));
 
   // Coletamos IDs de parcelas que ainda estão em aberto/vencidas neste sync.
   // Usamos para detectar cobranças do banco que sumiram da API (foram pagas).
@@ -742,12 +745,12 @@ async function syncContasReceber(
     let colunaKeyAlvo: string;
     if (hasAjuizadoMerged) {
       const variantKey = ajuizadoVariantMerged ?? "ajuizado_saniely";
-      colunaKeyAlvo = situacaoMapping[variantKey] ?? situacaoMapping["ajuizado_saniely"] ?? "ajuizados_manual";
+      colunaKeyAlvo = situacaoMapping[variantKey] ?? situacaoMapping["ajuizado_saniely"] ?? cobStatusRouting.ajuizadoKey;
     } else if (hasNegativadoSerasaMerged) {
-      colunaKeyAlvo = situacaoMapping["negativado_serasa"] ?? "coluna_9_negativacao";
+      colunaKeyAlvo = situacaoMapping["negativado_serasa"] ?? cobStatusRouting.negativadoKey;
     } else {
       // Inclui hasEmAtrasoMerged: agora "em atraso" segue por dias também.
-      colunaKeyAlvo = clampToLockedEntry(statusKeyForDiasAtraso(maisAntiga.dias_atraso));
+      colunaKeyAlvo = clampToLockedEntry(statusKeyForDiasAtraso(maisAntiga.dias_atraso, cobStatusRouting), cobStatusRouting);
     }
 
     const telefone = cliente.telefone_principal ?? cliente.telefone ?? "";
@@ -775,14 +778,14 @@ async function syncContasReceber(
     //  • Casos especiais (Serasa / Ajuizado) sempre forçam a coluna fixa.
     //  • Card já existente em coluna travada (>= "30 dias de atraso") NÃO é movido pelo
     //    sync — quem move dali é o fluxo manual (cobranca-flow-advance).
-    let colunaKey = colunaKeyAlvo;
+    let colunaKey = knownCobrancaStatusKeys.has(colunaKeyAlvo) ? colunaKeyAlvo : cobStatusRouting.oneDayLateKey;
     if (existingCobranca && !hasAjuizadoMerged && !hasNegativadoSerasaMerged) {
-      if (COBRANCA_LOCKED_KEYS.has(existingCobranca.status)) {
+      if (knownCobrancaStatusKeys.has(existingCobranca.status) && cobStatusRouting.lockedKeys.has(existingCobranca.status)) {
         // Cards posteriores à negativação só permanecem lá se ainda houver
         // parcela "Negativado Serasa". Como não há, voltam para a COLUNA 9
         // e aguardam novo encaminhamento.
-        colunaKey = COLUNAS_APOS_NEGATIVACAO.has(existingCobranca.status)
-          ? "coluna_9_negativacao"
+        colunaKey = cobStatusRouting.afterNegativacaoKeys.has(existingCobranca.status)
+          ? cobStatusRouting.negativadoKey
           : existingCobranca.status; // mantém a coluna atual (travada)
       }
     }
