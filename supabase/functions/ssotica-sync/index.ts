@@ -38,64 +38,112 @@ function daysBetween(a: Date, b: Date): number {
   return Math.floor((b.getTime() - a.getTime()) / 86400000);
 }
 
-// Mapeia dias de atraso para a key da coluna em crm_cobranca_statuses.
-// Fluxo simplificado por DIAS:
-//   • dias === -1 → "1 Dia antes do vencimento"
-//   • dias === 1  → "1 Dia de atraso"
-//   • dias >= 30  → "30 dias de atraso" (porta de entrada — daí em diante, o
-//     fluxo manual/automático configurado em CobrancaFlowPage cuida do avanço)
-// Demais valores (dias === 0 ou 2..29) ficam na coluna "1 Dia de atraso" como
-// uma sala de espera natural até completarem 30 dias.
-// dias < -1 não entra (parcela ainda muito longe do vencimento).
-function statusKeyForDiasAtraso(dias: number): string {
-  if (dias <= -1) return "1_dia_antes_do_vencimento";
-  if (dias >= 30) return "30_dias_de_atraso";
-  return "1_dia_de_atraso"; // 0..29
+type CobrancaStageRouting = {
+  beforeDueKey: string;
+  oneDayLateKey: string;
+  thirtyDaysKey: string;
+  negativadoKey: string;
+  ajuizadoKey: string;
+  lockedKeys: Set<string>;
+  afterNegativacaoKeys: Set<string>;
+};
+
+function normalizeStatusLookup(value: string | null | undefined): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
-// Coluna FIXA para clientes com situação "Negativado Serasa".
-const COBRANCA_NEGATIVADO_SERASA_KEY = "coluna_9_negativacao";
-// Coluna FIXA para clientes com situação "Ajuizado(A) Saniely" / "Ajuizado(A) Návde".
-const COBRANCA_AJUIZADO_KEY = "ajuizados_manual";
+function findStatusKeyByAliases(
+  statuses: Array<{ key: string; label?: string | null }>,
+  aliases: string[],
+): string | null {
+  const normalizedAliases = aliases.map((alias) => normalizeStatusLookup(alias)).filter(Boolean);
 
-// A partir destas colunas o sync NÃO altera mais o status do card automaticamente,
-// mesmo que dias_atraso aumente. O card só sai dessas colunas quando a tratativa
-// é registrada e o fluxo configurado avança (cobranca-flow-advance).
-// Inclui "30 dias de atraso" como porta de entrada e todas as colunas adiante.
-const COBRANCA_LOCKED_KEYS = new Set<string>([
-  "30_dias_de_atraso",
-  "31_dias_de_atraso_ligacao",
-  "coluna_7_mensagem_automatica",
-  "coluna_8_ligacao_negativacao",
-  "coluna_9_negativacao",
-  "coluna_10_receber_informe_de_negativacao",
-  "coluna_11_proposta_de_negociacao_pos_negativacao",
-  "coluna_12_ligacao_para_tentativa_de_negociacao_pos_negativacao",
-  "coluna_13_notificacao_extra_judicial_altomatico",
-  "coluna_14_ligacao_informe_judicial",
-  "coluna_15_enviar_para_o_advogado",
-  "coluna_16_ajuizar_manualmente",
-  "ajuizados_manual",
-  "inadimplencia_sem_ajuizamento_manual",
-]);
+  for (const alias of normalizedAliases) {
+    const exact = statuses.find((status) => {
+      const keyNorm = normalizeStatusLookup(status.key);
+      const labelNorm = normalizeStatusLookup(status.label);
+      return keyNorm === alias || labelNorm === alias;
+    });
+    if (exact) return exact.key;
+  }
 
-// Colunas posteriores à entrada por situação "Negativado Serasa".
-// Cards nessas colunas só permanecem se ainda estiverem com a situação adequada.
-const COLUNAS_APOS_NEGATIVACAO = new Set<string>([
-  "coluna_10_receber_informe_de_negativacao",
-  "coluna_11_proposta_de_negociacao_pos_negativacao",
-  "coluna_12_ligacao_para_tentativa_de_negociacao_pos_negativacao",
-  "coluna_13_notificacao_extra_judicial_altomatico",
-  "coluna_14_ligacao_informe_judicial",
-  "coluna_15_enviar_para_o_advogado",
-  "coluna_16_ajuizar_manualmente",
-  "inadimplencia_sem_ajuizamento_manual",
-]);
+  for (const alias of normalizedAliases) {
+    const partial = statuses.find((status) => {
+      const keyNorm = normalizeStatusLookup(status.key);
+      const labelNorm = normalizeStatusLookup(status.label);
+      return keyNorm.includes(alias) || labelNorm.includes(alias) || alias.includes(keyNorm) || alias.includes(labelNorm);
+    });
+    if (partial) return partial.key;
+  }
 
-// Cards novos com >= 30 dias entram em "30 dias de atraso" (e o fluxo
-// configurado leva em frente). Mantemos a função para compatibilidade.
-function clampToLockedEntry(key: string): string {
-  if (COBRANCA_LOCKED_KEYS.has(key)) return "30_dias_de_atraso";
+  return null;
+}
+
+function buildCobrancaStageRouting(
+  statuses: Array<{ key: string; label?: string | null; position?: number | null }>,
+  situacaoMapping: Record<string, string>,
+): CobrancaStageRouting {
+  const sorted = [...statuses].sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0));
+  const knownKeys = new Set(sorted.map((status) => status.key));
+
+  const pickKey = (candidates: Array<string | null | undefined>, aliases: string[], fallback?: string | null) => {
+    for (const key of candidates) {
+      if (key && knownKeys.has(key)) return key;
+    }
+    const fromAliases = findStatusKeyByAliases(sorted, aliases);
+    if (fromAliases) return fromAliases;
+    if (fallback && knownKeys.has(fallback)) return fallback;
+    return sorted[0]?.key ?? fallback ?? "";
+  };
+
+  const beforeDueKey = pickKey([], ["1_dia_antes_do_vencimento", "1 dia antes do vencimento"]);
+  const oneDayLateKey = pickKey([], ["1_dia_de_atraso", "1 dia de atraso"], beforeDueKey);
+  const thirtyDaysKey = pickKey([], ["30_dias_de_atraso", "30 dias de atraso"], oneDayLateKey);
+  const negativadoKey = pickKey(
+    [situacaoMapping["negativado_serasa"]],
+    ["coluna_9_negativacao", "negativado serasa", "negativacao", "receber informe de negativacao"],
+    thirtyDaysKey,
+  );
+  const ajuizadoKey = pickKey(
+    [situacaoMapping["ajuizado_saniely"], situacaoMapping["ajuizado_navde"]],
+    ["ajuizados_manual", "ajuizado", "ajuizar manualmente"],
+    negativadoKey,
+  );
+
+  const lockedStartIndex = sorted.findIndex((status) => status.key === thirtyDaysKey);
+  const lockedKeys = new Set(
+    lockedStartIndex >= 0 ? sorted.slice(lockedStartIndex).map((status) => status.key) : [thirtyDaysKey],
+  );
+
+  const negativadoIndex = sorted.findIndex((status) => status.key === negativadoKey);
+  const afterNegativacaoKeys = new Set(
+    negativadoIndex >= 0 ? sorted.slice(negativadoIndex + 1).map((status) => status.key) : [],
+  );
+
+  return {
+    beforeDueKey,
+    oneDayLateKey,
+    thirtyDaysKey,
+    negativadoKey,
+    ajuizadoKey,
+    lockedKeys,
+    afterNegativacaoKeys,
+  };
+}
+
+function statusKeyForDiasAtraso(dias: number, routing: CobrancaStageRouting): string {
+  if (dias <= -1) return routing.beforeDueKey;
+  if (dias >= 30) return routing.thirtyDaysKey;
+  return routing.oneDayLateKey;
+}
+
+function clampToLockedEntry(key: string, routing: CobrancaStageRouting): string {
+  if (routing.lockedKeys.has(key)) return routing.thirtyDaysKey;
   return key;
 }
 
@@ -355,9 +403,10 @@ async function syncContasReceber(
   // Cache de labels das colunas de cobrança (key -> label) para registro de logs
   const { data: cobStatusRows } = await supabase
     .from("crm_cobranca_statuses")
-    .select("key,label");
+    .select("key,label,position");
+  const cobStatuses = (cobStatusRows ?? []) as Array<{ key: string; label?: string | null; position?: number | null }>;
   const cobStatusLabelByKey = new Map<string, string>(
-    (cobStatusRows ?? []).map((s: any) => [s.key, s.label]),
+    cobStatuses.map((s) => [s.key, s.label ?? s.key]),
   );
 
   // Helper: registra movimentação automática entre Renovação e Cobrança
@@ -410,6 +459,8 @@ async function syncContasReceber(
   } catch (_e) {
     // mantém defaults se a tabela ainda não existir
   }
+  const cobStatusRouting = buildCobrancaStageRouting(cobStatuses, situacaoMapping);
+  const knownCobrancaStatusKeys = new Set(cobStatuses.map((status) => status.key));
 
   // Coletamos IDs de parcelas que ainda estão em aberto/vencidas neste sync.
   // Usamos para detectar cobranças do banco que sumiram da API (foram pagas).
@@ -694,12 +745,12 @@ async function syncContasReceber(
     let colunaKeyAlvo: string;
     if (hasAjuizadoMerged) {
       const variantKey = ajuizadoVariantMerged ?? "ajuizado_saniely";
-      colunaKeyAlvo = situacaoMapping[variantKey] ?? situacaoMapping["ajuizado_saniely"] ?? "ajuizados_manual";
+      colunaKeyAlvo = situacaoMapping[variantKey] ?? situacaoMapping["ajuizado_saniely"] ?? cobStatusRouting.ajuizadoKey;
     } else if (hasNegativadoSerasaMerged) {
-      colunaKeyAlvo = situacaoMapping["negativado_serasa"] ?? "coluna_9_negativacao";
+      colunaKeyAlvo = situacaoMapping["negativado_serasa"] ?? cobStatusRouting.negativadoKey;
     } else {
       // Inclui hasEmAtrasoMerged: agora "em atraso" segue por dias também.
-      colunaKeyAlvo = clampToLockedEntry(statusKeyForDiasAtraso(maisAntiga.dias_atraso));
+      colunaKeyAlvo = clampToLockedEntry(statusKeyForDiasAtraso(maisAntiga.dias_atraso, cobStatusRouting), cobStatusRouting);
     }
 
     const telefone = cliente.telefone_principal ?? cliente.telefone ?? "";
@@ -727,14 +778,14 @@ async function syncContasReceber(
     //  • Casos especiais (Serasa / Ajuizado) sempre forçam a coluna fixa.
     //  • Card já existente em coluna travada (>= "30 dias de atraso") NÃO é movido pelo
     //    sync — quem move dali é o fluxo manual (cobranca-flow-advance).
-    let colunaKey = colunaKeyAlvo;
+    let colunaKey = knownCobrancaStatusKeys.has(colunaKeyAlvo) ? colunaKeyAlvo : cobStatusRouting.oneDayLateKey;
     if (existingCobranca && !hasAjuizadoMerged && !hasNegativadoSerasaMerged) {
-      if (COBRANCA_LOCKED_KEYS.has(existingCobranca.status)) {
+      if (knownCobrancaStatusKeys.has(existingCobranca.status) && cobStatusRouting.lockedKeys.has(existingCobranca.status)) {
         // Cards posteriores à negativação só permanecem lá se ainda houver
         // parcela "Negativado Serasa". Como não há, voltam para a COLUNA 9
         // e aguardam novo encaminhamento.
-        colunaKey = COLUNAS_APOS_NEGATIVACAO.has(existingCobranca.status)
-          ? "coluna_9_negativacao"
+        colunaKey = cobStatusRouting.afterNegativacaoKeys.has(existingCobranca.status)
+          ? cobStatusRouting.negativadoKey
           : existingCobranca.status; // mantém a coluna atual (travada)
       }
     }
