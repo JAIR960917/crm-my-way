@@ -1447,18 +1447,13 @@ async function syncVendas(
           trigger_source: "auto",
         });
         // Log: transição (renovacao -> cobranca)
-        await supabase.from("crm_module_transition_logs").insert({
+        await logTransition({
           cliente_nome: clienteNome,
           from_module: "renovacao",
           to_module: "cobranca",
-          to_status_key: null,
-          to_status_label: null,
           source_record_id: (renExistente as any).id,
           target_record_id: cobrancasAbertas[0].id,
           ssotica_cliente_id: clienteId,
-          company_id: integ.company_id,
-          triggered_by: null,
-          trigger_source: "auto",
         });
       }
       continue; // tem dívida → não cria nem mantém renovação
@@ -1780,18 +1775,13 @@ async function reconcileRenovacoesVsCobrancas(
       trigger_source: "auto_reconcile",
     });
     // Log: transição reconcile (renovacao -> cobranca)
-    await supabase.from("crm_module_transition_logs").insert({
+    await logTransition({
       cliente_nome: clienteNome,
       from_module: "renovacao",
       to_module: "cobranca",
-      to_status_key: null,
-      to_status_label: null,
       source_record_id: renId,
       target_record_id: cob[0].id,
       ssotica_cliente_id: clienteId,
-      company_id: companyId,
-      triggered_by: null,
-      trigger_source: "auto_reconcile",
     });
     removed++;
   }
