@@ -30,6 +30,7 @@ services:
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${SUPABASE_PUBLIC_URL}
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB:-postgres}
       GOTRUE_SITE_URL: ${SITE_URL}
@@ -79,6 +80,7 @@ services:
       retries: 3
       start_period: 10s
     environment:
+      APP_NAME: realtime
       PORT: 4000
       DB_HOST: supabase-db
       DB_PORT: 5432
@@ -204,7 +206,7 @@ services:
       - "${KONG_HTTP_PORT:-8000}:8000"
     volumes:
       - ./docker/supabase/volumes/api/kong.yml:/home/kong/temp.yml:ro
-      - ./docker/supabase/volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro
+      - ./docker/supabase/volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
