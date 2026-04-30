@@ -104,12 +104,29 @@ function buildCobrancaStageRouting(
     return sorted[0]?.key ?? fallback ?? "";
   };
 
-  const beforeDueKey = pickKey([], ["1_dia_antes_do_vencimento", "1 dia antes do vencimento"]);
-  const oneDayLateKey = pickKey([], ["1_dia_de_atraso", "1 dia de atraso"], beforeDueKey);
-  const fiveDaysLateKey = pickKey([], ["5_dias_de_atraso", "5 dias de atraso"], oneDayLateKey);
-  const fifteenDaysLateKey = pickKey([], ["15_dias_de_atraso", "15 dias de atraso"], fiveDaysLateKey);
-  const thirtyDaysKey = pickKey([], ["30_dias_de_atraso", "30 dias de atraso"], oneDayLateKey);
-  const thirtyOneDaysKey = pickKey([], ["31_dias_de_atraso_ligacao", "31 dias de atraso", "31 dias de atraso ligacao"], thirtyDaysKey);
+  const beforeDueKey = pickKey([], ["1_dia_antes_do_vencimento", "1 dia antes do vencimento"], sorted[0]?.key);
+  const oneDayLateKey = pickKey([], ["1_dia_de_atraso", "1 dia de atraso"], sorted[1]?.key ?? beforeDueKey);
+  const flowEntryKey = pickKey(
+    [],
+    [
+      "30_dias_de_atraso",
+      "30 dias de atraso",
+      "30 dias de atraso ligacao",
+      "30 dias de atraso (ligacao)",
+      "31_dias_de_atraso_ligacao",
+      "31 dias de atraso",
+      "31 dias de atraso ligacao",
+    ],
+    sorted[2]?.key ?? oneDayLateKey,
+  );
+
+  const fiveDaysLateKeyCandidate = pickKey([], ["5_dias_de_atraso", "5 dias de atraso"], oneDayLateKey);
+  const fifteenDaysLateKeyCandidate = pickKey([], ["15_dias_de_atraso", "15 dias de atraso"], fiveDaysLateKeyCandidate);
+  const flowEntryIndex = sorted.findIndex((status) => status.key === flowEntryKey);
+  const fiveDaysLateKey = flowEntryIndex > 0 && fiveDaysLateKeyCandidate !== flowEntryKey ? fiveDaysLateKeyCandidate : oneDayLateKey;
+  const fifteenDaysLateKey = flowEntryIndex > 0 && fifteenDaysLateKeyCandidate !== flowEntryKey ? fifteenDaysLateKeyCandidate : fiveDaysLateKey;
+  const thirtyDaysKey = flowEntryKey;
+  const thirtyOneDaysKey = flowEntryKey;
   const negativadoKey = pickKey(
     [situacaoMapping["negativado_serasa"]],
     ["coluna_9_negativacao", "negativado serasa", "negativacao", "receber informe de negativacao"],
@@ -121,9 +138,9 @@ function buildCobrancaStageRouting(
     negativadoKey,
   );
 
-  const lockedStartIndex = sorted.findIndex((status) => status.key === thirtyOneDaysKey);
+  const lockedStartIndex = sorted.findIndex((status) => status.key === flowEntryKey);
   const lockedKeys = new Set(
-    lockedStartIndex >= 0 ? sorted.slice(lockedStartIndex).map((status) => status.key) : [thirtyOneDaysKey],
+    lockedStartIndex >= 0 ? sorted.slice(lockedStartIndex).map((status) => status.key) : [flowEntryKey],
   );
 
   const negativadoIndex = sorted.findIndex((status) => status.key === negativadoKey);
@@ -147,15 +164,14 @@ function buildCobrancaStageRouting(
 
 function statusKeyForDiasAtraso(dias: number, routing: CobrancaStageRouting): string {
   if (dias <= -1) return routing.beforeDueKey;
-  if (dias >= 31) return routing.thirtyOneDaysKey;
   if (dias >= 30) return routing.thirtyDaysKey;
-  if (dias >= 15) return routing.fifteenDaysLateKey;
-  if (dias >= 5) return routing.fiveDaysLateKey;
+  if (dias >= 15 && routing.fifteenDaysLateKey !== routing.thirtyDaysKey) return routing.fifteenDaysLateKey;
+  if (dias >= 5 && routing.fiveDaysLateKey !== routing.thirtyDaysKey) return routing.fiveDaysLateKey;
   return routing.oneDayLateKey;
 }
 
 function clampToLockedEntry(key: string, routing: CobrancaStageRouting): string {
-  if (routing.lockedKeys.has(key)) return routing.thirtyOneDaysKey;
+  if (routing.lockedKeys.has(key)) return routing.thirtyDaysKey;
   return key;
 }
 
