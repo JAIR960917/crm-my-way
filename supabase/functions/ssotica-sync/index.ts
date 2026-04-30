@@ -1708,8 +1708,8 @@ async function runBackfillChunk(
     .update({
       backfill_chunk_index: nextIdxOptimistic,
       backfill_next_run_at: nextRunAtOptimistic,
-      backfill_status: finishedOptimistic ? "done" : "running",
-      sync_status: finishedOptimistic ? "idle" : "running",
+      backfill_status: "running",
+      sync_status: "running",
     })
     .eq("id", integ.id)
     .eq("backfill_chunk_index", idx)
