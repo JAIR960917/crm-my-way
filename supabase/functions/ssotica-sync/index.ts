@@ -22,23 +22,7 @@ const COBRANCAS_FUTURE_DAYS = 60; // pegar parcelas que vencem em breve
 // continua sendo 24 meses, agora distribuída em 8 ciclos de 3h (24h completas).
 const INCREMENTAL_COBRANCAS_SLICES = 8;
 const RUNNING_SYNC_STALE_MINUTES = 5;
-const BACKFILL_CLAIM_WINDOW_MS = 15 * 60 * 1000;
 const DIRECIONAMENTO_STATUS = "fazer_direcionamento_para_o_vendedor";
-
-function getRequiredEnv(name: string): string {
-  const value = Deno.env.get(name)?.trim();
-  if (!value) {
-    throw new Error(`Configuração ausente no backend: variável ${name} não definida`);
-  }
-  return value;
-}
-
-function getBaseUrlForFanout(): string {
-  return (
-    Deno.env.get("SUPABASE_PUBLIC_URL")?.trim().replace(/\/$/, "") ||
-    getRequiredEnv("SUPABASE_URL").replace(/\/$/, "")
-  );
-}
 
 type AppRole = "admin" | "vendedor" | "gerente" | "financeiro";
 
@@ -54,138 +38,78 @@ function daysBetween(a: Date, b: Date): number {
   return Math.floor((b.getTime() - a.getTime()) / 86400000);
 }
 
-type CobrancaStageRouting = {
-  beforeDueKey: string;
-  oneDayLateKey: string;
-  fiveDaysLateKey: string;
-  fifteenDaysLateKey: string;
-  thirtyDaysKey: string;
-  thirtyOneDaysKey: string;
-  negativadoKey: string;
-  ajuizadoKey: string;
-  lockedKeys: Set<string>;
-  afterNegativacaoKeys: Set<string>;
-};
-
-function normalizeStatusLookup(value: string | null | undefined): string {
-  return String(value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+// Mapeia dias de atraso para a key da coluna em crm_cobranca_statuses.
+// dias < 0 = ainda vai vencer; dias >= 0 = já venceu.
+// IMPORTANTE: a coluna "pendente" ("1 Dia antes do vencimento") só recebe
+// parcelas que vencem em até 1 dia (dias === -1). Parcelas com vencimento
+// mais distante (-2 ou menos) ainda não devem aparecer na cobrança.
+function statusKeyForDiasAtraso(dias: number): string {
+  if (dias === -1) return "pendente";                                  // exatamente 1 dia antes do vencimento
+  if (dias >= 0 && dias <= 4) return "em_cobranca";                    // 1 a 4 dias de atraso
+  if (dias >= 5 && dias <= 14) return "5_dias_de_atraso";              // 5 a 14 dias
+  if (dias >= 15 && dias <= 29) return "atrasado";                     // 15 a 29 dias
+  if (dias >= 30 && dias <= 30) return "30_dias_de_atraso";            // 30
+  if (dias >= 31 && dias <= 44) return "31_dias_de_atraso_ligao";      // 31-44
+  if (dias >= 45 && dias <= 59) return "45_dias_de_atrasomensagem_automtica"; // 45-59
+  if (dias >= 60 && dias <= 60) return "60_dias_de_atraso_ligao_negativao";   // 60
+  if (dias >= 61 && dias <= 64) return "61_negativao";                 // 61-64
+  if (dias >= 65 && dias <= 74) return "65_dias_de_atraso_receber_informe_de_negativao";
+  if (dias >= 75 && dias <= 89) return "75_dias_de_atraso_proposta_de_negociao_ps_negativao";
+  if (dias >= 90 && dias <= 104) return "90_dias_de_atraso_ligao_para_tentativa_de_negociao_ps_negativao";
+  if (dias >= 105 && dias <= 119) return "105_dias_de_atraso_notificao_extra_judicial_altomtico";
+  if (dias >= 120 && dias <= 134) return "120_dias_de_atraso_ligao_informe_judicial";
+  if (dias >= 135 && dias <= 149) return "135_dias_de_atraso_oferta_de_negativao_automatico";
+  if (dias >= 150 && dias <= 179) return "150_dias_de_atraso_enviar_para_o_advogado";
+  return "180_dias_ajuizar_manualmente"; // 180+
 }
 
-function findStatusKeyByAliases(
-  statuses: Array<{ key: string; label?: string | null }>,
-  aliases: string[],
-): string | null {
-  const normalizedAliases = aliases.map((alias) => normalizeStatusLookup(alias)).filter(Boolean);
+// Coluna FIXA para clientes com situação "Negativado Serasa" (COLUNA 10).
+const COBRANCA_NEGATIVADO_SERASA_KEY = "65_dias_de_atraso_receber_informe_de_negativao";
+// Coluna FIXA para clientes com situação "Ajuizado(A) Saniely" / "Ajuizado(A) Návde".
+const COBRANCA_AJUIZADO_KEY = "ajuizados_manual";
+// A partir desta coluna (COLUNA "31 dias de atraso — ligação") o sync NÃO altera
+// mais o status do card automaticamente, mesmo que dias_atraso aumente. O card
+// só sai dessa coluna quando a tratativa é registrada e o fluxo configurado avança.
+// Antes dos 31 dias o card segue normalmente as colunas por dias de atraso
+// (pendente / em_cobranca / 5 dias / atrasado / 30 dias).
+const COBRANCA_LOCKED_KEYS = new Set<string>([
+  "31_dias_de_atraso_ligao",
+  "45_dias_de_atrasomensagem_automtica",
+  "60_dias_de_atraso_ligao_negativao",
+  "61_negativao",
+  "65_dias_de_atraso_receber_informe_de_negativao",
+  "75_dias_de_atraso_proposta_de_negociao_ps_negativao",
+  "90_dias_de_atraso_ligao_para_tentativa_de_negociao_ps_negativao",
+  "105_dias_de_atraso_notificao_extra_judicial_altomtico",
+  "120_dias_de_atraso_ligao_informe_judicial",
+  "135_dias_de_atraso_oferta_de_negativao_automatico",
+  "150_dias_de_atraso_enviar_para_o_advogado",
+  "180_dias_ajuizar_manualmente",
+  "ajuizados_manual",
+  "inadimplncia_sem_ajuizamento_manual",
+]);
 
-  for (const alias of normalizedAliases) {
-    const exact = statuses.find((status) => {
-      const keyNorm = normalizeStatusLookup(status.key);
-      const labelNorm = normalizeStatusLookup(status.label);
-      return keyNorm === alias || labelNorm === alias;
-    });
-    if (exact) return exact.key;
-  }
+// Colunas que ficam DEPOIS da COLUNA 8 ("60 dias de atraso — ligação / negativação").
+// Cards nessas colunas exigem situação "Negativado Serasa" para permanecerem.
+// Caso contrário, retornam para a COLUNA 8 aguardando tratativa.
+const COLUNAS_APOS_8 = new Set<string>([
+  "61_negativao",
+  "65_dias_de_atraso_receber_informe_de_negativao",
+  "75_dias_de_atraso_proposta_de_negociao_ps_negativao",
+  "90_dias_de_atraso_ligao_para_tentativa_de_negociao_ps_negativao",
+  "105_dias_de_atraso_notificao_extra_judicial_altomtico",
+  "120_dias_de_atraso_ligao_informe_judicial",
+  "135_dias_de_atraso_oferta_de_negativao_automatico",
+  "150_dias_de_atraso_enviar_para_o_advogado",
+  "180_dias_ajuizar_manualmente",
+  "inadimplncia_sem_ajuizamento_manual",
+]);
 
-  for (const alias of normalizedAliases) {
-    const partial = statuses.find((status) => {
-      const keyNorm = normalizeStatusLookup(status.key);
-      const labelNorm = normalizeStatusLookup(status.label);
-      return keyNorm.includes(alias) || labelNorm.includes(alias) || alias.includes(keyNorm) || alias.includes(labelNorm);
-    });
-    if (partial) return partial.key;
-  }
-
-  return null;
-}
-
-function buildCobrancaStageRouting(
-  statuses: Array<{ key: string; label?: string | null; position?: number | null }>,
-  situacaoMapping: Record<string, string>,
-): CobrancaStageRouting {
-  const sorted = [...statuses].sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0));
-  const knownKeys = new Set(sorted.map((status) => status.key));
-
-  const pickKey = (candidates: Array<string | null | undefined>, aliases: string[], fallback?: string | null) => {
-    for (const key of candidates) {
-      if (key && knownKeys.has(key)) return key;
-    }
-    const fromAliases = findStatusKeyByAliases(sorted, aliases);
-    if (fromAliases) return fromAliases;
-    if (fallback && knownKeys.has(fallback)) return fallback;
-    return sorted[0]?.key ?? fallback ?? "";
-  };
-
-  const beforeDueKey = pickKey([], ["1_dia_antes_do_vencimento", "1 dia antes do vencimento"], sorted[0]?.key);
-  const oneDayLateKey = pickKey([], ["1_dia_de_atraso", "1 dia de atraso"], sorted[1]?.key ?? beforeDueKey);
-  const flowEntryKey = pickKey(
-    [],
-    [
-      "30_dias_de_atraso",
-      "30 dias de atraso",
-      "30 dias de atraso ligacao",
-      "30 dias de atraso (ligacao)",
-      "31_dias_de_atraso_ligacao",
-      "31 dias de atraso",
-      "31 dias de atraso ligacao",
-    ],
-    sorted[2]?.key ?? oneDayLateKey,
-  );
-
-  const fiveDaysLateKeyCandidate = pickKey([], ["5_dias_de_atraso", "5 dias de atraso"], oneDayLateKey);
-  const fifteenDaysLateKeyCandidate = pickKey([], ["15_dias_de_atraso", "15 dias de atraso"], fiveDaysLateKeyCandidate);
-  const flowEntryIndex = sorted.findIndex((status) => status.key === flowEntryKey);
-  const fiveDaysLateKey = flowEntryIndex > 0 && fiveDaysLateKeyCandidate !== flowEntryKey ? fiveDaysLateKeyCandidate : oneDayLateKey;
-  const fifteenDaysLateKey = flowEntryIndex > 0 && fifteenDaysLateKeyCandidate !== flowEntryKey ? fifteenDaysLateKeyCandidate : fiveDaysLateKey;
-  const thirtyDaysKey = flowEntryKey;
-  const thirtyOneDaysKey = flowEntryKey;
-  const negativadoKey = pickKey(
-    [situacaoMapping["negativado_serasa"]],
-    ["coluna_9_negativacao", "negativado serasa", "negativacao", "receber informe de negativacao"],
-    thirtyOneDaysKey,
-  );
-  const ajuizadoKey = pickKey(
-    [situacaoMapping["ajuizado_saniely"], situacaoMapping["ajuizado_navde"]],
-    ["ajuizados_manual", "ajuizado", "ajuizar manualmente"],
-    negativadoKey,
-  );
-
-  const lockedStartIndex = sorted.findIndex((status) => status.key === flowEntryKey);
-  const lockedKeys = new Set(
-    lockedStartIndex >= 0 ? sorted.slice(lockedStartIndex).map((status) => status.key) : [flowEntryKey],
-  );
-
-  const negativadoIndex = sorted.findIndex((status) => status.key === negativadoKey);
-  const afterNegativacaoKeys = new Set(
-    negativadoIndex >= 0 ? sorted.slice(negativadoIndex + 1).map((status) => status.key) : [],
-  );
-
-  return {
-    beforeDueKey,
-    oneDayLateKey,
-    fiveDaysLateKey,
-    fifteenDaysLateKey,
-    thirtyDaysKey,
-    thirtyOneDaysKey,
-    negativadoKey,
-    ajuizadoKey,
-    lockedKeys,
-    afterNegativacaoKeys,
-  };
-}
-
-function statusKeyForDiasAtraso(dias: number, routing: CobrancaStageRouting): string {
-  if (dias <= -1) return routing.beforeDueKey;
-  if (dias >= 30) return routing.thirtyDaysKey;
-  return routing.oneDayLateKey;
-}
-
-function clampToLockedEntry(key: string, routing: CobrancaStageRouting): string {
-  if (routing.lockedKeys.has(key)) return routing.thirtyDaysKey;
+// Quando o card é NOVO e a regra por dias indicaria uma coluna travada
+// (>= 31 dias), paramos no "31 dias de atraso — ligação". A partir daí o card
+// só avança via fluxo manual configurado pela Brenda.
+function clampToLockedEntry(key: string): string {
+  if (COBRANCA_LOCKED_KEYS.has(key)) return "31_dias_de_atraso_ligao";
   return key;
 }
 
@@ -327,26 +251,6 @@ async function decryptIntegration<T extends { bearer_token?: string | null; lice
   return item;
 }
 
-function triggerNextBackfillTick(): void {
-  const fnUrl = `${getBaseUrlForFanout()}/functions/v1/ssotica-sync`;
-  const authHeader = `Bearer ${getRequiredEnv("SUPABASE_ANON_KEY")}`;
-  const request = fetch(fnUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: authHeader,
-    },
-    body: JSON.stringify({ mode: "backfill_tick" }),
-  }).catch((error) => {
-    console.error("[ssotica-sync][backfill] falha ao disparar próximo tick:", error);
-  });
-
-  const edgeRuntime = (globalThis as any).EdgeRuntime;
-  if (edgeRuntime?.waitUntil) {
-    edgeRuntime.waitUntil(request);
-  }
-}
-
 // Calcula a janela de datas de um chunk específico (chunk 0 = mais recente).
 // chunk 0 → últimos 12 meses; chunk 1 → 12-24 meses atrás; ... ; chunk 7 → 84-96 meses atrás.
 function chunkDateRange(chunkIndex: number, futureDays = 0): { start: Date; end: Date } {
@@ -465,77 +369,16 @@ async function syncContasReceber(
   // Cache de labels das colunas de cobrança (key -> label) para registro de logs
   const { data: cobStatusRows } = await supabase
     .from("crm_cobranca_statuses")
-    .select("key,label,position");
-  const cobStatuses = (cobStatusRows ?? []) as Array<{ key: string; label?: string | null; position?: number | null }>;
+    .select("key,label");
   const cobStatusLabelByKey = new Map<string, string>(
-    cobStatuses.map((s) => [s.key, s.label ?? s.key]),
+    (cobStatusRows ?? []).map((s: any) => [s.key, s.label]),
   );
-
-  const legacyCobrancaLogKeyMap = new Map<string, string>([
-    [normalizeStatusLookup("pendente"), "1_dia_antes_do_vencimento"],
-    [normalizeStatusLookup("em_cobranca"), "1_dia_de_atraso"],
-    [normalizeStatusLookup("atrasado"), "15_dias_de_atraso"],
-    [normalizeStatusLookup("31_dias_de_atraso_ligao"), "31_dias_de_atraso_ligacao"],
-    [normalizeStatusLookup("45_dias_de_atrasomensagem_automtica"), "coluna_7_mensagem_automatica"],
-    [normalizeStatusLookup("55_dias_de_atraso_ligao_negativao"), "coluna_8_ligacao_negativacao"],
-    [normalizeStatusLookup("65_dias_de_atraso_receber_informe_de_negativao"), "coluna_10_receber_informe_de_negativacao"],
-    [normalizeStatusLookup("75_dias_de_atraso_proposta_de_negociao_ps_negativao"), "coluna_11_proposta_de_negociacao_pos_negativacao"],
-    [normalizeStatusLookup("90_dias_de_atraso_ligao_tentativa_acordo_negativao"), "coluna_12_ligacao_para_tentativa_de_negociacao_pos_negativacao"],
-    [normalizeStatusLookup("105_dias_de_atraso_notificao_extra_judicial_altomtico"), "coluna_13_notificacao_extra_judicial_altomatico"],
-    [normalizeStatusLookup("120_dias_de_atraso_ligao_informe_judicial"), "coluna_14_ligacao_informe_judicial"],
-    [normalizeStatusLookup("135_dias_de_atraso_oferta_de_negativao_automatico"), "coluna_15_enviar_para_o_advogado"],
-    [normalizeStatusLookup("ajuizar_manual"), "coluna_16_ajuizar_manualmente"],
-  ]);
-
-  async function resolveCobrancaLogStatus(params: {
-    to_status_key?: string | null;
-    to_status_label?: string | null;
-    target_record_id?: string | null;
-  }): Promise<{ key: string | null; label: string | null }> {
-    const rawKey = params.to_status_key ?? null;
-    const rawLabel = params.to_status_label ?? null;
-
-    if (rawKey && knownCobrancaStatusKeys.has(rawKey)) {
-      return { key: rawKey, label: cobStatusLabelByKey.get(rawKey) ?? rawLabel ?? rawKey };
-    }
-
-    if (rawLabel) {
-      const keyFromLabel = findStatusKeyByAliases(cobStatuses, [rawLabel]);
-      if (keyFromLabel && knownCobrancaStatusKeys.has(keyFromLabel)) {
-        return { key: keyFromLabel, label: cobStatusLabelByKey.get(keyFromLabel) ?? rawLabel };
-      }
-    }
-
-    if (rawKey) {
-      const mappedKey = legacyCobrancaLogKeyMap.get(normalizeStatusLookup(rawKey));
-      if (mappedKey && knownCobrancaStatusKeys.has(mappedKey)) {
-        return { key: mappedKey, label: cobStatusLabelByKey.get(mappedKey) ?? rawLabel ?? mappedKey };
-      }
-    }
-
-    if (params.target_record_id) {
-      const { data: target } = await supabase
-        .from("crm_cobrancas")
-        .select("status")
-        .eq("id", params.target_record_id)
-        .maybeSingle();
-      const targetStatus = (target as any)?.status as string | null | undefined;
-      if (targetStatus && knownCobrancaStatusKeys.has(targetStatus)) {
-        return { key: targetStatus, label: cobStatusLabelByKey.get(targetStatus) ?? targetStatus };
-      }
-    }
-
-    return {
-      key: rawKey,
-      label: rawKey ? cobStatusLabelByKey.get(rawKey) ?? rawLabel ?? rawKey : rawLabel,
-    };
-  }
 
   // Helper: registra movimentação automática entre Renovação e Cobrança
   async function logTransition(params: {
     cliente_nome: string;
-    from_module: "none" | "renovacao" | "cobranca";
-    to_module: "none" | "renovacao" | "cobranca";
+    from_module: "renovacao" | "cobranca";
+    to_module: "renovacao" | "cobranca";
     to_status_key?: string | null;
     to_status_label?: string | null;
     source_record_id?: string | null;
@@ -543,20 +386,12 @@ async function syncContasReceber(
     ssotica_cliente_id?: number | null;
   }) {
     try {
-      const resolvedCobrancaStatus = params.to_module === "cobranca"
-        ? await resolveCobrancaLogStatus({
-            to_status_key: params.to_status_key,
-            to_status_label: params.to_status_label,
-            target_record_id: params.target_record_id,
-          })
-        : { key: params.to_status_key ?? null, label: params.to_status_label ?? null };
-
       await supabase.from("crm_module_transition_logs").insert({
         cliente_nome: params.cliente_nome || "Cliente SSótica",
         from_module: params.from_module,
         to_module: params.to_module,
-        to_status_key: resolvedCobrancaStatus.key,
-        to_status_label: resolvedCobrancaStatus.label,
+        to_status_key: params.to_status_key ?? null,
+        to_status_label: params.to_status_label ?? null,
         source_record_id: params.source_record_id ?? null,
         target_record_id: params.target_record_id ?? null,
         ssotica_cliente_id: params.ssotica_cliente_id ?? null,
@@ -572,11 +407,10 @@ async function syncContasReceber(
   // Carrega mapeamento de "situação SSÓtica" → coluna do funil, configurado pelo admin
   // na tela de Fluxo. Cai em fallback caso a tabela esteja vazia.
   const situacaoMapping: Record<string, string> = {
-    // 'em_atraso' não é mais mapeável: cards com essa situação seguem o fluxo
-    // por dias (1 antes / 1 atraso / 30 atraso) como qualquer outra parcela.
-    negativado_serasa: "coluna_9_negativacao",
-    ajuizado_saniely: "ajuizados_manual",
-    ajuizado_navde: "ajuizados_manual",
+    em_atraso: "60_dias_de_atraso_ligao_negativao",
+    negativado_serasa: "65_dias_de_atraso_receber_informe_de_negativao",
+    ajuizado_saniely: "180_dias_ajuizar_manualmente",
+    ajuizado_navde: "180_dias_ajuizar_manualmente",
   };
   try {
     const { data: mapRows } = await supabase
@@ -589,8 +423,6 @@ async function syncContasReceber(
   } catch (_e) {
     // mantém defaults se a tabela ainda não existir
   }
-  const cobStatusRouting = buildCobrancaStageRouting(cobStatuses, situacaoMapping);
-  const knownCobrancaStatusKeys = new Set(cobStatuses.map((status) => status.key));
 
   // Coletamos IDs de parcelas que ainda estão em aberto/vencidas neste sync.
   // Usamos para detectar cobranças do banco que sumiram da API (foram pagas).
@@ -780,19 +612,6 @@ async function syncContasReceber(
   const chunksProcessed = 1;
   console.log(`[ssotica-sync][cobrancas] empresa=${integ.company_id} janela=${ymd(overallStart)}→${ymd(overallEnd)} processed=${processed} clientes_em_atraso=${parcelasPorCliente.size} backfill_chunk=${isBackfillChunk}${manualRecentWindow ? " manual_recent=true" : incrementalWindow ? ` slot=${incrementalWindow.slot + 1}/${INCREMENTAL_COBRANCAS_SLICES}` : ""}`);
 
-  // Limpa imediatamente cards com status inexistente no ambiente atual.
-  // Em VPS com histórico de migrations antigas, alguns cards podem ter ficado
-  // presos em keys removidas e o incremental os preserva por estarem fora da
-  // janela atual. Ao removê-los aqui, o mesmo sync recria o card na coluna
-  // correta caso a dívida ainda esteja ativa.
-  if (knownCobrancaStatusKeys.size > 0) {
-    await supabase
-      .from("crm_cobrancas")
-      .delete()
-      .eq("ssotica_company_id", integ.company_id)
-      .not("status", "in", `(${Array.from(knownCobrancaStatusKeys).map((key) => `"${key.replace(/"/g, "\"")}"`).join(",")})`);
-  }
-
   // Janela atual em formato YYYY-MM-DD para decidir quais parcelas existentes
   // foram efetivamente revisadas neste slot (e portanto podem ser substituídas).
   // Parcelas FORA dessa janela não foram consultadas agora — devem ser preservadas
@@ -882,18 +701,20 @@ async function syncContasReceber(
     });
 
     // Regra de coluna (configurável via tabela crm_cobranca_situacao_mapping):
-    //  • Ajuizado(A) Saniely / Návde → coluna mapeada (default: ajuizados_manual)
-    //  • Negativado Serasa            → coluna mapeada (default: COLUNA 9)
-    //  • Em atraso / a vencer / vencido → escala por dias (1 antes / 1 atraso / 30 atraso)
+    //  • Ajuizado(A) Saniely / Návde → coluna mapeada para a variante (default: 180_dias_ajuizar_manualmente)
+    //  • Negativado Serasa            → coluna mapeada (default: COLUNA 10)
+    //  • Em atraso (situação SSÓtica) → coluna mapeada (default: COLUNA 8)
+    //  • Demais (a vencer / vencido)  → escala por dias com cap nas locked
     let colunaKeyAlvo: string;
     if (hasAjuizadoMerged) {
       const variantKey = ajuizadoVariantMerged ?? "ajuizado_saniely";
-      colunaKeyAlvo = situacaoMapping[variantKey] ?? situacaoMapping["ajuizado_saniely"] ?? cobStatusRouting.ajuizadoKey;
+      colunaKeyAlvo = situacaoMapping[variantKey] ?? situacaoMapping["ajuizado_saniely"] ?? "180_dias_ajuizar_manualmente";
     } else if (hasNegativadoSerasaMerged) {
-      colunaKeyAlvo = situacaoMapping["negativado_serasa"] ?? cobStatusRouting.negativadoKey;
+      colunaKeyAlvo = situacaoMapping["negativado_serasa"] ?? "65_dias_de_atraso_receber_informe_de_negativao";
+    } else if (hasEmAtrasoMerged) {
+      colunaKeyAlvo = situacaoMapping["em_atraso"] ?? "60_dias_de_atraso_ligao_negativao";
     } else {
-      // Inclui hasEmAtrasoMerged: agora "em atraso" segue por dias também.
-      colunaKeyAlvo = clampToLockedEntry(statusKeyForDiasAtraso(maisAntiga.dias_atraso, cobStatusRouting), cobStatusRouting);
+      colunaKeyAlvo = clampToLockedEntry(statusKeyForDiasAtraso(maisAntiga.dias_atraso));
     }
 
     const telefone = cliente.telefone_principal ?? cliente.telefone ?? "";
@@ -919,29 +740,19 @@ async function syncContasReceber(
 
     // Decide o status final que será gravado:
     //  • Casos especiais (Serasa / Ajuizado) sempre forçam a coluna fixa.
-    //  • Card já existente em coluna travada (>= "30 dias de atraso") NÃO é movido pelo
+    //  • Card já existente em coluna travada (>= COLUNA 9) NÃO é movido pelo
     //    sync — quem move dali é o fluxo manual (cobranca-flow-advance).
-    let colunaKey = knownCobrancaStatusKeys.has(colunaKeyAlvo) ? colunaKeyAlvo : cobStatusRouting.oneDayLateKey;
+    let colunaKey = colunaKeyAlvo;
     if (existingCobranca && !hasAjuizadoMerged && !hasNegativadoSerasaMerged) {
-      if (knownCobrancaStatusKeys.has(existingCobranca.status) && cobStatusRouting.lockedKeys.has(existingCobranca.status)) {
-        // Cards posteriores à negativação só permanecem lá se ainda houver
-        // parcela "Negativado Serasa". Como não há, voltam para a COLUNA 9
-        // e aguardam novo encaminhamento.
-        colunaKey = cobStatusRouting.afterNegativacaoKeys.has(existingCobranca.status)
-          ? cobStatusRouting.negativadoKey
+      if (COBRANCA_LOCKED_KEYS.has(existingCobranca.status)) {
+        // Cards após a COLUNA 8 (60 dias) só podem permanecer lá se houver
+        // parcela "Negativado Serasa". Como não há, voltam para a COLUNA 8
+        // e aguardam tratativa da Brenda.
+        colunaKey = COLUNAS_APOS_8.has(existingCobranca.status)
+          ? "60_dias_de_atraso_ligao_negativao"
           : existingCobranca.status; // mantém a coluna atual (travada)
       }
     }
-
-    if (!knownCobrancaStatusKeys.has(colunaKey)) {
-      colunaKey = maisAntiga.dias_atraso <= -1
-        ? cobStatusRouting.beforeDueKey
-        : maisAntiga.dias_atraso >= 30
-          ? cobStatusRouting.thirtyDaysKey
-          : cobStatusRouting.oneDayLateKey;
-    }
-
-    let targetCobrancaId: string | null = existingCobranca?.id ?? null;
 
     if (existingCobranca) {
       await supabase
@@ -973,7 +784,6 @@ async function syncContasReceber(
         status: colunaKey,
         scheduled_date: maisAntiga.vencimento,
       }).select("id").maybeSingle();
-      targetCobrancaId = (insertedCob as any)?.id ?? null;
       created++;
 
       // Verifica se o cliente vinha de Renovação ANTES de logar
@@ -987,14 +797,17 @@ async function syncContasReceber(
       // Só loga "criação direta" (none → cobranca) se NÃO vinha de Renovação.
       // Se vinha, o log de transição (renovacao → cobranca) será gerado abaixo.
       if (!renPreCheck) {
-        await logTransition({
+        await supabase.from("crm_module_transition_logs").insert({
           cliente_nome: String((data as any)?.nome ?? "Cliente SSótica"),
           from_module: "none",
           to_module: "cobranca",
           to_status_key: colunaKey,
           to_status_label: cobStatusLabelByKey.get(colunaKey) ?? colunaKey,
-          target_record_id: targetCobrancaId,
+          target_record_id: (insertedCob as any)?.id ?? null,
           ssotica_cliente_id: clienteIdNum,
+          company_id: integ.company_id,
+          triggered_by: null,
+          trigger_source: "auto",
         });
       }
     }
@@ -1021,7 +834,7 @@ async function syncContasReceber(
         to_status_key: colunaKey,
         to_status_label: cobStatusLabelByKey.get(colunaKey) ?? colunaKey,
         source_record_id: (renovacaoExistente as any).id,
-        target_record_id: targetCobrancaId,
+        target_record_id: existingCobranca?.id ?? null,
         ssotica_cliente_id: clienteIdNum,
       });
     }
@@ -1509,13 +1322,18 @@ async function syncVendas(
           trigger_source: "auto",
         });
         // Log: transição (renovacao -> cobranca)
-        await logTransition({
+        await supabase.from("crm_module_transition_logs").insert({
           cliente_nome: clienteNome,
           from_module: "renovacao",
           to_module: "cobranca",
+          to_status_key: null,
+          to_status_label: null,
           source_record_id: (renExistente as any).id,
           target_record_id: cobrancasAbertas[0].id,
           ssotica_cliente_id: clienteId,
+          company_id: integ.company_id,
+          triggered_by: null,
+          trigger_source: "auto",
         });
       }
       continue; // tem dívida → não cria nem mantém renovação
@@ -1837,13 +1655,18 @@ async function reconcileRenovacoesVsCobrancas(
       trigger_source: "auto_reconcile",
     });
     // Log: transição reconcile (renovacao -> cobranca)
-    await logTransition({
+    await supabase.from("crm_module_transition_logs").insert({
       cliente_nome: clienteNome,
       from_module: "renovacao",
       to_module: "cobranca",
+      to_status_key: null,
+      to_status_label: null,
       source_record_id: renId,
       target_record_id: cob[0].id,
       ssotica_cliente_id: clienteId,
+      company_id: companyId,
+      triggered_by: null,
+      trigger_source: "auto_reconcile",
     });
     removed++;
   }
@@ -1869,7 +1692,7 @@ async function runBackfillChunk(
   // 1 chunk em caso de timeout, mas evita loop infinito que trava 100% do backfill.
   const nextIdxOptimistic = idx + 1;
   const finishedOptimistic = nextIdxOptimistic >= total;
-  const nextRunAtOptimistic = finishedOptimistic ? null : new Date().toISOString();
+  const nextRunAtOptimistic = finishedOptimistic ? null : new Date(Date.now() + 30 * 1000).toISOString();
   await supabase.from("ssotica_integrations").update({
     backfill_chunk_index: nextIdxOptimistic,
     backfill_next_run_at: nextRunAtOptimistic,
@@ -1900,7 +1723,6 @@ async function runBackfillChunk(
       initial_sync_done: finished ? true : integ.initial_sync_done,
       last_sync_receber_at: finished ? finishedAt : integ.last_sync_receber_at,
       last_sync_vendas_at: finished ? finishedAt : integ.last_sync_vendas_at,
-      backfill_next_run_at: finished ? null : new Date().toISOString(),
       last_error: null,
     }).eq("id", integ.id);
 
@@ -1915,8 +1737,8 @@ async function runBackfillChunk(
       }).eq("id", logId);
     }
 
-    const nextRunAt = finished ? null : new Date().toISOString();
-    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} OK. ${finished ? 'CONCLUÍDO!' : `próximo imediatamente (${nextRunAt})`}`);
+    const nextRunAt = finished ? null : new Date(Date.now() + 30 * 1000).toISOString();
+    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} OK. ${finished ? 'CONCLUÍDO!' : `próximo em 30s (${nextRunAt})`}`);
 
     // RECONCILIAÇÃO: roda APENAS no chunk final (quando todos os dados já foram sincronizados).
     // Antes era a cada chunk, mas em lojas grandes (~7000 cobranças) isso causava timeout
@@ -1963,10 +1785,6 @@ async function runBackfillChunk(
       }
     }
 
-    if (!finished) {
-      triggerNextBackfillTick();
-    }
-
     return { ok: true, chunk_index: idx, finished };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -1999,10 +1817,12 @@ function isRunningSyncStale(integration: Pick<Integration, "sync_status" | "upda
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+
   try {
-    const supabaseUrl = getRequiredEnv("SUPABASE_URL");
-    const serviceRoleKey = getRequiredEnv("SUPABASE_SERVICE_ROLE_KEY");
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
     const body = await req.json().catch(() => ({}));
     const mode: string = body.mode ?? (body.start_backfill ? "start_backfill" : "incremental");
     const onlyIntegrationId: string | undefined = body.integration_id;
@@ -2028,21 +1848,13 @@ Deno.serve(async (req) => {
       }
       const results: any[] = [];
       for (const integ of list) {
-        const claimUntil = new Date(Date.now() + BACKFILL_CLAIM_WINDOW_MS).toISOString();
         // Promove "scheduled" → "running" para que runBackfillChunk processe normalmente
         if (integ.backfill_status === "scheduled") {
           await supabase
             .from("ssotica_integrations")
-            .update({ backfill_status: "running", sync_status: "running", backfill_next_run_at: claimUntil, last_error: null })
+            .update({ backfill_status: "running", sync_status: "running" })
             .eq("id", integ.id);
           (integ as any).backfill_status = "running";
-          (integ as any).backfill_next_run_at = claimUntil;
-        } else {
-          await supabase
-            .from("ssotica_integrations")
-            .update({ backfill_next_run_at: claimUntil })
-            .eq("id", integ.id);
-          (integ as any).backfill_next_run_at = claimUntil;
         }
         const r = await runBackfillChunk(supabase, integ);
         results.push({ integration_id: integ.id, ...r });
@@ -2173,8 +1985,8 @@ Deno.serve(async (req) => {
     // próprio orçamento de tempo. Isso elimina os travamentos de Caicó/Jucurutu
     // que ocorriam quando o runtime pai era encerrado antes dos disparos paralelos.
     if (!onlyIntegrationId && integrations.length > 1) {
-      const fnUrl = `${getBaseUrlForFanout()}/functions/v1/ssotica-sync`;
-      const anonKey = getRequiredEnv("SUPABASE_ANON_KEY");
+      const fnUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/ssotica-sync`;
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
       const dispatched: string[] = [];
       const fanoutSkipped: any[] = [];
       const fanoutErrors: any[] = [];

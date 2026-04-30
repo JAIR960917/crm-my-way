@@ -1,1 +1,0 @@
-DELETE FROM public.crm_cobranca_situacao_mapping WHERE situacao = 'em_atraso';

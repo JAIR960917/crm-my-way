@@ -110,10 +110,6 @@ export default function CobrancasPage() {
     table: "crm_cobrancas",
     statusKeys,
     filter: columnFilter,
-    // Mais antigo no topo: ordena pelo vencimento da parcela. O sort do front
-    // ainda re-organiza para empurrar tratados/recentes para o final.
-    orderColumn: "vencimento",
-    orderAscending: true,
     searchQuery,
     buildSearchOr,
     refreshKey,
@@ -314,36 +310,20 @@ export default function CobrancasPage() {
     return ids;
   }, [activities, noteIds]);
 
-  const sortByTaskPriority = useCallback(<T extends { id: string; data?: any; status?: string }>(items: T[]) => {
+  const sortByTaskPriority = useCallback(<T extends { id: string; data?: any }>(items: T[]) => {
     return [...items].sort((a, b) => {
-      const aData = (a as any)?.data || {};
-      const bData = (b as any)?.data || {};
-
-      // 1) Cards já tratados (tratativa_em definida ou gatilho enviado nesta coluna)
-      // ou que já tiveram renegociou definido vão para o FINAL da coluna.
-      const aTreated = (aData.tratativa_em || aData.gatilho_enviado_em || aData.renegociou) ? 1 : 0;
-      const bTreated = (bData.tratativa_em || bData.gatilho_enviado_em || bData.renegociou) ? 1 : 0;
+      // 1) Cards já tratados (renegociou definido) vão SEMPRE para o final
+      const aTreated = (a as any)?.data?.renegociou ? 1 : 0;
+      const bTreated = (b as any)?.data?.renegociou ? 1 : 0;
       if (aTreated !== bTreated) return aTreated - bTreated;
-
-      // 2) Pending task (atrasada/hoje) domina: cards com tarefa pendente vão para o TOPO
+      // 2) Pending task domina: cards com tarefa pendente vão para o TOPO
       const aPrio = cobrancaTaskPriority.get(a.id) || 0;
       const bPrio = cobrancaTaskPriority.get(b.id) || 0;
       if (aPrio !== bPrio) return bPrio - aPrio;
-
       // 3) Sem tarefa pendente, interação recente vai para o final
       const aHasRecent = cobrancasWithRecentActivity.has(a.id) ? 1 : 0;
       const bHasRecent = cobrancasWithRecentActivity.has(b.id) ? 1 : 0;
-      if (aHasRecent !== bHasRecent) return aHasRecent - bHasRecent;
-
-      // 4) Mais antigo no topo: ordena por vencimento da parcela mais antiga ASC.
-      // Usa scheduled_date (preenchido pelo sync com o vencimento) ou created_at como fallback.
-      const aDate = (a as any)?.scheduled_date || aData.parcelas_atrasadas?.[0]?.vencimento || (a as any)?.created_at || "";
-      const bDate = (b as any)?.scheduled_date || bData.parcelas_atrasadas?.[0]?.vencimento || (b as any)?.created_at || "";
-      if (aDate && bDate) {
-        if (aDate < bDate) return -1;
-        if (aDate > bDate) return 1;
-      }
-      return 0;
+      return aHasRecent - bHasRecent;
     });
   }, [cobrancaTaskPriority, cobrancasWithRecentActivity]);
 

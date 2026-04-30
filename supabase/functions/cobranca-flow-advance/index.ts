@@ -209,44 +209,33 @@ serve(async (req) => {
       }
 
       // ---- AVANÇO DE COLUNA ----
-      if (!flow.next_status_id) continue;
+      if (!flow.next_status_id || flow.days_to_advance == null) continue;
       const nextStatus = statusById.get(flow.next_status_id);
       if (!nextStatus) continue;
 
-      const daysToAdvance = Number(flow.days_to_advance ?? 0);
-      const minParcelas = Number(flow.min_parcelas_atraso ?? 0);
-      const parcelasAtrasadas = Array.isArray(data.parcelas_atrasadas) ? data.parcelas_atrasadas : [];
-
-      // MODO PARCELAS: se dias = 0 e min_parcelas > 0, o card avança quando o
-      // cliente tem pelo menos N parcelas em atraso (independente de tempo).
-      // Não exige tratativa/gatilho — é uma regra puramente quantitativa.
-      const modoParcelas = daysToAdvance === 0 && minParcelas > 0;
-
-      if (modoParcelas) {
-        if (parcelasAtrasadas.length < minParcelas) continue;
-        // avança direto
-      } else {
-        // MODO DIAS: exige tratativa/gatilho registrado nesta coluna + tempo decorrido
-        let baseTs: string | null = null;
-        if (flow.column_type === "manual") {
-          if (data.tratativa_status_key === cob.status && data.tratativa_em) {
-            baseTs = data.tratativa_em;
-          }
-        } else {
-          if (data.gatilho_status_key === cob.status && data.gatilho_enviado_em) {
-            baseTs = data.gatilho_enviado_em;
-          }
+      let baseTs: string | null = null;
+      if (flow.column_type === "manual") {
+        if (data.tratativa_status_key === cob.status && data.tratativa_em) {
+          baseTs = data.tratativa_em;
         }
-        if (!baseTs) continue;
-
-        const elapsedDays = (now.getTime() - new Date(baseTs).getTime()) / 86400000;
-        if (elapsedDays < daysToAdvance) continue;
-
-        // Trava por parcelas (compatibilidade): se min_parcelas_atraso > 0 nesse
-        // modo, exige também a quantidade mínima de parcelas vencidas.
-        if (minParcelas > 0 && parcelasAtrasadas.length < minParcelas) continue;
+      } else {
+        if (data.gatilho_status_key === cob.status && data.gatilho_enviado_em) {
+          baseTs = data.gatilho_enviado_em;
+        }
       }
+      if (!baseTs) continue; // sem tratativa/gatilho → não avança
 
+      const elapsedDays = (now.getTime() - new Date(baseTs).getTime()) / 86400000;
+      if (elapsedDays < (flow.days_to_advance || 0)) continue;
+
+      // Mínimo de parcelas em atraso para liberar o avanço.
+      // Se a coluna foi configurada com min_parcelas_atraso > 0, o card só sobe
+      // quando o cliente tiver pelo menos esse número de parcelas vencidas.
+      const minParcelas = Number(flow.min_parcelas_atraso ?? 1);
+      if (minParcelas > 0) {
+        const parcelasAtrasadas = Array.isArray(data.parcelas_atrasadas) ? data.parcelas_atrasadas : [];
+        if (parcelasAtrasadas.length < minParcelas) continue;
+      }
 
       // Avança o card e limpa marcas para que a próxima coluna conte do zero
       const newData = { ...data };
@@ -271,9 +260,7 @@ serve(async (req) => {
         event_type: "avancou_coluna",
         next_status_key: nextStatus.key,
         next_status_label: nextStatus.label,
-        details: modoParcelas
-          ? { reason: "parcelas", parcelas_atrasadas: parcelasAtrasadas.length, min_parcelas: minParcelas }
-          : { reason: flow.column_type, days_to_advance: daysToAdvance, min_parcelas: minParcelas },
+        details: { reason: flow.column_type, days_elapsed: Math.round(elapsedDays) },
       });
       stats.avancados++;
     }

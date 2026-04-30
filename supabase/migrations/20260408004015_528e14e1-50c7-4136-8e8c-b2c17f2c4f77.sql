@@ -22,5 +22,4 @@ INSERT INTO public.crm_statuses (key, label, position, color) VALUES
   ('qualificado', 'Qualificado', 2, 'violet'),
   ('proposta', 'Proposta', 3, 'cyan'),
   ('fechado', 'Fechado', 4, 'emerald'),
-  ('perdido', 'Perdido', 5, 'red')
-  ON CONFLICT (key) DO NOTHING;
+  ('perdido', 'Perdido', 5, 'red');

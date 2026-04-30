@@ -197,7 +197,7 @@ export default function SSoticaStatusPage() {
   async function resync(id: string) {
     setActionId(id);
     const { error } = await supabase.functions.invoke("ssotica-sync", {
-      body: { mode: "incremental", integration_id: id, manual_recent: true },
+      body: { mode: "incremental", integration_id: id },
     });
     setActionId(null);
     if (error) {

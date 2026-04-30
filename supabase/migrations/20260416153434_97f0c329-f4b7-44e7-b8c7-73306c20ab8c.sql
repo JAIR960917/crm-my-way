@@ -24,8 +24,7 @@ INSERT INTO public.crm_renovacao_statuses (key, label, color, position) VALUES
   ('novo', 'Novo', 'blue', 0),
   ('em_contato', 'Em Contato', 'amber', 1),
   ('agendado', 'Agendado', 'violet', 2),
-  ('renovado', 'Renovado', 'emerald', 3)
-  ON CONFLICT (key) DO NOTHING;
+  ('renovado', 'Renovado', 'emerald', 3);
 
 -- Renovações table
 CREATE TABLE public.crm_renovacoes (

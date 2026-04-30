@@ -70,5 +70,4 @@ INSERT INTO public.crm_cobranca_statuses (key, label, color, position) VALUES
   ('pendente', 'Pendente', 'amber', 0),
   ('em_cobranca', 'Em Cobrança', 'blue', 1),
   ('pago', 'Pago', 'emerald', 2),
-  ('atrasado', 'Atrasado', 'red', 3)
-  ON CONFLICT (key) DO NOTHING;
+  ('atrasado', 'Atrasado', 'red', 3);
