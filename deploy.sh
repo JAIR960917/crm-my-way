@@ -96,14 +96,44 @@ if $DO_FUNCTIONS; then
 
   mkdir -p "$FUNCTIONS_DEST"
 
-  # Usa rsync se disponível (mais inteligente), senão cp -r
+  # O runtime self-hosted espera a pasta especial main/index.ts existir em
+  # volumes/functions. Se apagarmos essa pasta com --delete, o container entra
+  # em loop com "could not find an appropriate entrypoint".
+  MAIN_DIR="$FUNCTIONS_DEST/main"
+  MAIN_INDEX="$MAIN_DIR/index.ts"
+  mkdir -p "$MAIN_DIR"
+  if [ ! -f "$MAIN_INDEX" ]; then
+    cat > "$MAIN_INDEX" <<'EOF'
+// Arquivo exigido pelo edge-runtime self-hosted.
+// Mantém os limites padrão e um fallback simples para a rota raiz.
+export const memoryLimitMb = 150;
+export const workerTimeoutMs = 60000;
+
+Deno.serve(() => {
+  return new Response(
+    JSON.stringify({ ok: true, message: "Functions runtime ativo" }),
+    { headers: { "Content-Type": "application/json" } }
+  );
+});
+EOF
+    ok "Criado fallback obrigatório: $MAIN_INDEX"
+  fi
+
+  # Sincroniza apenas as funções versionadas do repositório e preserva a pasta
+  # especial main/ no destino.
   if command -v rsync >/dev/null 2>&1; then
-    # --delete remove no destino o que não existe na origem (mantém em sincronia)
-    # Excluímos config.toml para preservar overrides locais se houver
     rsync -a --delete \
+      --exclude='main' \
       --exclude='_shared/node_modules' \
       "$FUNCTIONS_SRC/" "$FUNCTIONS_DEST/"
   else
+    for item in "$FUNCTIONS_DEST"/*; do
+      [ -e "$item" ] || continue
+      base="$(basename "$item")"
+      if [ "$base" != "main" ]; then
+        rm -rf "$item"
+      fi
+    done
     cp -r "$FUNCTIONS_SRC/." "$FUNCTIONS_DEST/"
   fi
   ok "Edge functions sincronizadas"
@@ -114,9 +144,17 @@ if $DO_FUNCTIONS; then
   docker compose restart functions
   ok "Container functions reiniciado"
 
-  # Verifica se subiu
-  sleep 2
-  if docker compose ps functions | grep -q "Up"; then
+  # Verifica se subiu, aguardando alguns segundos de forma robusta.
+  started=false
+  for i in $(seq 1 15); do
+    if docker compose ps functions | grep -q "Up"; then
+      started=true
+      break
+    fi
+    sleep 2
+  done
+
+  if $started; then
     ok "Container functions está UP"
   else
     err "Container functions NÃO está rodando! Verifique: docker compose logs functions --tail=100"
