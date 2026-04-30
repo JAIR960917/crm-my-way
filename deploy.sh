@@ -14,6 +14,7 @@ set -euo pipefail
 PROJECT_DIR="/opt/crm"
 SUPABASE_DIR="${PROJECT_DIR}/supabase"
 DB_CONTAINER="${SUPABASE_DB_CONTAINER:-supabase-db}"
+DB_USER="${SUPABASE_DB_USER:-supabase_admin}"
 
 # Cores
 G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; B='\033[0;34m'; N='\033[0m'
@@ -56,7 +57,7 @@ run_migrations() {
 
   db_exec() {
     if [ "$use_docker_fallback" -eq 1 ]; then
-      docker exec -i "$DB_CONTAINER" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "$1" >/dev/null
+      docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -c "$1" >/dev/null
     else
       psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -c "$1" >/dev/null
     fi
@@ -64,7 +65,7 @@ run_migrations() {
 
   db_query() {
     if [ "$use_docker_fallback" -eq 1 ]; then
-      docker exec -i "$DB_CONTAINER" psql -U postgres -d postgres -tAc "$1"
+      docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -tAc "$1"
     else
       psql "$SUPABASE_DB_URL" -tAc "$1"
     fi
@@ -72,7 +73,7 @@ run_migrations() {
 
   db_file() {
     if [ "$use_docker_fallback" -eq 1 ]; then
-      docker exec -i "$DB_CONTAINER" psql -U postgres -d postgres -v ON_ERROR_STOP=1 >/dev/null < "$1"
+      docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 >/dev/null < "$1"
     else
       psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$1" >/dev/null
     fi
