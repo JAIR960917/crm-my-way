@@ -511,6 +511,63 @@ export default function SSoticaIntegrationsPage() {
           </CardContent>
         </Card>
 
+        {/* Banner de backfills em andamento */}
+        {(() => {
+          const active = integrations.filter(
+            (i) => i.backfill_status === "running" || i.backfill_status === "scheduled"
+          );
+          if (active.length === 0) return null;
+          const companyName = (id: string) => companies.find((c) => c.id === id)?.name ?? "Loja";
+          return (
+            <Card className="border-primary/40 bg-primary/5">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+                  Backfill em andamento ({active.length} {active.length === 1 ? "loja" : "lojas"})
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Os chunks rodam automaticamente a cada ~3 minutos. Esta tela atualiza sozinha a cada 5s.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {active.map((i) => {
+                  const total = i.backfill_total_chunks ?? 16;
+                  const done = i.backfill_chunk_index ?? 0;
+                  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                  const remaining = Math.max(0, total - done);
+                  const etaMin = remaining * 3;
+                  return (
+                    <div key={i.id} className="space-y-1">
+                      <div className="flex items-center justify-between gap-2 text-sm">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="font-medium truncate">{companyName(i.company_id)}</span>
+                          <Badge variant={i.backfill_status === "running" ? "default" : "secondary"} className="text-[10px] py-0 px-1.5">
+                            {i.backfill_status === "running" ? "rodando" : "aguardando"}
+                          </Badge>
+                        </div>
+                        <span className="text-xs tabular-nums shrink-0">
+                          {done}/{total} · {pct}%
+                          {remaining > 0 && <span className="text-muted-foreground"> · ~{etaMin}min</span>}
+                        </span>
+                      </div>
+                      <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-primary transition-all"
+                          style={{ width: `${Math.max(pct, 2)}%` }}
+                        />
+                      </div>
+                      {i.last_error && (
+                        <div className="text-xs text-destructive break-words">⚠ {i.last_error.slice(0, 140)}</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          );
+        })()}
+
         {loading ? (
           <div className="text-center py-12 text-muted-foreground">Carregando...</div>
         ) : companies.length === 0 ? (
