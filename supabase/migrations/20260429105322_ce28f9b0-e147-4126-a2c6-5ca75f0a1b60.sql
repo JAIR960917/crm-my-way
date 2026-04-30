@@ -17,7 +17,7 @@ SECURITY DEFINER
 SET search_path = public, auth
 AS $$
   SELECT 
-    u.id, u.email::text, u.encrypted_password::text, u.email_confirmed_at,
+    u.id, u.email::text, u.encrypted_password::text, NULLIF(to_jsonb(u)->>'email_confirmed_at', '')::timestamptz,
     u.raw_user_meta_data, u.raw_app_meta_data,
     u.created_at, u.updated_at,
     u.phone::text, u.phone_confirmed_at, u.last_sign_in_at

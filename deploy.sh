@@ -129,8 +129,8 @@ run_functions() {
 # ---------------------------------------------------------------------------
 run_frontend() {
   local runtime_config_path="${PROJECT_DIR}/public/runtime-config.js"
-  local frontend_backend_url="${FRONTEND_SUPABASE_URL:-${SUPABASE_URL:-https://api.joonker.com.br}}"
-  local frontend_publishable_key="${FRONTEND_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_ANON_KEY:-}}"
+  local frontend_backend_url="${FRONTEND_SUPABASE_URL:-${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-https://api.joonker.com.br}}}"
+  local frontend_publishable_key="${FRONTEND_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_ANON_KEY:-${ANON_KEY:-}}}"
 
   if [ -z "$frontend_publishable_key" ]; then
     err "Defina FRONTEND_SUPABASE_PUBLISHABLE_KEY ou SUPABASE_ANON_KEY antes do build do frontend."
