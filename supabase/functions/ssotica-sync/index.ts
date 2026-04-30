@@ -650,6 +650,19 @@ async function syncContasReceber(
   const chunksProcessed = 1;
   console.log(`[ssotica-sync][cobrancas] empresa=${integ.company_id} janela=${ymd(overallStart)}→${ymd(overallEnd)} processed=${processed} clientes_em_atraso=${parcelasPorCliente.size} backfill_chunk=${isBackfillChunk}${manualRecentWindow ? " manual_recent=true" : incrementalWindow ? ` slot=${incrementalWindow.slot + 1}/${INCREMENTAL_COBRANCAS_SLICES}` : ""}`);
 
+  // Limpa imediatamente cards com status inexistente no ambiente atual.
+  // Em VPS com histórico de migrations antigas, alguns cards podem ter ficado
+  // presos em keys removidas e o incremental os preserva por estarem fora da
+  // janela atual. Ao removê-los aqui, o mesmo sync recria o card na coluna
+  // correta caso a dívida ainda esteja ativa.
+  if (knownCobrancaStatusKeys.size > 0) {
+    await supabase
+      .from("crm_cobrancas")
+      .delete()
+      .eq("ssotica_company_id", integ.company_id)
+      .not("status", "in", `(${Array.from(knownCobrancaStatusKeys).map((key) => `"${key.replace(/"/g, "\"")}"`).join(",")})`);
+  }
+
   // Janela atual em formato YYYY-MM-DD para decidir quais parcelas existentes
   // foram efetivamente revisadas neste slot (e portanto podem ser substituídas).
   // Parcelas FORA dessa janela não foram consultadas agora — devem ser preservadas
@@ -788,6 +801,14 @@ async function syncContasReceber(
           ? cobStatusRouting.negativadoKey
           : existingCobranca.status; // mantém a coluna atual (travada)
       }
+    }
+
+    if (!knownCobrancaStatusKeys.has(colunaKey)) {
+      colunaKey = maisAntiga.dias_atraso <= -1
+        ? cobStatusRouting.beforeDueKey
+        : maisAntiga.dias_atraso >= 30
+          ? cobStatusRouting.thirtyDaysKey
+          : cobStatusRouting.oneDayLateKey;
     }
 
     if (existingCobranca) {
