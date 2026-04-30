@@ -150,8 +150,6 @@ services:
     image: supabase/edge-runtime:v1.71.2
     restart: unless-stopped
     depends_on:
-      supabase-kong:
-        condition: service_started
       supabase-db:
         condition: service_healthy
     volumes:
