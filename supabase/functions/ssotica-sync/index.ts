@@ -165,8 +165,6 @@ function buildCobrancaStageRouting(
 function statusKeyForDiasAtraso(dias: number, routing: CobrancaStageRouting): string {
   if (dias <= -1) return routing.beforeDueKey;
   if (dias >= 30) return routing.thirtyDaysKey;
-  if (dias >= 15 && routing.fifteenDaysLateKey !== routing.thirtyDaysKey) return routing.fifteenDaysLateKey;
-  if (dias >= 5 && routing.fiveDaysLateKey !== routing.thirtyDaysKey) return routing.fiveDaysLateKey;
   return routing.oneDayLateKey;
 }
 
