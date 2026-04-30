@@ -16,7 +16,8 @@ DECLARE
   _anon_key text := NULLIF(current_setting('app.settings.supabase_anon_key', true), '');
 BEGIN
   IF _base_url IS NULL OR _anon_key IS NULL THEN
-    RAISE EXCEPTION 'Configuração ausente: app.settings.supabase_url/app.settings.supabase_anon_key não definidos';
+    RAISE NOTICE 'Configuração ausente: app.settings.supabase_url/app.settings.supabase_anon_key não definidos (cron ssotica não será agendado agora)';
+    RETURN;
   END IF;
 
   SELECT COALESCE(setting_value, '6')::int INTO _hour
@@ -64,7 +65,8 @@ DECLARE
   _anon_key text := NULLIF(current_setting('app.settings.supabase_anon_key', true), '');
 BEGIN
   IF _base_url IS NULL OR _anon_key IS NULL THEN
-    RAISE EXCEPTION 'Configuração ausente: app.settings.supabase_url/app.settings.supabase_anon_key não definidos';
+    RAISE NOTICE 'Configuração ausente: app.settings.supabase_url/app.settings.supabase_anon_key não definidos (backfill cron não será agendado agora)';
+    RETURN;
   END IF;
 
   BEGIN

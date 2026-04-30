@@ -26,6 +26,15 @@ err()  { echo -e "${R}[err ]${N} $*"; }
 
 cd "$PROJECT_DIR"
 
+# Carrega variáveis de ambiente do arquivo .env local da VPS.
+# Isso garante que deploy.sh enxergue ANON_KEY/SUPABASE_URL etc. sem precisar export manual.
+if [ -f "${PROJECT_DIR}/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "${PROJECT_DIR}/.env"
+  set +a
+fi
+
 MODE="${1:-all}"
 
 # ---------------------------------------------------------------------------
@@ -80,6 +89,16 @@ run_migrations() {
   }
 
   local applied_table="public._lovable_migrations"
+
+  # Persistimos configurações usadas por algumas migrations/functions no banco
+  # para evitar erro de current_setting('app.settings.*') ausente.
+  local app_supabase_url="${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-}}"
+  local app_supabase_anon="${SUPABASE_ANON_KEY:-${ANON_KEY:-}}"
+  if [ -n "${app_supabase_url}" ] && [ -n "${app_supabase_anon}" ]; then
+    db_exec "ALTER DATABASE postgres SET \"app.settings.supabase_url\" = '${app_supabase_url}';"
+    db_exec "ALTER DATABASE postgres SET \"app.settings.supabase_anon_key\" = '${app_supabase_anon}';"
+  fi
+
   db_exec "
     CREATE TABLE IF NOT EXISTS ${applied_table} (
       filename TEXT PRIMARY KEY,
