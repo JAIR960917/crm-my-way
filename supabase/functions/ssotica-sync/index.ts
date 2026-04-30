@@ -879,6 +879,8 @@ async function syncContasReceber(
           : cobStatusRouting.oneDayLateKey;
     }
 
+    let targetCobrancaId: string | null = existingCobranca?.id ?? null;
+
     if (existingCobranca) {
       await supabase
         .from("crm_cobrancas")
@@ -909,6 +911,7 @@ async function syncContasReceber(
         status: colunaKey,
         scheduled_date: maisAntiga.vencimento,
       }).select("id").maybeSingle();
+      targetCobrancaId = (insertedCob as any)?.id ?? null;
       created++;
 
       // Verifica se o cliente vinha de Renovação ANTES de logar
@@ -928,7 +931,7 @@ async function syncContasReceber(
           to_module: "cobranca",
           to_status_key: colunaKey,
           to_status_label: cobStatusLabelByKey.get(colunaKey) ?? colunaKey,
-          target_record_id: (insertedCob as any)?.id ?? null,
+          target_record_id: targetCobrancaId,
           ssotica_cliente_id: clienteIdNum,
         });
       }
@@ -956,7 +959,7 @@ async function syncContasReceber(
         to_status_key: colunaKey,
         to_status_label: cobStatusLabelByKey.get(colunaKey) ?? colunaKey,
         source_record_id: (renovacaoExistente as any).id,
-        target_record_id: existingCobranca?.id ?? (insertedCob as any)?.id ?? null,
+        target_record_id: targetCobrancaId,
         ssotica_cliente_id: clienteIdNum,
       });
     }
