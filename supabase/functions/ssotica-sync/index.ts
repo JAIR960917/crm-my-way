@@ -1678,9 +1678,19 @@ async function reconcileRenovacoesVsCobrancas(
 async function runBackfillChunk(
   supabase: any,
   integ: Integration,
-): Promise<{ ok: true; chunk_index: number; finished: boolean } | { ok: false; error: string }> {
+): Promise<{ ok: true; chunk_index: number; finished: boolean; skipped?: boolean } | { ok: false; error: string }> {
   const total = integ.backfill_total_chunks || 16;
   const idx = integ.backfill_chunk_index || 0;
+  if (idx >= total) {
+    await supabase.from("ssotica_integrations").update({
+      backfill_chunk_index: total,
+      backfill_status: "done",
+      backfill_next_run_at: null,
+      sync_status: "idle",
+    }).eq("id", integ.id);
+    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} já concluída (${idx}/${total})`);
+    return { ok: true, chunk_index: total, finished: true, skipped: true };
+  }
   // chunk 0 = mais recente (últimos 6 meses) — futureDays=COBRANCAS_FUTURE_DAYS pra pegar parcelas a vencer
   const futureDays = idx === 0 ? COBRANCAS_FUTURE_DAYS : 0;
   const range = chunkDateRange(idx, futureDays);
@@ -1693,12 +1703,24 @@ async function runBackfillChunk(
   const nextIdxOptimistic = idx + 1;
   const finishedOptimistic = nextIdxOptimistic >= total;
   const nextRunAtOptimistic = finishedOptimistic ? null : new Date(Date.now() + 30 * 1000).toISOString();
-  await supabase.from("ssotica_integrations").update({
-    backfill_chunk_index: nextIdxOptimistic,
-    backfill_next_run_at: nextRunAtOptimistic,
-    backfill_status: "running",
-    sync_status: "running",
-  }).eq("id", integ.id);
+  const { data: claimRow, error: claimError } = await supabase
+    .from("ssotica_integrations")
+    .update({
+      backfill_chunk_index: nextIdxOptimistic,
+      backfill_next_run_at: nextRunAtOptimistic,
+      backfill_status: finishedOptimistic ? "done" : "running",
+      sync_status: finishedOptimistic ? "idle" : "running",
+    })
+    .eq("id", integ.id)
+    .eq("backfill_chunk_index", idx)
+    .in("backfill_status", ["running", "scheduled"])
+    .select("id")
+    .maybeSingle();
+  if (claimError) throw claimError;
+  if (!claimRow) {
+    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} ignorado: já foi assumido por outra execução`);
+    return { ok: true, chunk_index: idx, finished: false, skipped: true };
+  }
 
   const { data: log } = await supabase.from("ssotica_sync_logs").insert({
     integration_id: integ.id,
