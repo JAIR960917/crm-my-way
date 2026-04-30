@@ -155,7 +155,7 @@ function statusKeyForDiasAtraso(dias: number, routing: CobrancaStageRouting): st
 }
 
 function clampToLockedEntry(key: string, routing: CobrancaStageRouting): string {
-  if (routing.lockedKeys.has(key)) return routing.thirtyDaysKey;
+  if (routing.lockedKeys.has(key)) return routing.thirtyOneDaysKey;
   return key;
 }
 
