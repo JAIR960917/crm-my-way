@@ -4,6 +4,9 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone text DEFAULT NULL;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url text DEFAULT NULL;
 
 -- Create avatars storage bucket
+ALTER TABLE storage.buckets
+  ADD COLUMN IF NOT EXISTS public boolean DEFAULT false;
+
 INSERT INTO storage.buckets (id, name, public) VALUES ('avatars', 'avatars', true)
 ON CONFLICT (id) DO NOTHING;
 

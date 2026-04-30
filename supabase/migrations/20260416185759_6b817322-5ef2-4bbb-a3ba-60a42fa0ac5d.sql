@@ -2,6 +2,9 @@
 ALTER TABLE public.whatsapp_campaigns ADD COLUMN IF NOT EXISTS image_url text;
 ALTER TABLE public.whatsapp_trigger_steps ADD COLUMN IF NOT EXISTS image_url text;
 
+ALTER TABLE storage.buckets
+  ADD COLUMN IF NOT EXISTS public boolean DEFAULT false;
+
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('whatsapp-media', 'whatsapp-media', true)
 ON CONFLICT (id) DO NOTHING;

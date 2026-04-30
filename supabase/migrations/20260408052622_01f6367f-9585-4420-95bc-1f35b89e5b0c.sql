@@ -1,5 +1,9 @@
+ALTER TABLE storage.buckets
+  ADD COLUMN IF NOT EXISTS public boolean DEFAULT false;
 
-INSERT INTO storage.buckets (id, name, public) VALUES ('logos', 'logos', true);
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('logos', 'logos', true)
+ON CONFLICT (id) DO NOTHING;
 
 CREATE POLICY "Anyone can view logos"
   ON storage.objects FOR SELECT
