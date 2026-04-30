@@ -23,9 +23,8 @@ type FlowRow = {
   whatsapp_trigger_campaign_id: string | null;
 };
 
-type SituacaoKey = "em_atraso" | "negativado_serasa" | "ajuizado_saniely" | "ajuizado_navde";
+type SituacaoKey = "negativado_serasa" | "ajuizado_saniely" | "ajuizado_navde";
 const SITUACOES: { key: SituacaoKey; label: string; help: string }[] = [
-  { key: "em_atraso", label: "Em atraso", help: "Parcelas com situação 'Em atraso' no SSÓtica" },
   { key: "negativado_serasa", label: "Negativado Serasa", help: "Cliente negativado no Serasa" },
   { key: "ajuizado_saniely", label: "Ajuizado(A) Saniely", help: "Cliente ajuizado pela advogada Saniely" },
   { key: "ajuizado_navde", label: "Ajuizado(A) Návde", help: "Cliente ajuizado pela advogada Návde" },
@@ -159,9 +158,8 @@ export default function CobrancaFlowPage() {
           <h1 className="text-2xl font-bold">Fluxo do Funil de Cobrança</h1>
         </div>
         <p className="text-sm text-muted-foreground mb-6">
-          Configure, por coluna, se a movimentação acontece após a tratativa do operador (manual)
-          ou após o envio de uma mensagem automática via WhatsApp (automática). Os dias são contados
-          a partir da tratativa (manual) ou do envio do gatilho (automática).
+          Cards entram automaticamente em <b>"1 Dia antes do vencimento"</b>, depois <b>"1 Dia de atraso"</b> e, ao completar 30 dias, em <b>"30 dias de atraso"</b>.
+          A partir daí, configure abaixo como cada coluna avança: por <b>dias</b> após a tratativa/gatilho, ou por <b>quantidade de parcelas em atraso</b> (preencha "Mín. parcelas" e deixe "Dias" em 0).
         </p>
 
         {loading ? (

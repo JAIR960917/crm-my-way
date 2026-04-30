@@ -39,77 +39,63 @@ function daysBetween(a: Date, b: Date): number {
 }
 
 // Mapeia dias de atraso para a key da coluna em crm_cobranca_statuses.
-// dias < 0 = ainda vai vencer; dias >= 0 = já venceu.
-// IMPORTANTE: a coluna "pendente" ("1 Dia antes do vencimento") só recebe
-// parcelas que vencem em até 1 dia (dias === -1). Parcelas com vencimento
-// mais distante (-2 ou menos) ainda não devem aparecer na cobrança.
+// Fluxo simplificado por DIAS:
+//   • dias === -1 → "1 Dia antes do vencimento"
+//   • dias === 1  → "1 Dia de atraso"
+//   • dias >= 30  → "30 dias de atraso" (porta de entrada — daí em diante, o
+//     fluxo manual/automático configurado em CobrancaFlowPage cuida do avanço)
+// Demais valores (dias === 0 ou 2..29) ficam na coluna "1 Dia de atraso" como
+// uma sala de espera natural até completarem 30 dias.
+// dias < -1 não entra (parcela ainda muito longe do vencimento).
 function statusKeyForDiasAtraso(dias: number): string {
-  if (dias === -1) return "pendente";                                  // exatamente 1 dia antes do vencimento
-  if (dias >= 0 && dias <= 4) return "em_cobranca";                    // 1 a 4 dias de atraso
-  if (dias >= 5 && dias <= 14) return "5_dias_de_atraso";              // 5 a 14 dias
-  if (dias >= 15 && dias <= 29) return "atrasado";                     // 15 a 29 dias
-  if (dias >= 30 && dias <= 30) return "30_dias_de_atraso";            // 30
-  if (dias >= 31 && dias <= 44) return "31_dias_de_atraso_ligao";      // 31-44
-  if (dias >= 45 && dias <= 59) return "45_dias_de_atrasomensagem_automtica"; // 45-59
-  if (dias >= 60 && dias <= 60) return "60_dias_de_atraso_ligao_negativao";   // 60
-  if (dias >= 61 && dias <= 64) return "61_negativao";                 // 61-64
-  if (dias >= 65 && dias <= 74) return "65_dias_de_atraso_receber_informe_de_negativao";
-  if (dias >= 75 && dias <= 89) return "75_dias_de_atraso_proposta_de_negociao_ps_negativao";
-  if (dias >= 90 && dias <= 104) return "90_dias_de_atraso_ligao_para_tentativa_de_negociao_ps_negativao";
-  if (dias >= 105 && dias <= 119) return "105_dias_de_atraso_notificao_extra_judicial_altomtico";
-  if (dias >= 120 && dias <= 134) return "120_dias_de_atraso_ligao_informe_judicial";
-  if (dias >= 135 && dias <= 149) return "135_dias_de_atraso_oferta_de_negativao_automatico";
-  if (dias >= 150 && dias <= 179) return "150_dias_de_atraso_enviar_para_o_advogado";
-  return "180_dias_ajuizar_manualmente"; // 180+
+  if (dias <= -1) return "1_dia_antes_do_vencimento";
+  if (dias >= 30) return "30_dias_de_atraso";
+  return "1_dia_de_atraso"; // 0..29
 }
 
-// Coluna FIXA para clientes com situação "Negativado Serasa" (COLUNA 10).
-const COBRANCA_NEGATIVADO_SERASA_KEY = "65_dias_de_atraso_receber_informe_de_negativao";
+// Coluna FIXA para clientes com situação "Negativado Serasa".
+const COBRANCA_NEGATIVADO_SERASA_KEY = "coluna_9_negativacao";
 // Coluna FIXA para clientes com situação "Ajuizado(A) Saniely" / "Ajuizado(A) Návde".
 const COBRANCA_AJUIZADO_KEY = "ajuizados_manual";
-// A partir desta coluna (COLUNA "31 dias de atraso — ligação") o sync NÃO altera
-// mais o status do card automaticamente, mesmo que dias_atraso aumente. O card
-// só sai dessa coluna quando a tratativa é registrada e o fluxo configurado avança.
-// Antes dos 31 dias o card segue normalmente as colunas por dias de atraso
-// (pendente / em_cobranca / 5 dias / atrasado / 30 dias).
+
+// A partir destas colunas o sync NÃO altera mais o status do card automaticamente,
+// mesmo que dias_atraso aumente. O card só sai dessas colunas quando a tratativa
+// é registrada e o fluxo configurado avança (cobranca-flow-advance).
+// Inclui "30 dias de atraso" como porta de entrada e todas as colunas adiante.
 const COBRANCA_LOCKED_KEYS = new Set<string>([
-  "31_dias_de_atraso_ligao",
-  "45_dias_de_atrasomensagem_automtica",
-  "60_dias_de_atraso_ligao_negativao",
-  "61_negativao",
-  "65_dias_de_atraso_receber_informe_de_negativao",
-  "75_dias_de_atraso_proposta_de_negociao_ps_negativao",
-  "90_dias_de_atraso_ligao_para_tentativa_de_negociao_ps_negativao",
-  "105_dias_de_atraso_notificao_extra_judicial_altomtico",
-  "120_dias_de_atraso_ligao_informe_judicial",
-  "135_dias_de_atraso_oferta_de_negativao_automatico",
-  "150_dias_de_atraso_enviar_para_o_advogado",
-  "180_dias_ajuizar_manualmente",
+  "30_dias_de_atraso",
+  "31_dias_de_atraso_ligacao",
+  "coluna_7_mensagem_automatica",
+  "coluna_8_ligacao_negativacao",
+  "coluna_9_negativacao",
+  "coluna_10_receber_informe_de_negativacao",
+  "coluna_11_proposta_de_negociacao_pos_negativacao",
+  "coluna_12_ligacao_para_tentativa_de_negociacao_pos_negativacao",
+  "coluna_13_notificacao_extra_judicial_altomatico",
+  "coluna_14_ligacao_informe_judicial",
+  "coluna_15_enviar_para_o_advogado",
+  "coluna_16_ajuizar_manualmente",
   "ajuizados_manual",
-  "inadimplncia_sem_ajuizamento_manual",
+  "inadimplencia_sem_ajuizamento_manual",
 ]);
 
-// Colunas que ficam DEPOIS da COLUNA 8 ("60 dias de atraso — ligação / negativação").
-// Cards nessas colunas exigem situação "Negativado Serasa" para permanecerem.
-// Caso contrário, retornam para a COLUNA 8 aguardando tratativa.
-const COLUNAS_APOS_8 = new Set<string>([
-  "61_negativao",
-  "65_dias_de_atraso_receber_informe_de_negativao",
-  "75_dias_de_atraso_proposta_de_negociao_ps_negativao",
-  "90_dias_de_atraso_ligao_para_tentativa_de_negociao_ps_negativao",
-  "105_dias_de_atraso_notificao_extra_judicial_altomtico",
-  "120_dias_de_atraso_ligao_informe_judicial",
-  "135_dias_de_atraso_oferta_de_negativao_automatico",
-  "150_dias_de_atraso_enviar_para_o_advogado",
-  "180_dias_ajuizar_manualmente",
-  "inadimplncia_sem_ajuizamento_manual",
+// Colunas posteriores à entrada por situação "Negativado Serasa".
+// Cards nessas colunas só permanecem se ainda estiverem com a situação adequada.
+const COLUNAS_APOS_NEGATIVACAO = new Set<string>([
+  "coluna_10_receber_informe_de_negativacao",
+  "coluna_11_proposta_de_negociacao_pos_negativacao",
+  "coluna_12_ligacao_para_tentativa_de_negociacao_pos_negativacao",
+  "coluna_13_notificacao_extra_judicial_altomatico",
+  "coluna_14_ligacao_informe_judicial",
+  "coluna_15_enviar_para_o_advogado",
+  "coluna_16_ajuizar_manualmente",
+  "inadimplencia_sem_ajuizamento_manual",
 ]);
 
-// Quando o card é NOVO e a regra por dias indicaria uma coluna travada
-// (>= 31 dias), paramos no "31 dias de atraso — ligação". A partir daí o card
-// só avança via fluxo manual configurado pela Brenda.
+// Cards novos com >= 30 dias entram em "30 dias de atraso" (e o fluxo
+// configurado leva em frente). Mantemos a função para compatibilidade.
 function clampToLockedEntry(key: string): string {
-  if (COBRANCA_LOCKED_KEYS.has(key)) return "31_dias_de_atraso_ligao";
+  if (COBRANCA_LOCKED_KEYS.has(key)) return "30_dias_de_atraso";
   return key;
 }
 
@@ -407,10 +393,11 @@ async function syncContasReceber(
   // Carrega mapeamento de "situação SSÓtica" → coluna do funil, configurado pelo admin
   // na tela de Fluxo. Cai em fallback caso a tabela esteja vazia.
   const situacaoMapping: Record<string, string> = {
-    em_atraso: "60_dias_de_atraso_ligao_negativao",
-    negativado_serasa: "65_dias_de_atraso_receber_informe_de_negativao",
-    ajuizado_saniely: "180_dias_ajuizar_manualmente",
-    ajuizado_navde: "180_dias_ajuizar_manualmente",
+    // 'em_atraso' não é mais mapeável: cards com essa situação seguem o fluxo
+    // por dias (1 antes / 1 atraso / 30 atraso) como qualquer outra parcela.
+    negativado_serasa: "coluna_9_negativacao",
+    ajuizado_saniely: "ajuizados_manual",
+    ajuizado_navde: "ajuizados_manual",
   };
   try {
     const { data: mapRows } = await supabase
@@ -701,19 +688,17 @@ async function syncContasReceber(
     });
 
     // Regra de coluna (configurável via tabela crm_cobranca_situacao_mapping):
-    //  • Ajuizado(A) Saniely / Návde → coluna mapeada para a variante (default: 180_dias_ajuizar_manualmente)
-    //  • Negativado Serasa            → coluna mapeada (default: COLUNA 10)
-    //  • Em atraso (situação SSÓtica) → coluna mapeada (default: COLUNA 8)
-    //  • Demais (a vencer / vencido)  → escala por dias com cap nas locked
+    //  • Ajuizado(A) Saniely / Návde → coluna mapeada (default: ajuizados_manual)
+    //  • Negativado Serasa            → coluna mapeada (default: COLUNA 9)
+    //  • Em atraso / a vencer / vencido → escala por dias (1 antes / 1 atraso / 30 atraso)
     let colunaKeyAlvo: string;
     if (hasAjuizadoMerged) {
       const variantKey = ajuizadoVariantMerged ?? "ajuizado_saniely";
-      colunaKeyAlvo = situacaoMapping[variantKey] ?? situacaoMapping["ajuizado_saniely"] ?? "180_dias_ajuizar_manualmente";
+      colunaKeyAlvo = situacaoMapping[variantKey] ?? situacaoMapping["ajuizado_saniely"] ?? "ajuizados_manual";
     } else if (hasNegativadoSerasaMerged) {
-      colunaKeyAlvo = situacaoMapping["negativado_serasa"] ?? "65_dias_de_atraso_receber_informe_de_negativao";
-    } else if (hasEmAtrasoMerged) {
-      colunaKeyAlvo = situacaoMapping["em_atraso"] ?? "60_dias_de_atraso_ligao_negativao";
+      colunaKeyAlvo = situacaoMapping["negativado_serasa"] ?? "coluna_9_negativacao";
     } else {
+      // Inclui hasEmAtrasoMerged: agora "em atraso" segue por dias também.
       colunaKeyAlvo = clampToLockedEntry(statusKeyForDiasAtraso(maisAntiga.dias_atraso));
     }
 
@@ -740,16 +725,16 @@ async function syncContasReceber(
 
     // Decide o status final que será gravado:
     //  • Casos especiais (Serasa / Ajuizado) sempre forçam a coluna fixa.
-    //  • Card já existente em coluna travada (>= COLUNA 9) NÃO é movido pelo
+    //  • Card já existente em coluna travada (>= "30 dias de atraso") NÃO é movido pelo
     //    sync — quem move dali é o fluxo manual (cobranca-flow-advance).
     let colunaKey = colunaKeyAlvo;
     if (existingCobranca && !hasAjuizadoMerged && !hasNegativadoSerasaMerged) {
       if (COBRANCA_LOCKED_KEYS.has(existingCobranca.status)) {
-        // Cards após a COLUNA 8 (60 dias) só podem permanecer lá se houver
-        // parcela "Negativado Serasa". Como não há, voltam para a COLUNA 8
-        // e aguardam tratativa da Brenda.
-        colunaKey = COLUNAS_APOS_8.has(existingCobranca.status)
-          ? "60_dias_de_atraso_ligao_negativao"
+        // Cards posteriores à negativação só permanecem lá se ainda houver
+        // parcela "Negativado Serasa". Como não há, voltam para a COLUNA 9
+        // e aguardam novo encaminhamento.
+        colunaKey = COLUNAS_APOS_NEGATIVACAO.has(existingCobranca.status)
+          ? "coluna_9_negativacao"
           : existingCobranca.status; // mantém a coluna atual (travada)
       }
     }
