@@ -922,7 +922,7 @@ async function syncContasReceber(
       // Só loga "criação direta" (none → cobranca) se NÃO vinha de Renovação.
       // Se vinha, o log de transição (renovacao → cobranca) será gerado abaixo.
       if (!renPreCheck) {
-        await supabase.from("crm_module_transition_logs").insert({
+        await logTransition({
           cliente_nome: String((data as any)?.nome ?? "Cliente SSótica"),
           from_module: "none",
           to_module: "cobranca",
@@ -930,9 +930,6 @@ async function syncContasReceber(
           to_status_label: cobStatusLabelByKey.get(colunaKey) ?? colunaKey,
           target_record_id: (insertedCob as any)?.id ?? null,
           ssotica_cliente_id: clienteIdNum,
-          company_id: integ.company_id,
-          triggered_by: null,
-          trigger_source: "auto",
         });
       }
     }
@@ -959,7 +956,7 @@ async function syncContasReceber(
         to_status_key: colunaKey,
         to_status_label: cobStatusLabelByKey.get(colunaKey) ?? colunaKey,
         source_record_id: (renovacaoExistente as any).id,
-        target_record_id: existingCobranca?.id ?? null,
+        target_record_id: existingCobranca?.id ?? (insertedCob as any)?.id ?? null,
         ssotica_cliente_id: clienteIdNum,
       });
     }
