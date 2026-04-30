@@ -409,11 +409,71 @@ async function syncContasReceber(
     cobStatuses.map((s) => [s.key, s.label ?? s.key]),
   );
 
+  const legacyCobrancaLogKeyMap = new Map<string, string>([
+    [normalizeStatusLookup("pendente"), "1_dia_antes_do_vencimento"],
+    [normalizeStatusLookup("em_cobranca"), "1_dia_de_atraso"],
+    [normalizeStatusLookup("atrasado"), "15_dias_de_atraso"],
+    [normalizeStatusLookup("31_dias_de_atraso_ligao"), "31_dias_de_atraso_ligacao"],
+    [normalizeStatusLookup("45_dias_de_atrasomensagem_automtica"), "coluna_7_mensagem_automatica"],
+    [normalizeStatusLookup("55_dias_de_atraso_ligao_negativao"), "coluna_8_ligacao_negativacao"],
+    [normalizeStatusLookup("65_dias_de_atraso_receber_informe_de_negativao"), "coluna_10_receber_informe_de_negativacao"],
+    [normalizeStatusLookup("75_dias_de_atraso_proposta_de_negociao_ps_negativao"), "coluna_11_proposta_de_negociacao_pos_negativacao"],
+    [normalizeStatusLookup("90_dias_de_atraso_ligao_tentativa_acordo_negativao"), "coluna_12_ligacao_para_tentativa_de_negociacao_pos_negativacao"],
+    [normalizeStatusLookup("105_dias_de_atraso_notificao_extra_judicial_altomtico"), "coluna_13_notificacao_extra_judicial_altomatico"],
+    [normalizeStatusLookup("120_dias_de_atraso_ligao_informe_judicial"), "coluna_14_ligacao_informe_judicial"],
+    [normalizeStatusLookup("135_dias_de_atraso_oferta_de_negativao_automatico"), "coluna_15_enviar_para_o_advogado"],
+    [normalizeStatusLookup("ajuizar_manual"), "coluna_16_ajuizar_manualmente"],
+  ]);
+
+  async function resolveCobrancaLogStatus(params: {
+    to_status_key?: string | null;
+    to_status_label?: string | null;
+    target_record_id?: string | null;
+  }): Promise<{ key: string | null; label: string | null }> {
+    const rawKey = params.to_status_key ?? null;
+    const rawLabel = params.to_status_label ?? null;
+
+    if (rawKey && knownCobrancaStatusKeys.has(rawKey)) {
+      return { key: rawKey, label: cobStatusLabelByKey.get(rawKey) ?? rawLabel ?? rawKey };
+    }
+
+    if (rawLabel) {
+      const keyFromLabel = findStatusKeyByAliases(cobStatuses, [rawLabel]);
+      if (keyFromLabel && knownCobrancaStatusKeys.has(keyFromLabel)) {
+        return { key: keyFromLabel, label: cobStatusLabelByKey.get(keyFromLabel) ?? rawLabel };
+      }
+    }
+
+    if (rawKey) {
+      const mappedKey = legacyCobrancaLogKeyMap.get(normalizeStatusLookup(rawKey));
+      if (mappedKey && knownCobrancaStatusKeys.has(mappedKey)) {
+        return { key: mappedKey, label: cobStatusLabelByKey.get(mappedKey) ?? rawLabel ?? mappedKey };
+      }
+    }
+
+    if (params.target_record_id) {
+      const { data: target } = await supabase
+        .from("crm_cobrancas")
+        .select("status")
+        .eq("id", params.target_record_id)
+        .maybeSingle();
+      const targetStatus = (target as any)?.status as string | null | undefined;
+      if (targetStatus && knownCobrancaStatusKeys.has(targetStatus)) {
+        return { key: targetStatus, label: cobStatusLabelByKey.get(targetStatus) ?? targetStatus };
+      }
+    }
+
+    return {
+      key: rawKey,
+      label: rawKey ? cobStatusLabelByKey.get(rawKey) ?? rawLabel ?? rawKey : rawLabel,
+    };
+  }
+
   // Helper: registra movimentação automática entre Renovação e Cobrança
   async function logTransition(params: {
     cliente_nome: string;
-    from_module: "renovacao" | "cobranca";
-    to_module: "renovacao" | "cobranca";
+    from_module: "none" | "renovacao" | "cobranca";
+    to_module: "none" | "renovacao" | "cobranca";
     to_status_key?: string | null;
     to_status_label?: string | null;
     source_record_id?: string | null;
@@ -421,12 +481,20 @@ async function syncContasReceber(
     ssotica_cliente_id?: number | null;
   }) {
     try {
+      const resolvedCobrancaStatus = params.to_module === "cobranca"
+        ? await resolveCobrancaLogStatus({
+            to_status_key: params.to_status_key,
+            to_status_label: params.to_status_label,
+            target_record_id: params.target_record_id,
+          })
+        : { key: params.to_status_key ?? null, label: params.to_status_label ?? null };
+
       await supabase.from("crm_module_transition_logs").insert({
         cliente_nome: params.cliente_nome || "Cliente SSótica",
         from_module: params.from_module,
         to_module: params.to_module,
-        to_status_key: params.to_status_key ?? null,
-        to_status_label: params.to_status_label ?? null,
+        to_status_key: resolvedCobrancaStatus.key,
+        to_status_label: resolvedCobrancaStatus.label,
         source_record_id: params.source_record_id ?? null,
         target_record_id: params.target_record_id ?? null,
         ssotica_cliente_id: params.ssotica_cliente_id ?? null,
@@ -811,6 +879,8 @@ async function syncContasReceber(
           : cobStatusRouting.oneDayLateKey;
     }
 
+    let targetCobrancaId: string | null = existingCobranca?.id ?? null;
+
     if (existingCobranca) {
       await supabase
         .from("crm_cobrancas")
@@ -841,6 +911,7 @@ async function syncContasReceber(
         status: colunaKey,
         scheduled_date: maisAntiga.vencimento,
       }).select("id").maybeSingle();
+      targetCobrancaId = (insertedCob as any)?.id ?? null;
       created++;
 
       // Verifica se o cliente vinha de Renovação ANTES de logar
@@ -854,17 +925,14 @@ async function syncContasReceber(
       // Só loga "criação direta" (none → cobranca) se NÃO vinha de Renovação.
       // Se vinha, o log de transição (renovacao → cobranca) será gerado abaixo.
       if (!renPreCheck) {
-        await supabase.from("crm_module_transition_logs").insert({
+        await logTransition({
           cliente_nome: String((data as any)?.nome ?? "Cliente SSótica"),
           from_module: "none",
           to_module: "cobranca",
           to_status_key: colunaKey,
           to_status_label: cobStatusLabelByKey.get(colunaKey) ?? colunaKey,
-          target_record_id: (insertedCob as any)?.id ?? null,
+          target_record_id: targetCobrancaId,
           ssotica_cliente_id: clienteIdNum,
-          company_id: integ.company_id,
-          triggered_by: null,
-          trigger_source: "auto",
         });
       }
     }
@@ -891,7 +959,7 @@ async function syncContasReceber(
         to_status_key: colunaKey,
         to_status_label: cobStatusLabelByKey.get(colunaKey) ?? colunaKey,
         source_record_id: (renovacaoExistente as any).id,
-        target_record_id: existingCobranca?.id ?? null,
+        target_record_id: targetCobrancaId,
         ssotica_cliente_id: clienteIdNum,
       });
     }
@@ -1379,18 +1447,13 @@ async function syncVendas(
           trigger_source: "auto",
         });
         // Log: transição (renovacao -> cobranca)
-        await supabase.from("crm_module_transition_logs").insert({
+        await logTransition({
           cliente_nome: clienteNome,
           from_module: "renovacao",
           to_module: "cobranca",
-          to_status_key: null,
-          to_status_label: null,
           source_record_id: (renExistente as any).id,
           target_record_id: cobrancasAbertas[0].id,
           ssotica_cliente_id: clienteId,
-          company_id: integ.company_id,
-          triggered_by: null,
-          trigger_source: "auto",
         });
       }
       continue; // tem dívida → não cria nem mantém renovação
@@ -1712,18 +1775,13 @@ async function reconcileRenovacoesVsCobrancas(
       trigger_source: "auto_reconcile",
     });
     // Log: transição reconcile (renovacao -> cobranca)
-    await supabase.from("crm_module_transition_logs").insert({
+    await logTransition({
       cliente_nome: clienteNome,
       from_module: "renovacao",
       to_module: "cobranca",
-      to_status_key: null,
-      to_status_label: null,
       source_record_id: renId,
       target_record_id: cob[0].id,
       ssotica_cliente_id: clienteId,
-      company_id: companyId,
-      triggered_by: null,
-      trigger_source: "auto_reconcile",
     });
     removed++;
   }
