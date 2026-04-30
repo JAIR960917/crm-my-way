@@ -34,6 +34,28 @@ type TransitionLog = {
 
 type Company = { id: string; name: string };
 
+const legacyCobrancaStatusLabelMap: Record<string, string> = {
+  pendente: "1 Dia antes do vencimento",
+  em_cobranca: "1 Dia de atraso",
+  atrasado: "15 dias de atraso",
+  '31_dias_de_atraso_ligao': '31 dias de atraso (Ligação)',
+  '45_dias_de_atrasomensagem_automtica': 'COLUNA 7(Mensagem automática)',
+  '55_dias_de_atraso_ligao_negativao': 'COLUNA 8 (Ligação Negativação)',
+  '65_dias_de_atraso_receber_informe_de_negativao': 'COLUNA 10 (Receber informe de negativação)',
+  '75_dias_de_atraso_proposta_de_negociao_ps_negativao': 'COLUNA 11 (Proposta de negociação pós negativação)',
+  '90_dias_de_atraso_ligao_tentativa_acordo_negativao': 'COLUNA 12 (Ligação para tentativa de negociação pós negativação)',
+  '105_dias_de_atraso_notificao_extra_judicial_altomtico': 'COLUNA 13 (Notificação extra judicial altomático)',
+  '120_dias_de_atraso_ligao_informe_judicial': 'COLUNA 14 (Ligação informe Judicial)',
+  '135_dias_de_atraso_oferta_de_negativao_automatico': 'COLUNA 15 (Enviar para o advogado)',
+  ajuizar_manual: 'COLUNA 16 (Ajuizar Manualmente)',
+};
+
+const resolveDisplayedStatusLabel = (log: TransitionLog) => {
+  if (log.to_status_label) return log.to_status_label;
+  if (!log.to_status_key) return "—";
+  return legacyCobrancaStatusLabelMap[log.to_status_key] ?? log.to_status_key;
+};
+
 const moduleLabel = (m: string) =>
   m === "renovacao" ? "Renovação" : m === "cobranca" ? "Cobrança" : m === "none" ? "Criado" : m;
 
@@ -359,7 +381,7 @@ export default function TransitionLogsPage() {
                       })()}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {log.to_status_label ?? log.to_status_key ?? "—"}
+                      {resolveDisplayedStatusLabel(log)}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {companyName(log.company_id)}
