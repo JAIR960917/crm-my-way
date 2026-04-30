@@ -41,7 +41,10 @@ function daysBetween(a: Date, b: Date): number {
 type CobrancaStageRouting = {
   beforeDueKey: string;
   oneDayLateKey: string;
+  fiveDaysLateKey: string;
+  fifteenDaysLateKey: string;
   thirtyDaysKey: string;
+  thirtyOneDaysKey: string;
   negativadoKey: string;
   ajuizadoKey: string;
   lockedKeys: Set<string>;
@@ -103,11 +106,14 @@ function buildCobrancaStageRouting(
 
   const beforeDueKey = pickKey([], ["1_dia_antes_do_vencimento", "1 dia antes do vencimento"]);
   const oneDayLateKey = pickKey([], ["1_dia_de_atraso", "1 dia de atraso"], beforeDueKey);
+  const fiveDaysLateKey = pickKey([], ["5_dias_de_atraso", "5 dias de atraso"], oneDayLateKey);
+  const fifteenDaysLateKey = pickKey([], ["15_dias_de_atraso", "15 dias de atraso"], fiveDaysLateKey);
   const thirtyDaysKey = pickKey([], ["30_dias_de_atraso", "30 dias de atraso"], oneDayLateKey);
+  const thirtyOneDaysKey = pickKey([], ["31_dias_de_atraso_ligacao", "31 dias de atraso", "31 dias de atraso ligacao"], thirtyDaysKey);
   const negativadoKey = pickKey(
     [situacaoMapping["negativado_serasa"]],
     ["coluna_9_negativacao", "negativado serasa", "negativacao", "receber informe de negativacao"],
-    thirtyDaysKey,
+    thirtyOneDaysKey,
   );
   const ajuizadoKey = pickKey(
     [situacaoMapping["ajuizado_saniely"], situacaoMapping["ajuizado_navde"]],
@@ -115,9 +121,9 @@ function buildCobrancaStageRouting(
     negativadoKey,
   );
 
-  const lockedStartIndex = sorted.findIndex((status) => status.key === thirtyDaysKey);
+  const lockedStartIndex = sorted.findIndex((status) => status.key === thirtyOneDaysKey);
   const lockedKeys = new Set(
-    lockedStartIndex >= 0 ? sorted.slice(lockedStartIndex).map((status) => status.key) : [thirtyDaysKey],
+    lockedStartIndex >= 0 ? sorted.slice(lockedStartIndex).map((status) => status.key) : [thirtyOneDaysKey],
   );
 
   const negativadoIndex = sorted.findIndex((status) => status.key === negativadoKey);
@@ -128,7 +134,10 @@ function buildCobrancaStageRouting(
   return {
     beforeDueKey,
     oneDayLateKey,
+    fiveDaysLateKey,
+    fifteenDaysLateKey,
     thirtyDaysKey,
+    thirtyOneDaysKey,
     negativadoKey,
     ajuizadoKey,
     lockedKeys,
@@ -138,7 +147,10 @@ function buildCobrancaStageRouting(
 
 function statusKeyForDiasAtraso(dias: number, routing: CobrancaStageRouting): string {
   if (dias <= -1) return routing.beforeDueKey;
+  if (dias >= 31) return routing.thirtyOneDaysKey;
   if (dias >= 30) return routing.thirtyDaysKey;
+  if (dias >= 15) return routing.fifteenDaysLateKey;
+  if (dias >= 5) return routing.fiveDaysLateKey;
   return routing.oneDayLateKey;
 }
 
