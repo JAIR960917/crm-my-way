@@ -126,7 +126,7 @@ export default function SSoticaIntegrationsPage() {
     }
     if (!confirm(
       `Ressincronizar TUDO em ${active.length} loja(s)?\n\n` +
-      `• A 1ª loja inicia o Backfill 96m agora (8 chunks de 12 meses, ~25 min).\n` +
+      `• A 1ª loja inicia o Backfill 96m agora (16 lotes de 6 meses).\n` +
       `• As demais serão agendadas em sequência, espaçadas 30 min entre cada.\n` +
       `• Tempo total estimado: ~${Math.round((active.length * 30))} min.\n\n` +
       `Continuar?`
@@ -634,12 +634,12 @@ export default function SSoticaIntegrationsPage() {
                             size="sm"
                             variant="secondary"
                             onClick={() => {
-                              if (confirm("Iniciar backfill de 96 meses (8 anos)?\n\nO 1º chunk de 12 meses roda agora; os próximos 7 rodam automaticamente, 1 a cada 3 minutos.\nTotal estimado: ~25 minutos por loja.\n\nFaça uma loja por vez para evitar sobrecarga.")) {
+                              if (confirm("Iniciar backfill de 96 meses (8 anos)?\n\nO processamento roda em 16 lotes de 6 meses. O progresso será atualizado automaticamente nesta tela.\n\nFaça uma loja por vez para evitar sobrecarga.")) {
                                 handleSyncNow(integ, true);
                               }
                             }}
                             disabled={syncingId === integ.id || !integ.is_active}
-                            title="Backfill completo de 96 meses em chunks de 12 meses, com 3 min entre cada"
+                            title="Backfill completo de 96 meses em 16 lotes de 6 meses"
                           >
                             <RefreshCw className="h-3 w-3 mr-1" />
                             Backfill 96m
