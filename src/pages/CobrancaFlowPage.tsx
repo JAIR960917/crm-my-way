@@ -23,9 +23,8 @@ type FlowRow = {
   whatsapp_trigger_campaign_id: string | null;
 };
 
-type SituacaoKey = "em_atraso" | "negativado_serasa" | "ajuizado_saniely" | "ajuizado_navde";
+type SituacaoKey = "negativado_serasa" | "ajuizado_saniely" | "ajuizado_navde";
 const SITUACOES: { key: SituacaoKey; label: string; help: string }[] = [
-  { key: "em_atraso", label: "Em atraso", help: "Parcelas com situação 'Em atraso' no SSÓtica" },
   { key: "negativado_serasa", label: "Negativado Serasa", help: "Cliente negativado no Serasa" },
   { key: "ajuizado_saniely", label: "Ajuizado(A) Saniely", help: "Cliente ajuizado pela advogada Saniely" },
   { key: "ajuizado_navde", label: "Ajuizado(A) Návde", help: "Cliente ajuizado pela advogada Návde" },
