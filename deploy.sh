@@ -44,6 +44,56 @@ run_migrations() {
   log "Aplicando migrations..."
   local use_docker_fallback=0
 
+  repair_auth_internal_privileges() {
+    log "Reparando privilégios internos do schema auth para o stack self-hosted..."
+
+    db_exec "GRANT USAGE ON SCHEMA auth TO postgres, anon, authenticated, service_role, supabase_auth_admin;"
+    db_exec "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA auth TO postgres, supabase_auth_admin;"
+    db_exec "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA auth TO postgres, supabase_auth_admin;"
+    db_exec "GRANT ALL PRIVILEGES ON ALL ROUTINES IN SCHEMA auth TO postgres, supabase_auth_admin;"
+    db_exec "GRANT EXECUTE ON ALL ROUTINES IN SCHEMA auth TO anon, authenticated, service_role;"
+    db_exec "ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON TABLES TO postgres, supabase_auth_admin;"
+    db_exec "ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON SEQUENCES TO postgres, supabase_auth_admin;"
+    db_exec "ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON ROUTINES TO postgres, supabase_auth_admin;"
+    db_exec "ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT EXECUTE ON ROUTINES TO anon, authenticated, service_role;"
+
+    if [ "$use_docker_fallback" -eq 1 ]; then
+      docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS args
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'auth'
+  LOOP
+    EXECUTE format('ALTER FUNCTION %I.%I(%s) OWNER TO supabase_auth_admin', r.nspname, r.proname, r.args);
+  END LOOP;
+END $$;
+SQL
+    else
+      psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS args
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'auth'
+  LOOP
+    EXECUTE format('ALTER FUNCTION %I.%I(%s) OWNER TO supabase_auth_admin', r.nspname, r.proname, r.args);
+  END LOOP;
+END $$;
+SQL
+    fi
+
+    ok "Privilégios do auth reparados"
+  }
+
   # Por padrão usamos o container do Postgres (mais confiável em self-hosted
   # com Supavisor/pooler na porta 5432). Para forçar conexão direta via psql,
   # exporte USE_PSQL_DIRECT=1 e SUPABASE_DB_URL apontando para o Postgres real.
@@ -108,6 +158,8 @@ run_migrations() {
       filename TEXT PRIMARY KEY,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );" >/dev/null
+
+  repair_auth_internal_privileges
 
   local count=0
   for f in "${SUPABASE_DIR}/migrations/"*.sql; do
@@ -207,7 +259,7 @@ EOF
 # ---------------------------------------------------------------------------
 run_restart() {
   log "Reiniciando serviços supabase..."
-  for c in supabase-edge-functions supabase-rest supabase-auth supabase-realtime; do
+  for c in supabase-meta supabase-studio supabase-edge-functions supabase-rest supabase-auth supabase-realtime; do
     if docker ps --format '{{.Names}}' | grep -q "^${c}$"; then
       docker restart "$c" >/dev/null && ok "  $c"
     fi
