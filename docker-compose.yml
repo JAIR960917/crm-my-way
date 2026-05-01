@@ -206,7 +206,7 @@ services:
       - "${KONG_HTTP_PORT:-8000}:8000"
     volumes:
       - ./docker/supabase/volumes/api/kong.yml:/home/kong/temp.yml:ro
-      - ./docker/supabase/volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh
+      - ./docker/supabase/volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
@@ -231,7 +231,7 @@ services:
       SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:-}
       ANON_KEY_ASYMMETRIC: ${ANON_KEY_ASYMMETRIC:-}
       SERVICE_ROLE_KEY_ASYMMETRIC: ${SERVICE_ROLE_KEY_ASYMMETRIC:-}
-    entrypoint: ["/bin/sh", "-c", "chmod +x /home/kong/kong-entrypoint.sh && /home/kong/kong-entrypoint.sh"]
+    entrypoint: ["/bin/bash", "/home/kong/kong-entrypoint.sh"]
 
   # ---------------------------------------------------------------------------
   # Frontend (Vite build served by nginx)
