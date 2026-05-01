@@ -231,7 +231,7 @@ services:
       SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:-}
       ANON_KEY_ASYMMETRIC: ${ANON_KEY_ASYMMETRIC:-}
       SERVICE_ROLE_KEY_ASYMMETRIC: ${SERVICE_ROLE_KEY_ASYMMETRIC:-}
-    entrypoint: ["/bin/sh", "-c", "chmod +x /home/kong/kong-entrypoint.sh && /home/kong/kong-entrypoint.sh"]
+    entrypoint: ["/bin/bash", "/home/kong/kong-entrypoint.sh"]
 
   # ---------------------------------------------------------------------------
   # Frontend (Vite build served by nginx)
