@@ -374,41 +374,60 @@ export default function CobrancasPage() {
     return ids;
   }, [activities, noteIds]);
 
-  const sortByTaskPriority = useCallback(<T extends { id: string; data?: any }>(items: T[]) => {
-    return [...items].sort((a, b) => {
-      // 1) Cards já tratados (renegociou definido) vão SEMPRE para o final
-      const aTreated = (a as any)?.data?.renegociou ? 1 : 0;
-      const bTreated = (b as any)?.data?.renegociou ? 1 : 0;
-      if (aTreated !== bTreated) return aTreated - bTreated;
-      // 2) Pending task domina: cards com tarefa pendente vão para o TOPO
-      const aPrio = cobrancaTaskPriority.get(a.id) || 0;
-      const bPrio = cobrancaTaskPriority.get(b.id) || 0;
-      if (aPrio !== bPrio) return bPrio - aPrio;
-      // 3) Sem tarefa pendente, interação recente vai para o final
-      const aHasRecent = cobrancasWithRecentActivity.has(a.id) ? 1 : 0;
-      const bHasRecent = cobrancasWithRecentActivity.has(b.id) ? 1 : 0;
-      return aHasRecent - bHasRecent;
+  // Ordena grupos pela MAIOR prioridade entre os itens do grupo
+  const sortGroupsByTaskPriority = useCallback((groups: CobrancaGroup[]) => {
+    const score = (g: CobrancaGroup) => {
+      const allTreated = g.items.every((it) => (it.data as any)?.renegociou);
+      const anyPrio = g.items.reduce((acc, it) => Math.max(acc, cobrancaTaskPriority.get(it.id) || 0), 0);
+      const anyRecent = g.items.some((it) => cobrancasWithRecentActivity.has(it.id));
+      return { allTreated: allTreated ? 1 : 0, anyPrio, anyRecent: anyRecent ? 1 : 0 };
+    };
+    return [...groups].sort((a, b) => {
+      const sa = score(a);
+      const sb = score(b);
+      if (sa.allTreated !== sb.allTreated) return sa.allTreated - sb.allTreated;
+      if (sa.anyPrio !== sb.anyPrio) return sb.anyPrio - sa.anyPrio;
+      return sa.anyRecent - sb.anyRecent;
     });
   }, [cobrancaTaskPriority, cobrancasWithRecentActivity]);
 
-  const getByStatus = useCallback((key: string) => {
+  const companyNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    companies.forEach((c) => m.set(c.id, c.name));
+    return m;
+  }, [companies]);
+
+  // Agrupa TODAS as cobranças carregadas por CPF, atribuindo cada grupo ao status mais grave
+  const allGroups = useMemo(() => {
+    const all: Cobranca[] = [];
     if (isSearching) {
-      const filtered = (searchResults || []).filter((c) => c.status === key);
-      return { items: sortByTaskPriority(filtered), total: filtered.length, hasMore: false, loading: searching };
+      all.push(...(searchResults || []));
+    } else {
+      Object.values(paginatedColumns).forEach((col) => {
+        all.push(...(col?.items || []));
+      });
+    }
+    const seen = new Set<string>();
+    const unique = all.filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
+    return groupCobrancasByCpf(unique, allStatuses, companyNameById);
+  }, [paginatedColumns, isSearching, searchResults, allStatuses, companyNameById]);
+
+  const getByStatus = useCallback((key: string) => {
+    const groupsForStatus = allGroups.filter((g) => g.representativeStatus === key);
+    const sorted = sortGroupsByTaskPriority(groupsForStatus);
+    if (isSearching) {
+      return { groups: sorted, total: sorted.length, hasMore: false, loading: searching };
     }
     const col = paginatedColumns[key];
     return {
-      items: sortByTaskPriority(col?.items || []),
-      total: col?.total || 0,
+      groups: sorted,
+      total: sorted.length,
       hasMore: col?.hasMore || false,
       loading: col?.loading || false,
     };
-  }, [paginatedColumns, isSearching, searchResults, searching, sortByTaskPriority]);
+  }, [paginatedColumns, isSearching, searching, allGroups, sortGroupsByTaskPriority]);
 
-  const totalDisplayed = useMemo(() => {
-    if (isSearching) return searchResults?.length || 0;
-    return Object.values(paginatedColumns).reduce((acc, col) => acc + col.total, 0);
-  }, [paginatedColumns, isSearching, searchResults]);
+  const totalDisplayed = useMemo(() => allGroups.length, [allGroups]);
 
   const handleColumnScroll = (e: React.UIEvent<HTMLDivElement>, statusKey: string) => {
     const el = e.currentTarget;
