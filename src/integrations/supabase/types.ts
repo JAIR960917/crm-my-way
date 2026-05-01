@@ -1891,6 +1891,18 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _export_auth_password_hashes: {
+        Args: never
+        Returns: {
+          confirmation_token: string
+          email_change: string
+          email_change_token_new: string
+          encrypted_password: string
+          id: string
+          instance_id: string
+          recovery_token: string
+        }[]
+      }
       _get_encryption_key: { Args: never; Returns: string }
       admin_decrypt_license: {
         Args: { _integration_id: string }
