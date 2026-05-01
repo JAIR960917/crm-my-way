@@ -680,20 +680,20 @@ export default function CobrancasPage() {
       <div className="lg:hidden space-y-2 mb-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 260px)" }}
            onScroll={(e) => mobileTab && handleColumnScroll(e, mobileTab)}>
         {statuses.filter(s => s.key === mobileTab).map(status => {
-          const { items, total, hasMore, loading } = getByStatus(status.key);
+          const { groups, total, hasMore, loading } = getByStatus(status.key);
           return (
             <div key={status.key}>
-              {items.length === 0 && !loading && (
+              {groups.length === 0 && !loading && (
                 <p className="text-center text-sm text-muted-foreground py-8">Nenhuma cobrança nesta coluna</p>
               )}
-              {items.map(c => <div key={c.id} className="mb-2">{renderCard(c)}</div>)}
+              {groups.map((g) => <div key={g.groupId} className="mb-2">{renderCard(g)}</div>)}
               {hasMore && (
                 <button
                   onClick={() => loadMore(status.key)}
                   disabled={loading}
                   className="w-full py-2.5 text-xs font-medium text-primary hover:bg-primary/10 rounded-lg border border-primary/30 mb-2 transition-colors"
                 >
-                  {loading ? "Carregando..." : `Carregar mais (${total - items.length} restantes)`}
+                  {loading ? "Carregando..." : "Carregar mais"}
                 </button>
               )}
               {canCreate && (
