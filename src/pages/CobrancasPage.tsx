@@ -709,7 +709,7 @@ export default function CobrancasPage() {
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="hidden lg:flex gap-3 overflow-x-auto pb-4" style={{ height: "calc(100vh - 200px)" }}>
           {statuses.map(status => {
-            const { items, total, hasMore, loading } = getByStatus(status.key);
+            const { groups, total, hasMore, loading } = getByStatus(status.key);
             const colors = colorMap[status.color] || colorMap.blue;
             return (
               <div key={status.key} className="flex-shrink-0 w-[280px] flex flex-col min-h-0">
@@ -730,22 +730,35 @@ export default function CobrancasPage() {
                         snapshot.isDraggingOver ? "bg-primary/5 border-2 border-dashed border-primary/30" : "bg-muted/50 border border-transparent"
                       }`}
                     >
-                      {items.map((c, index) => (
-                        <Draggable key={c.id} draggableId={c.id} index={index}>
-                          {(provided, snapshot) => (
-                            <div
-                              ref={provided.innerRef}
-                              {...provided.draggableProps}
-                              {...provided.dragHandleProps}
-                              className={snapshot.isDragging ? "opacity-90 rotate-2" : ""}
-                            >
-                              {renderCard(c)}
-                            </div>
-                          )}
-                        </Draggable>
-                      ))}
+                      {groups.map((g, index) => {
+                        const draggableDisabled = g.items.length > 1;
+                        return (
+                          <Draggable
+                            key={g.groupId}
+                            draggableId={g.representative.id}
+                            index={index}
+                            isDragDisabled={draggableDisabled}
+                          >
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                className={snapshot.isDragging ? "opacity-90 rotate-2" : ""}
+                                onClick={() => {
+                                  if (draggableDisabled) {
+                                    // só dica visual; clique no lápis abre o seletor
+                                  }
+                                }}
+                              >
+                                {renderCard(g)}
+                              </div>
+                            )}
+                          </Draggable>
+                        );
+                      })}
                       {provided.placeholder}
-                      {loading && items.length === 0 && (
+                      {loading && groups.length === 0 && (
                         <div className="flex items-center justify-center py-4">
                           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                         </div>
@@ -756,7 +769,7 @@ export default function CobrancasPage() {
                           disabled={loading}
                           className="w-full py-2 text-xs font-medium text-primary hover:bg-primary/10 rounded-lg border border-primary/30 transition-colors"
                         >
-                          {loading ? "Carregando..." : `Carregar mais (${total - items.length} restantes)`}
+                          {loading ? "Carregando..." : "Carregar mais"}
                         </button>
                       )}
                       {canCreate && (
