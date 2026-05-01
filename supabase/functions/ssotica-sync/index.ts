@@ -697,20 +697,26 @@ async function syncContasReceber(
     });
 
     // Regra de coluna (configurável via tabela crm_cobranca_situacao_mapping):
-    //  • Ajuizado(A) Saniely / Návde → coluna mapeada para a variante (default: 180_dias_ajuizar_manualmente)
-    //  • Negativado Serasa            → coluna mapeada (default: COLUNA 10)
-    //  • Em atraso (situação SSÓtica) → coluna mapeada (default: COLUNA 8)
-    //  • Demais (a vencer / vencido)  → escala por dias com cap nas locked
+    //  • Ajuizado(A) Saniely / Návde → coluna mapeada (fallback: última coluna)
+    //  • Negativado Serasa            → coluna mapeada (fallback: COLUNA 10 por position)
+    //  • Demais (a vencer / vencido)  → escala por dias com cap em "31 dias"
+    //
+    // Observação: a situação "Em atraso" não é mais um caso especial — a coluna
+    // de destino vem do cálculo por dias_atraso (ver mapping configurável de
+    // "1 dia antes do vencimento" e "1 dia de atraso" na tela de Fluxo).
     let colunaKeyAlvo: string;
     if (hasAjuizadoMerged) {
       const variantKey = ajuizadoVariantMerged ?? "ajuizado_saniely";
-      colunaKeyAlvo = situacaoMapping[variantKey] ?? situacaoMapping["ajuizado_saniely"] ?? "180_dias_ajuizar_manualmente";
+      colunaKeyAlvo = situacaoMapping[variantKey]
+        ?? situacaoMapping["ajuizado_saniely"]
+        ?? cobStatusList[cobStatusList.length - 1]?.key
+        ?? "";
     } else if (hasNegativadoSerasaMerged) {
-      colunaKeyAlvo = situacaoMapping["negativado_serasa"] ?? "65_dias_de_atraso_receber_informe_de_negativao";
-    } else if (hasEmAtrasoMerged) {
-      colunaKeyAlvo = situacaoMapping["em_atraso"] ?? "60_dias_de_atraso_ligao_negativao";
+      colunaKeyAlvo = situacaoMapping["negativado_serasa"]
+        ?? cobStatusList[7]?.key
+        ?? coluna8Key;
     } else {
-      colunaKeyAlvo = clampToLockedEntry(statusKeyForDiasAtraso(maisAntiga.dias_atraso));
+      colunaKeyAlvo = clampToLockedEntryDyn(colunaKeyForDiasAtraso(maisAntiga.dias_atraso));
     }
 
     const telefone = cliente.telefone_principal ?? cliente.telefone ?? "";
