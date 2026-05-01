@@ -435,13 +435,18 @@ export default function CobrancasPage() {
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) loadMore(statusKey);
   };
 
-  const renderCard = (cobranca: Cobranca) => {
+  const renderCard = (group: CobrancaGroup) => {
+    const cobranca = group.representative;
     const d = cobranca.data as Record<string, any>;
-    const renegociou = (d?.renegociou as string | undefined) || null;
-    const cobActivities = activities.filter(a => a.cobranca_id === cobranca.id);
-    const pending = cobActivities.filter(a => !a.completed_at);
-    const overdue = pending.filter(a => new Date(a.scheduled_date) < new Date());
-    const today = pending.filter(a => {
+    const grouped = group.items.length > 1;
+    const valor = grouped ? group.valorTotal : Number(cobranca.valor || 0);
+
+    // Estados visuais consideram TODOS os itens do grupo
+    const groupItemIds = group.items.map((it) => it.id);
+    const cobActivities = activities.filter((a) => groupItemIds.includes(a.cobranca_id));
+    const pending = cobActivities.filter((a) => !a.completed_at);
+    const overdue = pending.filter((a) => new Date(a.scheduled_date) < new Date());
+    const today = pending.filter((a) => {
       const dt = new Date(a.scheduled_date);
       const now = new Date();
       return dt.toDateString() === now.toDateString() && dt >= now;
@@ -450,8 +455,17 @@ export default function CobrancasPage() {
     const hasToday = today.length > 0;
     const hasPending = pending.length > 0 && !hasOverdue && !hasToday;
 
+    // renegociou: se for grupo, considera "sim" só se TODOS sim; "nao" se algum nao
+    const renegociouValues = group.items.map((it) => (it.data as any)?.renegociou ?? null);
+    const renegociou: string | null = grouped
+      ? (renegociouValues.every((v) => v === "sim")
+          ? "sim"
+          : renegociouValues.includes("nao")
+            ? "nao"
+            : null)
+      : ((d?.renegociou as string | undefined) || null);
+
     let cardBorderClass = "";
-    // Renegociação tem prioridade visual sobre tarefas
     if (renegociou === "sim") cardBorderClass = "border-emerald-500 bg-emerald-500/10 shadow-emerald-500/20 shadow-md";
     else if (renegociou === "nao") cardBorderClass = "border-red-500 bg-red-500/10 shadow-red-500/20 shadow-md";
     else if (hasOverdue) cardBorderClass = "border-red-500 bg-red-500/10 shadow-red-500/20 shadow-md";
@@ -478,23 +492,43 @@ export default function CobrancasPage() {
               </p>
             )}
           </div>
-          <Badge variant="outline" className="text-xs shrink-0 ml-2">
-            R$ {Number(cobranca.valor || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-          </Badge>
+          <div className="flex flex-col items-end gap-1 shrink-0 ml-2">
+            <Badge variant="outline" className="text-xs">
+              R$ {valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+            </Badge>
+            {grouped && (
+              <Badge className="text-[10px] bg-primary/15 text-primary border border-primary/30 hover:bg-primary/20">
+                {group.items.length} dívidas
+              </Badge>
+            )}
+          </div>
         </div>
 
-        {cobranca.company_id && (
-          <p className="text-xs text-muted-foreground flex items-center gap-1">
-            <Building2 className="h-3 w-3" />{getCompanyName(cobranca.company_id)}
-          </p>
+        {grouped ? (
+          <div className="flex flex-wrap gap-1">
+            {group.companies.map((name) => (
+              <span
+                key={name}
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border/60"
+              >
+                <Building2 className="h-2.5 w-2.5" />{name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          cobranca.company_id && (
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+              <Building2 className="h-3 w-3" />{getCompanyName(cobranca.company_id)}
+            </p>
+          )
         )}
 
-        {d.descricao && (
+        {!grouped && d.descricao && (
           <p className="text-xs text-muted-foreground line-clamp-2">{d.descricao}</p>
         )}
 
-        {cobranca.assigned_to && (() => {
-          const ap = profiles.find(p => p.user_id === cobranca.assigned_to);
+        {!grouped && cobranca.assigned_to && (() => {
+          const ap = profiles.find((p) => p.user_id === cobranca.assigned_to);
           if (!ap) return null;
           return (
             <div className="pt-1">
@@ -557,13 +591,19 @@ export default function CobrancasPage() {
           )}
         </div>
 
-
-
         <div className="flex gap-1 justify-end pt-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(cobranca)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => {
+              if (grouped) setPickerGroup(group);
+              else openEdit(cobranca);
+            }}
+          >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
-          {(isAdmin || isGerente) && (
+          {!grouped && (isAdmin || isGerente) && (
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(cobranca.id)}>
               <Trash2 className="h-3.5 w-3.5 text-destructive" />
             </Button>
