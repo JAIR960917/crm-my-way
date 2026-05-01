@@ -168,7 +168,17 @@ window.__CRM_RUNTIME_CONFIG__ = {
 };
 EOF
 
-  log "Instalando dependências..."
+  # Preferimos rebuild via docker compose: garante que dist/ + nginx.conf + runtime-config.js
+  # estejam consistentes dentro da imagem do container crm-frontend.
+  if [ "${FRONTEND_BUILD_MODE:-docker}" = "docker" ] && command -v docker >/dev/null 2>&1; then
+    log "Rebuild do frontend via docker compose (modo docker)..."
+    docker compose build crm-frontend
+    docker compose up -d --force-recreate crm-frontend
+    ok "Frontend rebuildado e reiniciado via docker compose"
+    return 0
+  fi
+
+  log "Instalando dependências (modo local)..."
   if command -v bun >/dev/null 2>&1; then
     bun install --frozen-lockfile
     log "Build do frontend (bun)..."
@@ -177,19 +187,12 @@ EOF
     npm ci
     log "Build do frontend (npm)..."
     npm run build
-  elif command -v docker >/dev/null 2>&1; then
-    warn "bun/npm não encontrados na VPS; usando build do container crm-frontend via docker compose."
-    docker compose build crm-frontend
-    docker compose up -d crm-frontend
-    ok "Frontend rebuildado via docker compose"
-    return 0
   else
     err "Nem bun/npm/docker disponíveis para build do frontend."
     return 1
   fi
   ok "Build concluído em ./dist"
 
-  # Se houver container nginx servindo o app, recarrega
   if docker ps --format '{{.Names}}' | grep -q "^crm-frontend$"; then
     log "Restart do container crm-frontend..."
     docker restart crm-frontend >/dev/null
