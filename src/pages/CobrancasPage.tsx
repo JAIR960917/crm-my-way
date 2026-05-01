@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Plus, Search, Pencil, Trash2, Phone, Building2, AlertTriangle, CalendarClock, CheckCircle2, Clock, Loader2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatPhoneBR } from "@/lib/phoneFormat";
@@ -49,6 +50,69 @@ type CrmStatus = {
 type Profile = { user_id: string; full_name: string; avatar_url?: string | null };
 type Company = { id: string; name: string };
 
+type CobrancaGroup = {
+  groupId: string;            // chave de render (cpf normalizado ou id da cobrança quando sem CPF)
+  cpfKey: string | null;
+  items: Cobranca[];
+  representative: Cobranca;
+  representativeStatus: string;
+  valorTotal: number;
+  companies: string[];        // nomes das lojas únicos
+};
+
+const normalizeCpf = (raw: unknown): string | null => {
+  const digits = String(raw ?? "").replace(/\D+/g, "");
+  return digits.length > 0 ? digits : null;
+};
+
+function groupCobrancasByCpf(
+  items: Cobranca[],
+  statuses: CrmStatus[],
+  companyNameById: Map<string, string>,
+): CobrancaGroup[] {
+  const positionByKey = new Map<string, number>();
+  statuses.forEach((s) => positionByKey.set(s.key, s.position));
+
+  const buckets = new Map<string, Cobranca[]>();
+  for (const c of items) {
+    const cpf = normalizeCpf((c.data as any)?.documento ?? (c.data as any)?.cpf);
+    const key = cpf ? `cpf:${cpf}` : `id:${c.id}`;
+    const arr = buckets.get(key);
+    if (arr) arr.push(c);
+    else buckets.set(key, [c]);
+  }
+
+  const groups: CobrancaGroup[] = [];
+  buckets.forEach((arr, key) => {
+    const cpfKey = key.startsWith("cpf:") ? key.slice(4) : null;
+    // representante: status mais grave (maior position); empate → maior valor
+    const rep = [...arr].sort((a, b) => {
+      const pa = positionByKey.get(a.status) ?? -1;
+      const pb = positionByKey.get(b.status) ?? -1;
+      if (pa !== pb) return pb - pa;
+      return (Number(b.valor) || 0) - (Number(a.valor) || 0);
+    })[0];
+    const valorTotal = arr.reduce((acc, it) => acc + (Number(it.valor) || 0), 0);
+    const companies = Array.from(
+      new Set(
+        arr
+          .map((it) => (it.company_id ? companyNameById.get(it.company_id) || "" : ""))
+          .filter(Boolean),
+      ),
+    );
+    groups.push({
+      groupId: key,
+      cpfKey,
+      items: arr,
+      representative: rep,
+      representativeStatus: rep.status,
+      valorTotal,
+      companies,
+    });
+  });
+  return groups;
+}
+
 const colorMap: Record<string, { header: string; badge: string }> = {
   blue:    { header: "bg-blue-500",    badge: "bg-blue-500/15 text-blue-700 border-blue-300" },
   amber:   { header: "bg-amber-500",   badge: "bg-amber-500/15 text-amber-700 border-amber-300" },
@@ -81,6 +145,7 @@ export default function CobrancasPage() {
   const [filterCompanyId, setFilterCompanyId] = useState("all");
   const [mobileTab, setMobileTab] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [pickerGroup, setPickerGroup] = useState<CobrancaGroup | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const statusKeys = useMemo(() => statuses.map((s) => s.key), [statuses]);
@@ -310,54 +375,78 @@ export default function CobrancasPage() {
     return ids;
   }, [activities, noteIds]);
 
-  const sortByTaskPriority = useCallback(<T extends { id: string; data?: any }>(items: T[]) => {
-    return [...items].sort((a, b) => {
-      // 1) Cards já tratados (renegociou definido) vão SEMPRE para o final
-      const aTreated = (a as any)?.data?.renegociou ? 1 : 0;
-      const bTreated = (b as any)?.data?.renegociou ? 1 : 0;
-      if (aTreated !== bTreated) return aTreated - bTreated;
-      // 2) Pending task domina: cards com tarefa pendente vão para o TOPO
-      const aPrio = cobrancaTaskPriority.get(a.id) || 0;
-      const bPrio = cobrancaTaskPriority.get(b.id) || 0;
-      if (aPrio !== bPrio) return bPrio - aPrio;
-      // 3) Sem tarefa pendente, interação recente vai para o final
-      const aHasRecent = cobrancasWithRecentActivity.has(a.id) ? 1 : 0;
-      const bHasRecent = cobrancasWithRecentActivity.has(b.id) ? 1 : 0;
-      return aHasRecent - bHasRecent;
+  // Ordena grupos pela MAIOR prioridade entre os itens do grupo
+  const sortGroupsByTaskPriority = useCallback((groups: CobrancaGroup[]) => {
+    const score = (g: CobrancaGroup) => {
+      const allTreated = g.items.every((it) => (it.data as any)?.renegociou);
+      const anyPrio = g.items.reduce((acc, it) => Math.max(acc, cobrancaTaskPriority.get(it.id) || 0), 0);
+      const anyRecent = g.items.some((it) => cobrancasWithRecentActivity.has(it.id));
+      return { allTreated: allTreated ? 1 : 0, anyPrio, anyRecent: anyRecent ? 1 : 0 };
+    };
+    return [...groups].sort((a, b) => {
+      const sa = score(a);
+      const sb = score(b);
+      if (sa.allTreated !== sb.allTreated) return sa.allTreated - sb.allTreated;
+      if (sa.anyPrio !== sb.anyPrio) return sb.anyPrio - sa.anyPrio;
+      return sa.anyRecent - sb.anyRecent;
     });
   }, [cobrancaTaskPriority, cobrancasWithRecentActivity]);
 
-  const getByStatus = useCallback((key: string) => {
+  const companyNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    companies.forEach((c) => m.set(c.id, c.name));
+    return m;
+  }, [companies]);
+
+  // Agrupa TODAS as cobranças carregadas por CPF, atribuindo cada grupo ao status mais grave
+  const allGroups = useMemo(() => {
+    const all: Cobranca[] = [];
     if (isSearching) {
-      const filtered = (searchResults || []).filter((c) => c.status === key);
-      return { items: sortByTaskPriority(filtered), total: filtered.length, hasMore: false, loading: searching };
+      all.push(...(searchResults || []));
+    } else {
+      Object.values(paginatedColumns).forEach((col) => {
+        all.push(...(col?.items || []));
+      });
+    }
+    const seen = new Set<string>();
+    const unique = all.filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
+    return groupCobrancasByCpf(unique, allStatuses, companyNameById);
+  }, [paginatedColumns, isSearching, searchResults, allStatuses, companyNameById]);
+
+  const getByStatus = useCallback((key: string) => {
+    const groupsForStatus = allGroups.filter((g) => g.representativeStatus === key);
+    const sorted = sortGroupsByTaskPriority(groupsForStatus);
+    if (isSearching) {
+      return { groups: sorted, total: sorted.length, hasMore: false, loading: searching };
     }
     const col = paginatedColumns[key];
     return {
-      items: sortByTaskPriority(col?.items || []),
-      total: col?.total || 0,
+      groups: sorted,
+      total: sorted.length,
       hasMore: col?.hasMore || false,
       loading: col?.loading || false,
     };
-  }, [paginatedColumns, isSearching, searchResults, searching, sortByTaskPriority]);
+  }, [paginatedColumns, isSearching, searching, allGroups, sortGroupsByTaskPriority]);
 
-  const totalDisplayed = useMemo(() => {
-    if (isSearching) return searchResults?.length || 0;
-    return Object.values(paginatedColumns).reduce((acc, col) => acc + col.total, 0);
-  }, [paginatedColumns, isSearching, searchResults]);
+  const totalDisplayed = useMemo(() => allGroups.length, [allGroups]);
 
   const handleColumnScroll = (e: React.UIEvent<HTMLDivElement>, statusKey: string) => {
     const el = e.currentTarget;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) loadMore(statusKey);
   };
 
-  const renderCard = (cobranca: Cobranca) => {
+  const renderCard = (group: CobrancaGroup) => {
+    const cobranca = group.representative;
     const d = cobranca.data as Record<string, any>;
-    const renegociou = (d?.renegociou as string | undefined) || null;
-    const cobActivities = activities.filter(a => a.cobranca_id === cobranca.id);
-    const pending = cobActivities.filter(a => !a.completed_at);
-    const overdue = pending.filter(a => new Date(a.scheduled_date) < new Date());
-    const today = pending.filter(a => {
+    const grouped = group.items.length > 1;
+    const valor = grouped ? group.valorTotal : Number(cobranca.valor || 0);
+
+    // Estados visuais consideram TODOS os itens do grupo
+    const groupItemIds = group.items.map((it) => it.id);
+    const cobActivities = activities.filter((a) => groupItemIds.includes(a.cobranca_id));
+    const pending = cobActivities.filter((a) => !a.completed_at);
+    const overdue = pending.filter((a) => new Date(a.scheduled_date) < new Date());
+    const today = pending.filter((a) => {
       const dt = new Date(a.scheduled_date);
       const now = new Date();
       return dt.toDateString() === now.toDateString() && dt >= now;
@@ -366,8 +455,17 @@ export default function CobrancasPage() {
     const hasToday = today.length > 0;
     const hasPending = pending.length > 0 && !hasOverdue && !hasToday;
 
+    // renegociou: se for grupo, considera "sim" só se TODOS sim; "nao" se algum nao
+    const renegociouValues = group.items.map((it) => (it.data as any)?.renegociou ?? null);
+    const renegociou: string | null = grouped
+      ? (renegociouValues.every((v) => v === "sim")
+          ? "sim"
+          : renegociouValues.includes("nao")
+            ? "nao"
+            : null)
+      : ((d?.renegociou as string | undefined) || null);
+
     let cardBorderClass = "";
-    // Renegociação tem prioridade visual sobre tarefas
     if (renegociou === "sim") cardBorderClass = "border-emerald-500 bg-emerald-500/10 shadow-emerald-500/20 shadow-md";
     else if (renegociou === "nao") cardBorderClass = "border-red-500 bg-red-500/10 shadow-red-500/20 shadow-md";
     else if (hasOverdue) cardBorderClass = "border-red-500 bg-red-500/10 shadow-red-500/20 shadow-md";
@@ -394,23 +492,43 @@ export default function CobrancasPage() {
               </p>
             )}
           </div>
-          <Badge variant="outline" className="text-xs shrink-0 ml-2">
-            R$ {Number(cobranca.valor || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-          </Badge>
+          <div className="flex flex-col items-end gap-1 shrink-0 ml-2">
+            <Badge variant="outline" className="text-xs">
+              R$ {valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+            </Badge>
+            {grouped && (
+              <Badge className="text-[10px] bg-primary/15 text-primary border border-primary/30 hover:bg-primary/20">
+                {group.items.length} dívidas
+              </Badge>
+            )}
+          </div>
         </div>
 
-        {cobranca.company_id && (
-          <p className="text-xs text-muted-foreground flex items-center gap-1">
-            <Building2 className="h-3 w-3" />{getCompanyName(cobranca.company_id)}
-          </p>
+        {grouped ? (
+          <div className="flex flex-wrap gap-1">
+            {group.companies.map((name) => (
+              <span
+                key={name}
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border/60"
+              >
+                <Building2 className="h-2.5 w-2.5" />{name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          cobranca.company_id && (
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+              <Building2 className="h-3 w-3" />{getCompanyName(cobranca.company_id)}
+            </p>
+          )
         )}
 
-        {d.descricao && (
+        {!grouped && d.descricao && (
           <p className="text-xs text-muted-foreground line-clamp-2">{d.descricao}</p>
         )}
 
-        {cobranca.assigned_to && (() => {
-          const ap = profiles.find(p => p.user_id === cobranca.assigned_to);
+        {!grouped && cobranca.assigned_to && (() => {
+          const ap = profiles.find((p) => p.user_id === cobranca.assigned_to);
           if (!ap) return null;
           return (
             <div className="pt-1">
@@ -473,13 +591,19 @@ export default function CobrancasPage() {
           )}
         </div>
 
-
-
         <div className="flex gap-1 justify-end pt-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(cobranca)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => {
+              if (grouped) setPickerGroup(group);
+              else openEdit(cobranca);
+            }}
+          >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
-          {(isAdmin || isGerente) && (
+          {!grouped && (isAdmin || isGerente) && (
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(cobranca.id)}>
               <Trash2 className="h-3.5 w-3.5 text-destructive" />
             </Button>
@@ -556,20 +680,20 @@ export default function CobrancasPage() {
       <div className="lg:hidden space-y-2 mb-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 260px)" }}
            onScroll={(e) => mobileTab && handleColumnScroll(e, mobileTab)}>
         {statuses.filter(s => s.key === mobileTab).map(status => {
-          const { items, total, hasMore, loading } = getByStatus(status.key);
+          const { groups, total, hasMore, loading } = getByStatus(status.key);
           return (
             <div key={status.key}>
-              {items.length === 0 && !loading && (
+              {groups.length === 0 && !loading && (
                 <p className="text-center text-sm text-muted-foreground py-8">Nenhuma cobrança nesta coluna</p>
               )}
-              {items.map(c => <div key={c.id} className="mb-2">{renderCard(c)}</div>)}
+              {groups.map((g) => <div key={g.groupId} className="mb-2">{renderCard(g)}</div>)}
               {hasMore && (
                 <button
                   onClick={() => loadMore(status.key)}
                   disabled={loading}
                   className="w-full py-2.5 text-xs font-medium text-primary hover:bg-primary/10 rounded-lg border border-primary/30 mb-2 transition-colors"
                 >
-                  {loading ? "Carregando..." : `Carregar mais (${total - items.length} restantes)`}
+                  {loading ? "Carregando..." : "Carregar mais"}
                 </button>
               )}
               {canCreate && (
@@ -585,7 +709,7 @@ export default function CobrancasPage() {
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="hidden lg:flex gap-3 overflow-x-auto pb-4" style={{ height: "calc(100vh - 200px)" }}>
           {statuses.map(status => {
-            const { items, total, hasMore, loading } = getByStatus(status.key);
+            const { groups, total, hasMore, loading } = getByStatus(status.key);
             const colors = colorMap[status.color] || colorMap.blue;
             return (
               <div key={status.key} className="flex-shrink-0 w-[280px] flex flex-col min-h-0">
@@ -606,22 +730,35 @@ export default function CobrancasPage() {
                         snapshot.isDraggingOver ? "bg-primary/5 border-2 border-dashed border-primary/30" : "bg-muted/50 border border-transparent"
                       }`}
                     >
-                      {items.map((c, index) => (
-                        <Draggable key={c.id} draggableId={c.id} index={index}>
-                          {(provided, snapshot) => (
-                            <div
-                              ref={provided.innerRef}
-                              {...provided.draggableProps}
-                              {...provided.dragHandleProps}
-                              className={snapshot.isDragging ? "opacity-90 rotate-2" : ""}
-                            >
-                              {renderCard(c)}
-                            </div>
-                          )}
-                        </Draggable>
-                      ))}
+                      {groups.map((g, index) => {
+                        const draggableDisabled = g.items.length > 1;
+                        return (
+                          <Draggable
+                            key={g.groupId}
+                            draggableId={g.representative.id}
+                            index={index}
+                            isDragDisabled={draggableDisabled}
+                          >
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                className={snapshot.isDragging ? "opacity-90 rotate-2" : ""}
+                                onClick={() => {
+                                  if (draggableDisabled) {
+                                    // só dica visual; clique no lápis abre o seletor
+                                  }
+                                }}
+                              >
+                                {renderCard(g)}
+                              </div>
+                            )}
+                          </Draggable>
+                        );
+                      })}
                       {provided.placeholder}
-                      {loading && items.length === 0 && (
+                      {loading && groups.length === 0 && (
                         <div className="flex items-center justify-center py-4">
                           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                         </div>
@@ -632,7 +769,7 @@ export default function CobrancasPage() {
                           disabled={loading}
                           className="w-full py-2 text-xs font-medium text-primary hover:bg-primary/10 rounded-lg border border-primary/30 transition-colors"
                         >
-                          {loading ? "Carregando..." : `Carregar mais (${total - items.length} restantes)`}
+                          {loading ? "Carregando..." : "Carregar mais"}
                         </button>
                       )}
                       {canCreate && (
@@ -689,6 +826,58 @@ export default function CobrancasPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={!!pickerGroup} onOpenChange={(open) => !open && setPickerGroup(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cobranças deste cliente</DialogTitle>
+            <DialogDescription>
+              {pickerGroup
+                ? `${(pickerGroup.representative.data as any)?.nome || "Cliente"} possui ${pickerGroup.items.length} dívidas. Escolha qual deseja editar.`
+                : null}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+            {pickerGroup?.items.map((it) => {
+              const stLabel = allStatuses.find((s) => s.key === it.status)?.label ?? it.status;
+              const company = it.company_id ? getCompanyName(it.company_id) : "—";
+              return (
+                <button
+                  key={it.id}
+                  onClick={() => {
+                    setPickerGroup(null);
+                    openEdit(it);
+                  }}
+                  className="w-full text-left rounded-lg border p-3 hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium flex items-center gap-1">
+                        <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        {company}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{stLabel}</p>
+                      {(it.data as any)?.descricao && (
+                        <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                          {(it.data as any).descricao}
+                        </p>
+                      )}
+                    </div>
+                    <Badge variant="outline" className="text-xs shrink-0">
+                      R$ {Number(it.valor || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </Badge>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          {pickerGroup && (
+            <div className="text-right text-sm font-semibold pt-2 border-t">
+              Total: R$ {pickerGroup.valorTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
     </AppLayout>
   );
