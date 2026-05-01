@@ -206,7 +206,7 @@ services:
       - "${KONG_HTTP_PORT:-8000}:8000"
     volumes:
       - ./docker/supabase/volumes/api/kong.yml:/home/kong/temp.yml:ro
-      - ./docker/supabase/volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh
+      - ./docker/supabase/volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
