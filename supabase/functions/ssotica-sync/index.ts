@@ -746,12 +746,12 @@ async function syncContasReceber(
     //    sync — quem move dali é o fluxo manual (cobranca-flow-advance).
     let colunaKey = colunaKeyAlvo;
     if (existingCobranca && !hasAjuizadoMerged && !hasNegativadoSerasaMerged) {
-      if (COBRANCA_LOCKED_KEYS.has(existingCobranca.status)) {
+      if (lockedKeys.has(existingCobranca.status)) {
         // Cards após a COLUNA 8 (60 dias) só podem permanecer lá se houver
         // parcela "Negativado Serasa". Como não há, voltam para a COLUNA 8
         // e aguardam tratativa da Brenda.
-        colunaKey = COLUNAS_APOS_8.has(existingCobranca.status)
-          ? "60_dias_de_atraso_ligao_negativao"
+        colunaKey = colunasApos8.has(existingCobranca.status)
+          ? coluna8Key
           : existingCobranca.status; // mantém a coluna atual (travada)
       }
     }
