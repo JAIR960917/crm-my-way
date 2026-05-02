@@ -2207,11 +2207,11 @@ Deno.serve(async (req) => {
             items_processed: cr.processed + v.processed,
             items_created: cr.created + v.created,
             items_updated: cr.updated + v.updated,
-            details: { contas_receber: cr, vendas: v, consolidation_after_cobrancas: consolidationAfterReceber, backfill_chunks_run: backfillChunkResults.length },
+            details: { contas_receber: cr, vendas: v, consolidation_after_cobrancas: consolidationAfterReceber },
           }).eq("id", logId);
         }
 
-        results.push({ integration_id: integ.id, ok: true, contas_receber: cr, vendas: v, consolidation_after_cobrancas: consolidationAfterReceber, backfill_chunks_run: backfillChunkResults });
+        results.push({ integration_id: integ.id, ok: true, contas_receber: cr, vendas: v, consolidation_after_cobrancas: consolidationAfterReceber });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`[ssotica-sync] integration ${integ.id} failed:`, msg);
