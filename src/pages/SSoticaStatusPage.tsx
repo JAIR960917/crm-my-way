@@ -181,8 +181,8 @@ export default function SSoticaStatusPage() {
       .from("ssotica_integrations")
       .update({
         sync_status: "idle",
-        backfill_status: "idle",
-        backfill_next_run_at: null,
+        backfill_status: "running",
+        backfill_next_run_at: new Date().toISOString(),
         last_error: null,
       })
       .eq("id", id);
@@ -195,7 +195,7 @@ export default function SSoticaStatusPage() {
       });
       return;
     }
-    toast({ title: "Loja destravada", description: "Status resetado para idle." });
+    toast({ title: "Loja destravada", description: "Backfill liberado para continuar do ponto atual." });
     load();
   }
 
@@ -206,10 +206,11 @@ export default function SSoticaStatusPage() {
       !!current &&
       current.backfill_status !== "done" &&
       ((current.backfill_total_chunks ?? 0) === 0 || (current.backfill_chunk_index ?? 0) < (current.backfill_total_chunks ?? 16));
+    const isBackfillPaused = !!current && hasPendingBackfill && current.backfill_status !== "running" && current.backfill_status !== "scheduled";
 
     const { data, error } = await supabase.functions.invoke("ssotica-sync", {
       body: {
-        mode: hasPendingBackfill ? "start_backfill" : "incremental",
+        mode: hasPendingBackfill ? (isBackfillPaused ? "resume_backfill" : "resume_backfill") : "incremental",
         integration_id: id,
         manual_recent: !hasPendingBackfill,
       },
@@ -238,9 +239,9 @@ export default function SSoticaStatusPage() {
     }
 
     toast({
-      title: hasPendingBackfill ? "Backfill reiniciado" : "Sincronização disparada",
+      title: hasPendingBackfill ? "Backfill retomado" : "Sincronização disparada",
       description: hasPendingBackfill
-        ? "A importação histórica foi reprogramada do início para destravar e seguir automaticamente."
+        ? "A importação histórica continuará do chunk atual sem voltar para 0/16."
         : undefined,
     });
     load();
@@ -259,8 +260,8 @@ export default function SSoticaStatusPage() {
       .from("ssotica_integrations")
       .update({
         sync_status: "idle",
-        backfill_status: "idle",
-        backfill_next_run_at: null,
+        backfill_status: "running",
+        backfill_next_run_at: new Date().toISOString(),
         last_error: null,
       })
       .in("id", stuckIds);
