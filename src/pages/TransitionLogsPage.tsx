@@ -228,8 +228,8 @@ export default function TransitionLogsPage() {
               </p>
             </div>
           </div>
-          <Button onClick={() => { load(); loadCompletionLogs(); }} variant="outline" size="sm" disabled={loading || completionLoading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${(loading || completionLoading) ? "animate-spin" : ""}`} />
+          <Button onClick={() => { load(); loadCompletionLogs(); loadFlowEvents(); }} variant="outline" size="sm" disabled={loading || completionLoading || flowLoading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${(loading || completionLoading || flowLoading) ? "animate-spin" : ""}`} />
             Atualizar
           </Button>
         </header>
