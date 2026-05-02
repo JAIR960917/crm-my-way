@@ -37,6 +37,40 @@ fi
 
 MODE="${1:-all}"
 
+persist_backend_runtime_settings_vps() {
+  local app_supabase_url="${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-}}"
+  local app_supabase_anon="${SUPABASE_ANON_KEY:-${ANON_KEY:-}}"
+
+  [ -n "${app_supabase_url}" ] && [ -n "${app_supabase_anon}" ] || return 0
+  docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$" || return 1
+
+  docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 >/dev/null <<SQL
+CREATE TABLE IF NOT EXISTS public.system_settings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  setting_key text NOT NULL UNIQUE,
+  setting_value text,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO public.system_settings (setting_key, setting_value)
+VALUES ('backend_public_url', '${app_supabase_url}')
+ON CONFLICT (setting_key)
+DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
+
+INSERT INTO public.system_settings (setting_key, setting_value)
+VALUES ('backend_anon_key', '${app_supabase_anon}')
+ON CONFLICT (setting_key)
+DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
+
+DO $$
+BEGIN
+  IF to_regprocedure('public.manage_ssotica_cron()') IS NOT NULL THEN
+    PERFORM public.manage_ssotica_cron();
+  END IF;
+END $$;
+SQL
+}
+
 # ---------------------------------------------------------------------------
 # Migrations (aplica os .sql novos no Postgres do Supabase self-hosted)
 # ---------------------------------------------------------------------------
@@ -185,6 +219,26 @@ SQL
       applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );" >/dev/null
 
+  local legacy_roles_migration="20260404203047_c1d21d17-0fa1-47f1-81ae-0e60edc81ca0.sql"
+  local legacy_roles_bootstrapped
+  legacy_roles_bootstrapped=$(db_query "
+    SELECT CASE WHEN
+      EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n ON n.oid = t.typnamespace
+        WHERE n.nspname = 'public' AND t.typname = 'app_role'
+      )
+      AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'profiles')
+      AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_roles')
+      AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'crm_columns')
+      AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'crm_leads')
+    THEN 1 ELSE 0 END;
+  ")
+  if [ "${legacy_roles_bootstrapped}" = "1" ]; then
+    db_exec "INSERT INTO ${applied_table}(filename) VALUES ('${legacy_roles_migration}') ON CONFLICT (filename) DO NOTHING;"
+  fi
+
   repair_auth_internal_privileges
 
   local count=0
@@ -228,6 +282,12 @@ run_functions() {
   log "Reiniciando ${container}..."
   docker restart "${container}" >/dev/null
   ok "Edge functions reiniciadas"
+
+  if persist_backend_runtime_settings_vps; then
+    ok "Configs da SSÓtica e crons reaplicados no banco"
+  else
+    warn "Não foi possível reaplicar configs/crons da SSÓtica automaticamente no banco"
+  fi
 }
 
 # ---------------------------------------------------------------------------
