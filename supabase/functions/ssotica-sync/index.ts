@@ -1683,7 +1683,7 @@ async function reconcileRenovacoesVsCobrancas(
 }
 
 
-// Helper: roda 1 chunk de backfill (vendas + cobranças daquela janela de 12 meses).
+// Helper: roda 1 chunk de backfill (vendas + cobranças daquela janela histórica).
 async function runBackfillChunk(
   supabase: any,
   integ: Integration,
@@ -1706,20 +1706,17 @@ async function runBackfillChunk(
   const range = chunkDateRange(idx, futureDays);
   console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} iniciando chunk ${idx + 1}/${total} (${ymd(range.start)}→${ymd(range.end)})`);
 
-  // ⚡ OTIMIZAÇÃO CRÍTICA: avança o cursor ANTES de processar.
-  // Porém, para evitar concorrência entre cron + pg_net + retentativas manuais,
-  // o claim cria um lease temporário em `backfill_next_run_at`. Enquanto esse lease
-  // não expirar, nenhuma outra execução pode assumir o próximo chunk.
-  const nextIdxOptimistic = idx + 1;
-  const finishedOptimistic = nextIdxOptimistic >= total;
-  const claimLeaseUntil = finishedOptimistic ? null : new Date(Date.now() + BACKFILL_CLAIM_WINDOW_MS).toISOString();
+  // Claim do chunk atual usando lease temporário. O cursor só avança DEPOIS que
+  // cobranças e vendas terminarem com sucesso; assim evitamos pular de 1/16 para
+  // 2/16, 3/16... quando a execução cai no meio do processamento.
+  const claimLeaseUntil = new Date(Date.now() + BACKFILL_CLAIM_WINDOW_MS).toISOString();
   const { data: claimRow, error: claimError } = await supabase
     .from("ssotica_integrations")
     .update({
-      backfill_chunk_index: nextIdxOptimistic,
       backfill_next_run_at: claimLeaseUntil,
       backfill_status: "running",
       sync_status: "running",
+      last_error: null,
     })
     .eq("id", integ.id)
     .eq("backfill_chunk_index", idx)
@@ -1749,9 +1746,9 @@ async function runBackfillChunk(
     const finishedAt = new Date().toISOString();
     const nextRunAt = finished ? null : new Date(Date.now() + 30 * 1000).toISOString();
 
-    // Cursor já foi avançado antes do processamento (otimização anti-loop).
-    // Aqui só atualizamos os timestamps de sucesso e marcamos "done" se for o último chunk.
+    // Só agora marcamos o chunk como concluído.
     await supabase.from("ssotica_integrations").update({
+      backfill_chunk_index: nextIdx,
       backfill_status: finished ? "done" : "running",
       backfill_next_run_at: nextRunAt,
       sync_status: "idle",
@@ -1759,7 +1756,7 @@ async function runBackfillChunk(
       last_sync_receber_at: finished ? finishedAt : integ.last_sync_receber_at,
       last_sync_vendas_at: finished ? finishedAt : integ.last_sync_vendas_at,
       last_error: null,
-    }).eq("id", integ.id);
+    }).eq("id", integ.id).eq("backfill_chunk_index", idx);
 
     if (logId) {
       await supabase.from("ssotica_sync_logs").update({
@@ -1772,7 +1769,7 @@ async function runBackfillChunk(
       }).eq("id", logId);
     }
 
-    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} OK. ${finished ? 'CONCLUÍDO!' : `próximo em 30s (${nextRunAt})`}`);
+    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} OK. processed=${cr.processed + v.processed} created=${cr.created + v.created} updated=${cr.updated + v.updated}. ${finished ? 'CONCLUÍDO!' : `próximo em 30s (${nextRunAt})`}`);
 
     if (!finished) {
       try {
@@ -1848,15 +1845,13 @@ async function runBackfillChunk(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1} FALHOU:`, msg);
-    // Em caso de erro real (não-timeout), o cursor JÁ foi avançado antes — isso é intencional
-    // para evitar loop infinito. O chunk com erro fica registrado em ssotica_sync_logs e pode
-    // ser reprocessado manualmente depois. Mantemos status "running" pra continuar com próximos.
+    // Em caso de erro, mantemos o MESMO chunk pendente para retry automático.
     await supabase.from("ssotica_integrations").update({
       sync_status: "error",
       backfill_status: "running",
       backfill_next_run_at: new Date(Date.now() + 30 * 1000).toISOString(),
       last_error: msg.slice(0, 1000),
-    }).eq("id", integ.id);
+    }).eq("id", integ.id).eq("backfill_chunk_index", idx);
     if (logId) {
       await supabase.from("ssotica_sync_logs").update({
         finished_at: new Date().toISOString(),
@@ -1991,6 +1986,35 @@ Deno.serve(async (req) => {
       }
 
       const nowIso = new Date().toISOString();
+      const { data: current, error: currentError } = await supabase
+        .from("ssotica_integrations")
+        .select("*")
+        .eq("id", onlyIntegrationId)
+        .maybeSingle();
+
+      if (currentError) throw currentError;
+      if (!current || current.backfill_status === "done") {
+        return new Response(JSON.stringify({ ok: false, error: "Nenhum backfill pendente para retomar" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const leaseActive = !!current.backfill_next_run_at && new Date(current.backfill_next_run_at).getTime() > Date.now();
+      if (current.backfill_status === "running" && leaseActive) {
+        return new Response(JSON.stringify({
+          ok: true,
+          mode: "resume_backfill",
+          already_running: true,
+          chunk_index: current.backfill_chunk_index || 0,
+          total_chunks: current.backfill_total_chunks || 16,
+          message: `O chunk ${(current.backfill_chunk_index || 0) + 1}/${current.backfill_total_chunks || 16} já está em execução.`,
+        }), {
+          status: 202,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       const { data: integ, error } = await supabase
         .from("ssotica_integrations")
         .update({
@@ -2000,6 +2024,7 @@ Deno.serve(async (req) => {
           last_error: null,
         })
         .eq("id", onlyIntegrationId)
+        .eq("backfill_chunk_index", current.backfill_chunk_index || 0)
         .neq("backfill_status", "done")
         .select("*")
         .maybeSingle();
