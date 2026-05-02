@@ -1744,12 +1744,14 @@ async function runBackfillChunk(
     const nextIdx = idx + 1;
     const finished = nextIdx >= total;
     const finishedAt = new Date().toISOString();
+    const nextRunAt = finished ? null : new Date(Date.now() + 30 * 1000).toISOString();
 
     // Cursor já foi avançado antes do processamento (otimização anti-loop).
     // Aqui só atualizamos os timestamps de sucesso e marcamos "done" se for o último chunk.
     await supabase.from("ssotica_integrations").update({
       backfill_status: finished ? "done" : "running",
-      sync_status: finished ? "idle" : "running",
+      backfill_next_run_at: nextRunAt,
+      sync_status: "idle",
       initial_sync_done: finished ? true : integ.initial_sync_done,
       last_sync_receber_at: finished ? finishedAt : integ.last_sync_receber_at,
       last_sync_vendas_at: finished ? finishedAt : integ.last_sync_vendas_at,
@@ -1767,8 +1769,32 @@ async function runBackfillChunk(
       }).eq("id", logId);
     }
 
-    const nextRunAt = finished ? null : new Date(Date.now() + 30 * 1000).toISOString();
     console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} OK. ${finished ? 'CONCLUÍDO!' : `próximo em 30s (${nextRunAt})`}`);
+
+    if (!finished) {
+      try {
+        const fnUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/ssotica-sync`;
+        const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+        if (!anonKey) {
+          console.warn(`[ssotica-sync][backfill] empresa=${integ.company_id} continuação automática indisponível: SUPABASE_ANON_KEY ausente`);
+        } else {
+          const { error: dispatchErr } = await supabase.rpc("ssotica_enqueue_sync", {
+            _url: fnUrl,
+            _auth: `Bearer ${anonKey}`,
+            _integration_id: integ.id,
+            _force_full: false,
+          });
+
+          if (dispatchErr) {
+            console.error(`[ssotica-sync][backfill] empresa=${integ.company_id} erro ao enfileirar continuação automática:`, dispatchErr.message);
+          } else {
+            console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} próxima execução enfileirada via pg_net`);
+          }
+        }
+      } catch (dispatchError) {
+        console.error(`[ssotica-sync][backfill] empresa=${integ.company_id} falha ao disparar continuação automática:`, dispatchError);
+      }
+    }
 
     // RECONCILIAÇÃO: roda APENAS no chunk final (quando todos os dados já foram sincronizados).
     // Antes era a cada chunk, mas em lojas grandes (~7000 cobranças) isso causava timeout
