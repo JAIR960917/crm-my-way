@@ -430,6 +430,22 @@ export default function CobrancasPage() {
 
   const totalDisplayed = useMemo(() => allGroups.length, [allGroups]);
 
+  // Total real no banco (independente do que está carregado nas colunas)
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let q = supabase
+        .from("crm_cobrancas")
+        .select("id", { count: "exact", head: true });
+      if (filterCompanyId !== "all") q = q.eq("company_id", filterCompanyId);
+      if (statusKeys.length > 0) q = q.in("status", statusKeys);
+      const { count, error } = await q;
+      if (!cancelled && !error) setTotalCount(count ?? 0);
+    })();
+    return () => { cancelled = false; };
+  }, [filterCompanyId, statusKeys, refreshKey]);
+
   const handleColumnScroll = (e: React.UIEvent<HTMLDivElement>, statusKey: string) => {
     const el = e.currentTarget;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) loadMore(statusKey);
