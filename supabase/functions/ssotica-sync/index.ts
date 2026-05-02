@@ -1951,22 +1951,31 @@ Deno.serve(async (req) => {
           backfill_status: "running",
           backfill_started_at: new Date().toISOString(),
           backfill_next_run_at: new Date().toISOString(),
-          sync_status: "running",
+          sync_status: "idle",
           last_error: null,
         })
         .eq("id", onlyIntegrationId)
         .select("*")
         .single();
       if (error || !integ) throw error ?? new Error("Integração não encontrada");
-      await decryptIntegration(supabase, integ as any);
+      const fnUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/ssotica-sync`;
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+      if (!anonKey) {
+        throw new Error("SUPABASE_ANON_KEY ausente para enfileirar o backfill");
+      }
 
-      // Já roda o primeiro chunk imediatamente (sem esperar o tick)
-      const r = await runBackfillChunk(supabase, integ as Integration);
+      const { error: dispatchErr } = await supabase.rpc("ssotica_enqueue_sync", {
+        _url: fnUrl,
+        _auth: `Bearer ${anonKey}`,
+        _integration_id: onlyIntegrationId,
+        _force_full: false,
+      });
+      if (dispatchErr) throw dispatchErr;
+
       return new Response(JSON.stringify({
         ok: true,
         mode: "start_backfill",
-        message: "Backfill de 96 meses iniciado. Os próximos 15 chunks rodarão automaticamente, 1 a cada 30 segundos.",
-        first_chunk: r,
+        message: "Backfill de 96 meses agendado em background. Os 16 chunks rodarão automaticamente sem segurar a resposta do botão Sync.",
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
