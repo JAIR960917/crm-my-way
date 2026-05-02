@@ -151,8 +151,57 @@ export default function CobrancaEditSheet(props: Props) {
     const cpfDigits = onlyDigits(formData.documento || formData.cpf || "");
     const nome = (formData.nome || "").trim();
 
-    // Estratégia 1 (preferida): se vinculado ao SSótica, lê a lista completa de parcelas
-    // que o sync já gravou no JSON `data.parcelas_atrasadas` deste card.
+    const companiesById = new Map((companies ?? []).map((c: any) => [String(c.id), c.name as string]));
+
+    // Estratégia 1 (preferida): se houver CPF, busca TODOS os cards de cobrança
+    // do mesmo cliente (em qualquer loja) e une as listas `data.parcelas_atrasadas`
+    // de cada um, marcando a loja em cada parcela. Assim, um card unificado
+    // mostra de uma vez as parcelas de todas as lojas.
+    if (cpfDigits.length >= 11) {
+      const { data: cards, error } = await supabase
+        .from("crm_cobrancas")
+        .select("id, ssotica_company_id, ssotica_parcela_id, data")
+        .or(`data->>documento.eq.${cpfDigits},data->>cpf.eq.${cpfDigits}`);
+
+      if (!error && Array.isArray(cards) && cards.length > 0) {
+        const dedup = new Map<string, ParcelaInfo>();
+        for (const card of cards as any[]) {
+          const lista = card?.data?.parcelas_atrasadas as any[] | undefined;
+          if (!Array.isArray(lista) || lista.length === 0) continue;
+          const cardCompanyId = card?.ssotica_company_id != null ? String(card.ssotica_company_id) : null;
+          const currentParcelaId = card?.ssotica_parcela_id;
+          for (let idx = 0; idx < lista.length; idx++) {
+            const p = lista[idx];
+            const parcelaCompanyId = p?.ssotica_company_id != null ? String(p.ssotica_company_id) : cardCompanyId;
+            const id = String(p?.parcela_id ?? `${p?.titulo_id ?? "tit"}-${p?.numero_parcela ?? idx}-${parcelaCompanyId ?? "x"}`);
+            if (dedup.has(id)) continue;
+            dedup.set(id, {
+              id,
+              numero_parcela: p?.numero_parcela != null ? Number(p.numero_parcela) : null,
+              vencimento: p?.vencimento ?? null,
+              valor: Number(p?.valor || 0),
+              dias_atraso: p?.dias_atraso ?? null,
+              status: null as any,
+              is_current:
+                String(card.id) === String(cobrancaId) &&
+                currentParcelaId != null &&
+                String(p?.parcela_id) === String(currentParcelaId),
+              loja_nome: parcelaCompanyId ? (companiesById.get(parcelaCompanyId) ?? null) : null,
+            });
+          }
+        }
+        if (dedup.size > 0) {
+          const parcelasInfo = Array.from(dedup.values()).sort((a, b) =>
+            (a.vencimento ?? "") < (b.vencimento ?? "") ? -1 : (a.vencimento ?? "") > (b.vencimento ?? "") ? 1 : 0,
+          );
+          setParcelas(parcelasInfo);
+          setLoadingParcelas(false);
+          return;
+        }
+      }
+    }
+
+    // Estratégia 2: card específico (SSótica) sem CPF — lê só do próprio card.
     if (ssoticaClienteId && ssoticaCompanyId && cobrancaId) {
       const { data: card, error } = await supabase
         .from("crm_cobrancas")
@@ -163,19 +212,16 @@ export default function CobrancaEditSheet(props: Props) {
       const lista = (card as any)?.data?.parcelas_atrasadas as any[] | undefined;
       const currentParcelaId = (card as any)?.ssotica_parcela_id;
       if (!error && Array.isArray(lista) && lista.length > 0) {
-        // Mapa de empresas para mostrar a loja em cada parcela quando o card foi mesclado entre lojas
-        const companiesById = new Map((companies ?? []).map((c: any) => [String(c.id), c.name as string]));
         const parcelasInfo: ParcelaInfo[] = lista.map((p: any, idx: number) => ({
           id: String(p.parcela_id ?? `${p.titulo_id ?? "tit"}-${p.numero_parcela ?? idx}`),
           numero_parcela: p.numero_parcela != null ? Number(p.numero_parcela) : null,
           vencimento: p.vencimento,
           valor: Number(p.valor || 0),
           dias_atraso: p.dias_atraso ?? null,
-          status: null,
+          status: null as any,
           is_current: currentParcelaId != null && String(p.parcela_id) === String(currentParcelaId),
-          loja_nome: p.ssotica_company_id ? (companiesById.get(String(p.ssotica_company_id)) ?? null) : null,
+          loja_nome: p.ssotica_company_id ? (companiesById.get(String(p.ssotica_company_id)) ?? null) : (companiesById.get(String(ssoticaCompanyId)) ?? null),
         }));
-        // Ordena por vencimento (mais antiga primeiro)
         parcelasInfo.sort((a, b) =>
           (a.vencimento ?? "") < (b.vencimento ?? "") ? -1 : (a.vencimento ?? "") > (b.vencimento ?? "") ? 1 : 0
         );
@@ -188,7 +234,7 @@ export default function CobrancaEditSheet(props: Props) {
     // Fallback: agrupa cards do mesmo cliente (manual / sem SSótica)
     let query = supabase
       .from("crm_cobrancas")
-      .select("id, valor, vencimento, dias_atraso, status, data, ssotica_cliente_id")
+      .select("id, valor, vencimento, dias_atraso, status, data, ssotica_cliente_id, company_id")
       .order("vencimento", { ascending: true });
 
     if (ssoticaClienteId && ssoticaCompanyId) {
@@ -213,6 +259,7 @@ export default function CobrancaEditSheet(props: Props) {
         dias_atraso: p.dias_atraso ?? null,
         status: p.status,
         is_current: p.id === cobrancaId,
+        loja_nome: p.company_id ? (companiesById.get(String(p.company_id)) ?? null) : null,
       }));
       setParcelas(list);
     } else {
