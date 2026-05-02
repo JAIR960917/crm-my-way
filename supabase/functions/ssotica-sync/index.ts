@@ -2077,7 +2077,7 @@ Deno.serve(async (req) => {
           backfill_chunk_index: 0,
           backfill_total_chunks: 16,
           backfill_phase: "cr",
-          backfill_status: "running",
+          backfill_status: "scheduled",
           backfill_started_at: new Date().toISOString(),
           backfill_next_run_at: new Date().toISOString(),
           sync_status: "idle",
@@ -2151,7 +2151,7 @@ Deno.serve(async (req) => {
         .from("ssotica_integrations")
         .update({
           sync_status: "idle",
-          backfill_status: "running",
+          backfill_status: "scheduled",
           backfill_next_run_at: nowIso,
           last_error: null,
         })
