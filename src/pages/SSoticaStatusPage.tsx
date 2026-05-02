@@ -177,12 +177,17 @@ export default function SSoticaStatusPage() {
 
   async function unlock(id: string) {
     setActionId(id);
+    const current = items.find((item) => item.id === id);
+    const hasPendingBackfill =
+      !!current &&
+      current.backfill_status !== "done" &&
+      ((current.backfill_total_chunks ?? 0) === 0 || (current.backfill_chunk_index ?? 0) < (current.backfill_total_chunks ?? 16));
     const { error } = await supabase
       .from("ssotica_integrations")
       .update({
         sync_status: "idle",
-        backfill_status: "idle",
-        backfill_next_run_at: null,
+        backfill_status: hasPendingBackfill ? "running" : current?.backfill_status ?? "idle",
+        backfill_next_run_at: hasPendingBackfill ? new Date().toISOString() : null,
         last_error: null,
       })
       .eq("id", id);
@@ -195,7 +200,7 @@ export default function SSoticaStatusPage() {
       });
       return;
     }
-    toast({ title: "Loja destravada", description: "Status resetado para idle." });
+    toast({ title: "Loja destravada", description: "Backfill liberado para continuar do ponto atual." });
     load();
   }
 
@@ -209,7 +214,7 @@ export default function SSoticaStatusPage() {
 
     const { data, error } = await supabase.functions.invoke("ssotica-sync", {
       body: {
-        mode: hasPendingBackfill ? "start_backfill" : "incremental",
+        mode: hasPendingBackfill ? "resume_backfill" : "incremental",
         integration_id: id,
         manual_recent: !hasPendingBackfill,
       },
@@ -238,33 +243,42 @@ export default function SSoticaStatusPage() {
     }
 
     toast({
-      title: hasPendingBackfill ? "Backfill reiniciado" : "Sincronização disparada",
+      title: hasPendingBackfill ? "Backfill retomado" : "Sincronização disparada",
       description: hasPendingBackfill
-        ? "A importação histórica foi reprogramada do início para destravar e seguir automaticamente."
+        ? "A importação histórica continuará do chunk atual sem voltar para 0/16."
         : undefined,
     });
     load();
   }
 
   async function unlockAllStuck() {
-    const stuckIds = items
-      .filter((i) => getHealth(i).health === "stuck")
-      .map((i) => i.id);
+    const stuckItems = items.filter((i) => getHealth(i).health === "stuck");
+    const stuckIds = stuckItems.map((i) => i.id);
     if (stuckIds.length === 0) {
       toast({ title: "Nenhuma loja travada" });
       return;
     }
     setBulkLoading(true);
-    const { error } = await supabase
-      .from("ssotica_integrations")
-      .update({
-        sync_status: "idle",
-        backfill_status: "idle",
-        backfill_next_run_at: null,
-        last_error: null,
+    const nowIso = new Date().toISOString();
+    const results = await Promise.all(
+      stuckItems.map((item) => {
+        const hasPendingBackfill =
+          item.backfill_status !== "done" &&
+          ((item.backfill_total_chunks ?? 0) === 0 || (item.backfill_chunk_index ?? 0) < (item.backfill_total_chunks ?? 16));
+
+        return supabase
+          .from("ssotica_integrations")
+          .update({
+            sync_status: "idle",
+            backfill_status: hasPendingBackfill ? "running" : item.backfill_status ?? "idle",
+            backfill_next_run_at: hasPendingBackfill ? nowIso : null,
+            last_error: null,
+          })
+          .eq("id", item.id);
       })
-      .in("id", stuckIds);
+    );
     setBulkLoading(false);
+    const error = results.find((result) => result.error)?.error;
     if (error) {
       toast({
         title: "Erro",
