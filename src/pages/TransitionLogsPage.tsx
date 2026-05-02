@@ -244,6 +244,10 @@ export default function TransitionLogsPage() {
               <CheckCircle2 className="h-4 w-4 mr-2" />
               Campanhas concluídas
             </TabsTrigger>
+            <TabsTrigger value="cobranca-flow">
+              <Activity className="h-4 w-4 mr-2" />
+              Eventos de cobrança
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="movimentacao" className="space-y-6 mt-4">
