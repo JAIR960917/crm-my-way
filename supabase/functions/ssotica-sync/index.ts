@@ -1996,6 +1996,7 @@ Deno.serve(async (req) => {
         .update({
           backfill_chunk_index: 0,
           backfill_total_chunks: 16,
+          backfill_phase: "cr",
           backfill_status: "running",
           backfill_started_at: new Date().toISOString(),
           backfill_next_run_at: new Date().toISOString(),
