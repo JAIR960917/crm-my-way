@@ -22,6 +22,7 @@ const COBRANCAS_FUTURE_DAYS = 60; // pegar parcelas que vencem em breve
 // continua sendo 24 meses, agora distribuída em 8 ciclos de 3h (24h completas).
 const INCREMENTAL_COBRANCAS_SLICES = 8;
 const RUNNING_SYNC_STALE_MINUTES = 5;
+const BACKFILL_CLAIM_WINDOW_MS = RUNNING_SYNC_STALE_MINUTES * 60 * 1000;
 const DIRECIONAMENTO_STATUS = "fazer_direcionamento_para_o_vendedor";
 
 type AppRole = "admin" | "vendedor" | "gerente" | "financeiro";
@@ -1689,6 +1690,7 @@ async function runBackfillChunk(
 ): Promise<{ ok: true; chunk_index: number; finished: boolean; skipped?: boolean } | { ok: false; error: string }> {
   const total = integ.backfill_total_chunks || 16;
   const idx = integ.backfill_chunk_index || 0;
+  const nowIso = new Date().toISOString();
   if (idx >= total) {
     await supabase.from("ssotica_integrations").update({
       backfill_chunk_index: total,
@@ -1705,28 +1707,29 @@ async function runBackfillChunk(
   console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} iniciando chunk ${idx + 1}/${total} (${ymd(range.start)}→${ymd(range.end)})`);
 
   // ⚡ OTIMIZAÇÃO CRÍTICA: avança o cursor ANTES de processar.
-  // Se der timeout no meio do processamento, o próximo tick do cron já vai pro próximo chunk
-  // (em vez de reprocessar infinitamente o mesmo). Trade-off aceitável: pode pular dados de
-  // 1 chunk em caso de timeout, mas evita loop infinito que trava 100% do backfill.
+  // Porém, para evitar concorrência entre cron + pg_net + retentativas manuais,
+  // o claim cria um lease temporário em `backfill_next_run_at`. Enquanto esse lease
+  // não expirar, nenhuma outra execução pode assumir o próximo chunk.
   const nextIdxOptimistic = idx + 1;
   const finishedOptimistic = nextIdxOptimistic >= total;
-  const nextRunAtOptimistic = finishedOptimistic ? null : new Date(Date.now() + 30 * 1000).toISOString();
+  const claimLeaseUntil = finishedOptimistic ? null : new Date(Date.now() + BACKFILL_CLAIM_WINDOW_MS).toISOString();
   const { data: claimRow, error: claimError } = await supabase
     .from("ssotica_integrations")
     .update({
       backfill_chunk_index: nextIdxOptimistic,
-      backfill_next_run_at: nextRunAtOptimistic,
+      backfill_next_run_at: claimLeaseUntil,
       backfill_status: "running",
       sync_status: "running",
     })
     .eq("id", integ.id)
     .eq("backfill_chunk_index", idx)
     .in("backfill_status", ["running", "scheduled"])
+    .lte("backfill_next_run_at", nowIso)
     .select("id")
     .maybeSingle();
   if (claimError) throw claimError;
   if (!claimRow) {
-    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} ignorado: já foi assumido por outra execução`);
+    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} ignorado: fora da janela ou já assumido por outra execução`);
     return { ok: true, chunk_index: idx, finished: false, skipped: true };
   }
 
@@ -1850,6 +1853,8 @@ async function runBackfillChunk(
     // ser reprocessado manualmente depois. Mantemos status "running" pra continuar com próximos.
     await supabase.from("ssotica_integrations").update({
       sync_status: "error",
+      backfill_status: "running",
+      backfill_next_run_at: new Date(Date.now() + 30 * 1000).toISOString(),
       last_error: msg.slice(0, 1000),
     }).eq("id", integ.id);
     if (logId) {
