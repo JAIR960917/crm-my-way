@@ -267,6 +267,8 @@ function startBackfillHeartbeat(params: {
         })
         .eq("id", params.integrationId)
         .eq("backfill_chunk_index", params.chunkIndex)
+        .eq("backfill_phase", params.phase)
+        .eq("sync_status", "running")
         .neq("backfill_status", "done");
 
       if (error) {
