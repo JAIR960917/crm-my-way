@@ -612,10 +612,7 @@ export default function CobrancasPage() {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={() => {
-              if (grouped) setPickerGroup(group);
-              else openEdit(cobranca);
-            }}
+            onClick={() => openEdit(cobranca)}
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
