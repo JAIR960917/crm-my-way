@@ -242,6 +242,15 @@ export default function SSoticaStatusPage() {
       return;
     }
 
+    if (hasPendingBackfill && data && typeof data === "object" && "already_running" in data && (data as any).already_running) {
+      toast({
+        title: "Chunk já em execução",
+        description: String((data as any).message ?? "Aguarde o processamento atual terminar antes de clicar novamente."),
+      });
+      load();
+      return;
+    }
+
     toast({
       title: hasPendingBackfill ? "Backfill retomado" : "Sincronização disparada",
       description: hasPendingBackfill
