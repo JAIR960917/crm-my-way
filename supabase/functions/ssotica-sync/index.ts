@@ -1755,7 +1755,11 @@ async function runBackfillChunk(
     const nextIdx = idx + 1;
     const finished = nextIdx >= total;
     const finishedAt = new Date().toISOString();
-    const nextRunAt = finished ? null : new Date(Date.now() + 30 * 1000).toISOString();
+    // A continuação do backfill é enfileirada imediatamente via pg_net logo abaixo.
+    // Se deixarmos backfill_next_run_at no futuro, a sub-invocação chega antes do
+    // horário liberado e o claim do próximo chunk falha, fazendo a loja "parar"
+    // até alguém clicar em Sync novamente. Em sucesso, liberamos o próximo chunk já.
+    const nextRunAt = finished ? null : finishedAt;
 
     // Só agora marcamos o chunk como concluído.
     await supabase.from("ssotica_integrations").update({
