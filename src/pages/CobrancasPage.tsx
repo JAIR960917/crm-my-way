@@ -635,7 +635,7 @@ export default function CobrancasPage() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold">Cobranças</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            Gerencie as cobranças do sistema — {totalDisplayed} registro{totalDisplayed !== 1 ? "s" : ""}
+            Gerencie as cobranças do sistema — {totalCount ?? totalDisplayed} registro{(totalCount ?? totalDisplayed) !== 1 ? "s" : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
