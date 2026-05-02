@@ -1820,6 +1820,12 @@ async function runBackfillChunk(
     details: { chunk_index: idx, total_chunks: total, phase, range: { start: ymd(range.start), end: ymd(range.end) } },
   }).select("id").single();
   const logId = log?.id ?? null;
+  const stopHeartbeat = startBackfillHeartbeat({
+    supabase,
+    integrationId: integ.id,
+    chunkIndex: idx,
+    phase,
+  });
 
   try {
     let cr: any = null;
@@ -1959,6 +1965,8 @@ async function runBackfillChunk(
       }).eq("id", logId);
     }
     return { ok: false, error: msg };
+  } finally {
+    stopHeartbeat();
   }
 }
 
