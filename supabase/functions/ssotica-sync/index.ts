@@ -29,6 +29,10 @@ const BACKFILL_MAX_PARALLEL = 2;
 const DIRECIONAMENTO_STATUS = "fazer_direcionamento_para_o_vendedor";
 
 type AppRole = "admin" | "vendedor" | "gerente" | "financeiro";
+type DispatchConfig = {
+  url: string | null;
+  auth: string | null;
+};
 
 function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -117,6 +121,25 @@ function getManualRecentCobrancaWindow(now = new Date()): { start: Date; end: Da
   return {
     start: addDays(now, -365),
     end: addDays(now, COBRANCAS_FUTURE_DAYS),
+  };
+}
+
+function getDispatchConfig(req: Request): DispatchConfig {
+  const envUrl = Deno.env.get("SUPABASE_URL");
+  const envAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  const requestAuth = req.headers.get("authorization") ?? req.headers.get("Authorization");
+
+  let requestUrl: string | null = null;
+  try {
+    const currentUrl = new URL(req.url);
+    requestUrl = `${currentUrl.origin}/functions/v1/ssotica-sync`;
+  } catch {
+    requestUrl = null;
+  }
+
+  return {
+    url: envUrl ? `${envUrl}/functions/v1/ssotica-sync` : requestUrl,
+    auth: envAnonKey ? `Bearer ${envAnonKey}` : requestAuth,
   };
 }
 
@@ -1766,6 +1789,7 @@ async function reconcileRenovacoesVsCobrancas(
 async function runBackfillChunk(
   supabase: any,
   integ: Integration,
+  dispatchConfig: DispatchConfig,
 ): Promise<{ ok: true; chunk_index: number; finished: boolean; skipped?: boolean } | { ok: false; error: string }> {
   const total = integ.backfill_total_chunks || 16;
   const idx = integ.backfill_chunk_index || 0;
@@ -1879,14 +1903,12 @@ async function runBackfillChunk(
 
     if (!finished) {
       try {
-        const fnUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/ssotica-sync`;
-        const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-        if (!anonKey) {
-          console.warn(`[ssotica-sync][backfill] empresa=${integ.company_id} continuação automática indisponível: SUPABASE_ANON_KEY ausente`);
+        if (!dispatchConfig.url || !dispatchConfig.auth) {
+          console.warn(`[ssotica-sync][backfill] empresa=${integ.company_id} continuação automática não disparada agora; runner agendado continuará pelo backfill_next_run_at`);
         } else {
           const { error: dispatchErr } = await supabase.rpc("ssotica_enqueue_sync", {
-            _url: fnUrl,
-            _auth: `Bearer ${anonKey}`,
+            _url: dispatchConfig.url,
+            _auth: dispatchConfig.auth,
             _integration_id: integ.id,
             _force_full: false,
           });
@@ -1986,6 +2008,7 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
+  const dispatchConfig = getDispatchConfig(req);
 
   try {
     const body = await req.json().catch(() => ({}));
@@ -2022,7 +2045,7 @@ Deno.serve(async (req) => {
             .eq("id", integ.id);
           (integ as any).backfill_status = "running";
         }
-        const r = await runBackfillChunk(supabase, integ);
+        const r = await runBackfillChunk(supabase, integ, dispatchConfig);
         results.push({ integration_id: integ.id, ...r });
       }
       return new Response(JSON.stringify({ ok: true, mode: "backfill_tick", results }), {
@@ -2064,15 +2087,13 @@ Deno.serve(async (req) => {
         .select("*")
         .single();
       if (error || !integ) throw error ?? new Error("Integração não encontrada");
-      const fnUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/ssotica-sync`;
-      const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-      if (!anonKey) {
-        throw new Error("SUPABASE_ANON_KEY ausente para enfileirar o backfill");
+      if (!dispatchConfig.url || !dispatchConfig.auth) {
+        throw new Error("Configuração de dispatch ausente para enfileirar o backfill");
       }
 
       const { error: dispatchErr } = await supabase.rpc("ssotica_enqueue_sync", {
-        _url: fnUrl,
-        _auth: `Bearer ${anonKey}`,
+        _url: dispatchConfig.url,
+        _auth: dispatchConfig.auth,
         _integration_id: onlyIntegrationId,
         _force_full: false,
       });
@@ -2148,15 +2169,13 @@ Deno.serve(async (req) => {
         });
       }
 
-      const fnUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/ssotica-sync`;
-      const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-      if (!anonKey) {
-        throw new Error("SUPABASE_ANON_KEY ausente para retomar o backfill");
+      if (!dispatchConfig.url || !dispatchConfig.auth) {
+        throw new Error("Configuração de dispatch ausente para retomar o backfill");
       }
 
       const { error: dispatchErr } = await supabase.rpc("ssotica_enqueue_sync", {
-        _url: fnUrl,
-        _auth: `Bearer ${anonKey}`,
+        _url: dispatchConfig.url,
+        _auth: dispatchConfig.auth,
         _integration_id: onlyIntegrationId,
         _force_full: false,
       });
@@ -2247,8 +2266,9 @@ Deno.serve(async (req) => {
     // próprio orçamento de tempo. Isso elimina os travamentos de Caicó/Jucurutu
     // que ocorriam quando o runtime pai era encerrado antes dos disparos paralelos.
     if (!onlyIntegrationId && integrations.length > 1) {
-      const fnUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/ssotica-sync`;
-      const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+      if (!dispatchConfig.url || !dispatchConfig.auth) {
+        throw new Error("Configuração de dispatch ausente para enfileirar o fan-out das integrações");
+      }
       const dispatched: string[] = [];
       const fanoutSkipped: any[] = [];
       const fanoutErrors: any[] = [];
@@ -2258,8 +2278,8 @@ Deno.serve(async (req) => {
           continue;
         }
         const { error: dispatchErr } = await supabase.rpc("ssotica_enqueue_sync", {
-          _url: fnUrl,
-          _auth: `Bearer ${anonKey}`,
+          _url: dispatchConfig.url,
+          _auth: dispatchConfig.auth,
           _integration_id: integ.id,
           _force_full: forceFull,
         });
@@ -2324,7 +2344,7 @@ Deno.serve(async (req) => {
         // visível: chunk 1/16 sendo "iniciado" repetidamente sem nunca ir pro 2/16.
         // O incremental real só roda DEPOIS que o backfill chegar a "done". =====
         if (integ.backfill_status === "running" || integ.backfill_status === "scheduled") {
-          const r = await runBackfillChunk(supabase, integ);
+          const r = await runBackfillChunk(supabase, integ, dispatchConfig);
           // libera o sync_status pra próxima invocação (que pode ser outro chunk
           // do backfill, OU o incremental se já terminou).
           await supabase.from("ssotica_integrations").update({

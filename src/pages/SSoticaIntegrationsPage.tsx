@@ -77,6 +77,7 @@ interface Integration {
   backfill_status?: string | null;
   backfill_chunk_index?: number | null;
   backfill_total_chunks?: number | null;
+  backfill_phase?: string | null;
   backfill_next_run_at?: string | null;
   updated_at?: string | null;
 }
@@ -440,7 +441,8 @@ export default function SSoticaIntegrationsPage() {
     if (integ.backfill_status === "running") {
       const total = integ.backfill_total_chunks ?? 16;
       const done = integ.backfill_chunk_index ?? 0;
-      return <Badge variant="secondary"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Backfill {done}/{total}</Badge>;
+      const phaseLabel = integ.backfill_phase === "vendas" ? "vendas" : "cobranças";
+      return <Badge variant="secondary"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Backfill {done}/{total} · {phaseLabel}</Badge>;
     }
     if (integ.sync_status === "running")
       return <Badge variant="secondary"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Sincronizando</Badge>;
@@ -579,6 +581,7 @@ export default function SSoticaIntegrationsPage() {
                           const total = (integ as any).backfill_total_chunks ?? 16;
                           const done = (integ as any).backfill_chunk_index ?? 0;
                           const status = (integ as any).backfill_status;
+                          const phase = (integ as any).backfill_phase === "vendas" ? "vendas" : "cobranças";
                           const remaining = Math.max(0, total - done);
                           const pct = total > 0 ? Math.round((done / total) * 100) : 0;
                           const isActive = status === "running" || status === "scheduled";
@@ -590,7 +593,7 @@ export default function SSoticaIntegrationsPage() {
                                 <span className="font-medium">
                                   Sincronizações: {done}/{total}
                                   {isActive && remaining > 0 && (
-                                    <span className="text-muted-foreground font-normal"> · faltam {remaining}</span>
+                                    <span className="text-muted-foreground font-normal"> · {status === "running" ? `processando ${phase}` : `faltam ${remaining}`}</span>
                                   )}
                                   {isDone && <span className="text-emerald-600 font-normal"> · concluído</span>}
                                 </span>
