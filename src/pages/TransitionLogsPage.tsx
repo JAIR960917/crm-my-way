@@ -160,6 +160,30 @@ export default function TransitionLogsPage() {
     setCompletionLoading(false);
   };
 
+  const loadFlowEvents = async () => {
+    setFlowLoading(true);
+    let q = (supabase as any)
+      .from("crm_cobranca_flow_events")
+      .select("id, cobranca_id, event_type, status_label, status_key, next_status_label, next_status_key, whatsapp_trigger_campaign_name, details, created_at, cobranca:crm_cobrancas!inner(company_id, ssotica_company_id, data)")
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (flowEventTypeFilter !== "all") q = q.eq("event_type", flowEventTypeFilter);
+    if (startDate) q = q.gte("created_at", `${startDate}T00:00:00`);
+    if (endDate) q = q.lte("created_at", `${endDate}T23:59:59`);
+    if (companyId !== "all") {
+      // filtra pelo company_id da cobrança aninhada
+      q = q.or(`company_id.eq.${companyId},ssotica_company_id.eq.${companyId}`, { foreignTable: "crm_cobrancas" });
+    }
+    const { data, error } = await q;
+    if (error) {
+      toast.error("Erro ao carregar eventos de cobrança: " + error.message);
+      setFlowEvents([]);
+    } else {
+      setFlowEvents((data ?? []) as CobrancaFlowEventLog[]);
+    }
+    setFlowLoading(false);
+  };
+
   useEffect(() => {
     if (!isAdmin) return;
     supabase
@@ -169,6 +193,7 @@ export default function TransitionLogsPage() {
       .then(({ data }) => setCompanies((data ?? []) as Company[]));
     load();
     loadCompletionLogs();
+    loadFlowEvents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
