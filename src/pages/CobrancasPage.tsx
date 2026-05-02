@@ -145,7 +145,7 @@ export default function CobrancasPage() {
   const [filterCompanyId, setFilterCompanyId] = useState("all");
   const [mobileTab, setMobileTab] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [pickerGroup, setPickerGroup] = useState<CobrancaGroup | null>(null);
+  
   const [refreshKey, setRefreshKey] = useState(0);
 
   const statusKeys = useMemo(() => statuses.map((s) => s.key), [statuses]);
