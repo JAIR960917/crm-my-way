@@ -1763,52 +1763,65 @@ async function runBackfillChunk(
     return { ok: true, chunk_index: idx, finished: false, skipped: true };
   }
 
+  // Fase atual dentro do chunk: 'cr' (cobranças) → 'vendas'.
+  // Cada fase é uma invocação separada para respeitar o limite de CPU do edge runtime.
+  const phase: "cr" | "vendas" = (integ.backfill_phase === "vendas") ? "vendas" : "cr";
+
   const { data: log } = await supabase.from("ssotica_sync_logs").insert({
     integration_id: integ.id,
-    sync_type: `backfill_chunk_${idx + 1}_of_${total}`,
+    sync_type: `backfill_chunk_${idx + 1}_of_${total}_${phase}`,
     status: "running",
-    details: { chunk_index: idx, total_chunks: total, range: { start: ymd(range.start), end: ymd(range.end) }, phase: "starting" },
+    details: { chunk_index: idx, total_chunks: total, phase, range: { start: ymd(range.start), end: ymd(range.end) } },
   }).select("id").single();
   const logId = log?.id ?? null;
 
   try {
-    const cr = await syncContasReceber(supabase, integ, range);
-    const v = await syncVendas(supabase, integ, false, [], range);
+    let cr: any = null;
+    let v: any = null;
+    if (phase === "cr") {
+      cr = await syncContasReceber(supabase, integ, range);
+    } else {
+      v = await syncVendas(supabase, integ, false, [], range);
+    }
 
-    const nextIdx = idx + 1;
-    const finished = nextIdx >= total;
+    // Avanço de fase/chunk:
+    // - Se acabou de rodar 'cr', próximo passo é 'vendas' do MESMO chunk.
+    // - Se acabou de rodar 'vendas', avança para o próximo chunk em fase 'cr'.
+    const phaseDone = phase === "vendas";
+    const nextIdx = phaseDone ? idx + 1 : idx;
+    const nextPhase: "cr" | "vendas" = phaseDone ? "cr" : "vendas";
+    const finished = phaseDone && nextIdx >= total;
     const finishedAt = new Date().toISOString();
-    // A continuação do backfill é enfileirada imediatamente via pg_net logo abaixo.
-    // Se deixarmos backfill_next_run_at no futuro, a sub-invocação chega antes do
-    // horário liberado e o claim do próximo chunk falha, fazendo a loja "parar"
-    // até alguém clicar em Sync novamente. Em sucesso, liberamos o próximo chunk já.
     const nextRunAt = finished ? null : finishedAt;
 
-    // Só agora marcamos o chunk como concluído.
     await supabase.from("ssotica_integrations").update({
       backfill_chunk_index: nextIdx,
+      backfill_phase: nextPhase,
       backfill_status: finished ? "done" : "running",
       backfill_next_run_at: nextRunAt,
       sync_status: "idle",
       initial_sync_done: finished ? true : integ.initial_sync_done,
-      last_sync_receber_at: finished ? finishedAt : integ.last_sync_receber_at,
-      last_sync_vendas_at: finished ? finishedAt : integ.last_sync_vendas_at,
+      last_sync_receber_at: (phase === "cr" || finished) ? finishedAt : integ.last_sync_receber_at,
+      last_sync_vendas_at: (phase === "vendas" || finished) ? finishedAt : integ.last_sync_vendas_at,
       last_error: null,
       updated_at: finishedAt,
     }).eq("id", integ.id).eq("backfill_chunk_index", idx);
 
     if (logId) {
+      const processed = (cr?.processed ?? 0) + (v?.processed ?? 0);
+      const created = (cr?.created ?? 0) + (v?.created ?? 0);
+      const updated = (cr?.updated ?? 0) + (v?.updated ?? 0);
       await supabase.from("ssotica_sync_logs").update({
         finished_at: finishedAt,
         status: "success",
-        items_processed: cr.processed + v.processed,
-        items_created: cr.created + v.created,
-        items_updated: cr.updated + v.updated,
-        details: { chunk_index: idx, total_chunks: total, range: { start: ymd(range.start), end: ymd(range.end) }, contas_receber: cr, vendas: v },
+        items_processed: processed,
+        items_created: created,
+        items_updated: updated,
+        details: { chunk_index: idx, total_chunks: total, phase, range: { start: ymd(range.start), end: ymd(range.end) }, contas_receber: cr, vendas: v },
       }).eq("id", logId);
     }
 
-    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} OK. processed=${cr.processed + v.processed} created=${cr.created + v.created} updated=${cr.updated + v.updated}. ${finished ? 'CONCLUÍDO!' : `próximo imediato (${nextRunAt})`}`);
+    console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} fase=${phase} OK. ${finished ? 'CONCLUÍDO!' : `próximo: chunk ${nextIdx + 1} fase ${nextPhase}`}`);
 
     if (!finished) {
       try {
