@@ -2156,14 +2156,22 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // ===== Se o backfill ainda está em andamento, roda TODOS os chunks pendentes
-        // de uma vez antes do incremental. Isso garante que o usuário não veja
-        // movimentações entre Renovação ↔ Cobrança aparecendo "aos pedaços" a cada
-        // clique manual em "Atualizar". =====
-        const backfillChunkResults: any[] = [];
-        if (integ.backfill_status === "running") {
+        // ===== Se o backfill ainda está em andamento, roda APENAS o próximo chunk e
+        // retorna. Não roda o sync incremental por cima — isso duplicava trabalho
+        // (mesmas vendas/cobranças sincronizadas 2x) e em lojas grandes (Parelhas/
+        // Jucurutu) estourava o timeout de 400s do edge runtime, fazendo o cursor
+        // ser avançado mas o processamento NUNCA terminar — o que causava o loop
+        // visível: chunk 1/16 sendo "iniciado" repetidamente sem nunca ir pro 2/16.
+        // O incremental real só roda DEPOIS que o backfill chegar a "done". =====
+        if (integ.backfill_status === "running" || integ.backfill_status === "scheduled") {
           const r = await runBackfillChunk(supabase, integ);
-          backfillChunkResults.push(r);
+          // libera o sync_status pra próxima invocação (que pode ser outro chunk
+          // do backfill, OU o incremental se já terminou).
+          await supabase.from("ssotica_integrations").update({
+            sync_status: "idle",
+          }).eq("id", integ.id);
+          results.push({ integration_id: integ.id, ok: true, mode: "backfill_chunk", chunk: r });
+          continue;
         }
 
         const { data: log } = await supabase.from("ssotica_sync_logs").insert({
@@ -2199,11 +2207,11 @@ Deno.serve(async (req) => {
             items_processed: cr.processed + v.processed,
             items_created: cr.created + v.created,
             items_updated: cr.updated + v.updated,
-            details: { contas_receber: cr, vendas: v, consolidation_after_cobrancas: consolidationAfterReceber, backfill_chunks_run: backfillChunkResults.length },
+            details: { contas_receber: cr, vendas: v, consolidation_after_cobrancas: consolidationAfterReceber },
           }).eq("id", logId);
         }
 
-        results.push({ integration_id: integ.id, ok: true, contas_receber: cr, vendas: v, consolidation_after_cobrancas: consolidationAfterReceber, backfill_chunks_run: backfillChunkResults });
+        results.push({ integration_id: integ.id, ok: true, contas_receber: cr, vendas: v, consolidation_after_cobrancas: consolidationAfterReceber });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`[ssotica-sync] integration ${integ.id} failed:`, msg);
