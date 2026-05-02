@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Plus, Search, Pencil, Trash2, Phone, Building2, AlertTriangle, CalendarClock, CheckCircle2, Clock, Loader2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatPhoneBR } from "@/lib/phoneFormat";
@@ -145,7 +145,7 @@ export default function CobrancasPage() {
   const [filterCompanyId, setFilterCompanyId] = useState("all");
   const [mobileTab, setMobileTab] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [pickerGroup, setPickerGroup] = useState<CobrancaGroup | null>(null);
+  
   const [refreshKey, setRefreshKey] = useState(0);
 
   const statusKeys = useMemo(() => statuses.map((s) => s.key), [statuses]);
@@ -612,10 +612,7 @@ export default function CobrancasPage() {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={() => {
-              if (grouped) setPickerGroup(group);
-              else openEdit(cobranca);
-            }}
+            onClick={() => openEdit(cobranca)}
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
@@ -842,58 +839,6 @@ export default function CobrancasPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <Dialog open={!!pickerGroup} onOpenChange={(open) => !open && setPickerGroup(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Cobranças deste cliente</DialogTitle>
-            <DialogDescription>
-              {pickerGroup
-                ? `${(pickerGroup.representative.data as any)?.nome || "Cliente"} possui ${pickerGroup.items.length} dívidas. Escolha qual deseja editar.`
-                : null}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-            {pickerGroup?.items.map((it) => {
-              const stLabel = allStatuses.find((s) => s.key === it.status)?.label ?? it.status;
-              const company = it.company_id ? getCompanyName(it.company_id) : "—";
-              return (
-                <button
-                  key={it.id}
-                  onClick={() => {
-                    setPickerGroup(null);
-                    openEdit(it);
-                  }}
-                  className="w-full text-left rounded-lg border p-3 hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium flex items-center gap-1">
-                        <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                        {company}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{stLabel}</p>
-                      {(it.data as any)?.descricao && (
-                        <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
-                          {(it.data as any).descricao}
-                        </p>
-                      )}
-                    </div>
-                    <Badge variant="outline" className="text-xs shrink-0">
-                      R$ {Number(it.valor || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                    </Badge>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          {pickerGroup && (
-            <div className="text-right text-sm font-semibold pt-2 border-t">
-              Total: R$ {pickerGroup.valorTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
 
     </AppLayout>
   );
