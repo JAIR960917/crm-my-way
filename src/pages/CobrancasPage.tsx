@@ -430,6 +430,22 @@ export default function CobrancasPage() {
 
   const totalDisplayed = useMemo(() => allGroups.length, [allGroups]);
 
+  // Total real no banco (independente do que está carregado nas colunas)
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let q = supabase
+        .from("crm_cobrancas")
+        .select("id", { count: "exact", head: true });
+      if (filterCompanyId !== "all") q = q.eq("company_id", filterCompanyId);
+      if (statusKeys.length > 0) q = q.in("status", statusKeys);
+      const { count, error } = await q;
+      if (!cancelled && !error) setTotalCount(count ?? 0);
+    })();
+    return () => { cancelled = false; };
+  }, [filterCompanyId, statusKeys, refreshKey]);
+
   const handleColumnScroll = (e: React.UIEvent<HTMLDivElement>, statusKey: string) => {
     const el = e.currentTarget;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) loadMore(statusKey);
@@ -619,7 +635,7 @@ export default function CobrancasPage() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold">Cobranças</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            Gerencie as cobranças do sistema — {totalDisplayed} registro{totalDisplayed !== 1 ? "s" : ""}
+            Gerencie as cobranças do sistema — {totalCount ?? totalDisplayed} registro{(totalCount ?? totalDisplayed) !== 1 ? "s" : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
