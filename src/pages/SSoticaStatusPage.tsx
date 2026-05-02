@@ -209,7 +209,7 @@ export default function SSoticaStatusPage() {
 
     const { data, error } = await supabase.functions.invoke("ssotica-sync", {
       body: {
-        mode: hasPendingBackfill ? "resume_backfill" : "incremental",
+        mode: hasPendingBackfill ? "start_backfill" : "incremental",
         integration_id: id,
         manual_recent: !hasPendingBackfill,
       },
@@ -238,9 +238,9 @@ export default function SSoticaStatusPage() {
     }
 
     toast({
-      title: hasPendingBackfill ? "Backfill retomado" : "Sincronização disparada",
+      title: hasPendingBackfill ? "Backfill reiniciado" : "Sincronização disparada",
       description: hasPendingBackfill
-        ? "A importação histórica continuou do ponto em que parou."
+        ? "A importação histórica foi reprogramada do início para destravar e seguir automaticamente."
         : undefined,
     });
     load();
