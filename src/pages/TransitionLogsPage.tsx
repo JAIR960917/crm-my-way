@@ -538,6 +538,139 @@ export default function TransitionLogsPage() {
               </Table>
             </Card>
           </TabsContent>
+
+          <TabsContent value="cobranca-flow" className="space-y-6 mt-4">
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-4 text-sm font-medium text-muted-foreground">
+                <Filter className="h-4 w-4" /> Filtros
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-1.5">
+                  <Label>Tipo de evento</Label>
+                  <Select value={flowEventTypeFilter} onValueChange={(v: any) => setFlowEventTypeFilter(v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="tratativa">Tratativa</SelectItem>
+                      <SelectItem value="gatilho_enviado">Gatilho enviado</SelectItem>
+                      <SelectItem value="gatilho_falhou">Gatilho falhou</SelectItem>
+                      <SelectItem value="avancou_coluna">Avançou coluna</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Empresa</Label>
+                  <Select value={companyId} onValueChange={setCompanyId}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas</SelectItem>
+                      {companies.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Data inicial</Label>
+                  <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Data final</Label>
+                  <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                </div>
+              </div>
+              <div className="flex justify-end mt-4">
+                <Button size="sm" onClick={loadFlowEvents} disabled={flowLoading}>
+                  Aplicar filtros
+                </Button>
+              </div>
+            </Card>
+
+            <Card className="overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Data / Hora</TableHead>
+                    <TableHead>Evento</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Coluna</TableHead>
+                    <TableHead>Detalhes</TableHead>
+                    <TableHead>Empresa</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {flowLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        Carregando...
+                      </TableCell>
+                    </TableRow>
+                  ) : flowEvents.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        Nenhum evento de cobrança registrado
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    flowEvents.map((e) => {
+                      const cobData = e.cobranca?.data ?? {};
+                      const cliente = cobData?.cliente_nome ?? cobData?.nome ?? cobData?.ssotica_raw?.cliente_nome ?? "—";
+                      const empresaId = e.cobranca?.company_id ?? e.cobranca?.ssotica_company_id ?? null;
+                      const eventBadge =
+                        e.event_type === "gatilho_enviado" ? (
+                          <Badge variant="outline" className="border-blue-300 bg-blue-500/10 text-blue-700">
+                            <Zap className="h-3 w-3 mr-1" /> Gatilho enviado
+                          </Badge>
+                        ) : e.event_type === "gatilho_falhou" ? (
+                          <Badge variant="outline" className="border-red-300 bg-red-500/10 text-red-700">
+                            <AlertCircle className="h-3 w-3 mr-1" /> Gatilho falhou
+                          </Badge>
+                        ) : e.event_type === "tratativa" ? (
+                          <Badge variant="outline" className="border-amber-300 bg-amber-500/10 text-amber-700">
+                            <User className="h-3 w-3 mr-1" /> Tratativa
+                          </Badge>
+                        ) : e.event_type === "avancou_coluna" ? (
+                          <Badge variant="outline" className="border-emerald-300 bg-emerald-500/10 text-emerald-700">
+                            <ArrowRight className="h-3 w-3 mr-1" /> Avançou coluna
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline">{e.event_type}</Badge>
+                        );
+                      const detalhe =
+                        e.event_type === "avancou_coluna" && e.next_status_label
+                          ? `${e.status_label ?? "—"} → ${e.next_status_label}`
+                          : e.event_type === "gatilho_enviado" || e.event_type === "gatilho_falhou"
+                            ? e.whatsapp_trigger_campaign_name ?? e.details?.error ?? "—"
+                            : e.details?.tratativa ?? e.details?.note ?? "—";
+                      return (
+                        <TableRow key={e.id}>
+                          <TableCell className="whitespace-nowrap text-sm">
+                            {format(new Date(e.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                          </TableCell>
+                          <TableCell>{eventBadge}</TableCell>
+                          <TableCell className="font-medium">{cliente}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {e.status_label ?? e.status_key ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground max-w-[280px] truncate" title={String(detalhe)}>
+                            {String(detalhe)}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {companyName(empresaId)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+              {flowEvents.length >= 500 && (
+                <div className="text-xs text-muted-foreground p-3 text-center border-t">
+                  Exibindo os 500 registros mais recentes. Refine os filtros para ver outros períodos.
+                </div>
+              )}
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
     </AppLayout>
