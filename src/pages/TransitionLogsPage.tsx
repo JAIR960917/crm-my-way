@@ -64,6 +64,24 @@ type CompletionLog = {
   completed_at: string;
 };
 
+type CobrancaFlowEventLog = {
+  id: string;
+  cobranca_id: string;
+  event_type: "tratativa" | "gatilho_enviado" | "avancou_coluna" | "gatilho_falhou" | string;
+  status_label: string | null;
+  status_key: string | null;
+  next_status_label: string | null;
+  next_status_key: string | null;
+  whatsapp_trigger_campaign_name: string | null;
+  details: any;
+  created_at: string;
+  cobranca?: {
+    company_id: string | null;
+    ssotica_company_id: string | null;
+    data: any;
+  } | null;
+};
+
 const moduleNiceLabel = (m: string) =>
   m === "leads" ? "Leads" : m === "cobrancas" ? "Cobranças" : m === "renovacoes" ? "Renovações" : m;
 
