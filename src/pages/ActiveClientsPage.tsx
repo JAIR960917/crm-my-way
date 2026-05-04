@@ -192,6 +192,7 @@ export default function ActiveClientsPage() {
     setFields((ff || []) as unknown as FormField[]);
     setActivities((acts || []) as RenovacaoActivity[]);
     setNoteIds(new Set((notes || []).map((n: any) => n.renovacao_id)));
+    setCobrancaClienteIds(Array.from(new Set(((cobs || []) as any[]).map((c) => c.ssotica_cliente_id).filter((v) => v != null))));
 
     // For gerente: restrict allowed companies to their own (profile + manager_companies)
     if (isGerente && !isAdmin && user?.id) {
