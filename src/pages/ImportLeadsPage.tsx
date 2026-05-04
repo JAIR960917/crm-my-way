@@ -652,6 +652,85 @@ export default function ImportLeadsPage() {
           </Card>
         )}
 
+        {/* Duplicate check: leads vs renovacoes */}
+        {step === "upload" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Verificar leads duplicados em Renovações</CardTitle>
+              <CardDescription>
+                Compara o telefone dos leads com os clientes da tela de Renovações. Se o mesmo telefone
+                existir nos dois lugares, você pode excluir o card da tela de Leads.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Button onClick={scanDuplicates} disabled={scanning} variant="secondary">
+                {scanning ? (
+                  <><RefreshCw className="mr-2 h-4 w-4 animate-spin" /> Verificando...</>
+                ) : (
+                  <><Search className="mr-2 h-4 w-4" /> Verificar agora</>
+                )}
+              </Button>
+
+              {duplicates && duplicates.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Nenhum lead encontrado com telefone também em Renovações.
+                </p>
+              )}
+
+              {duplicates && duplicates.length > 0 && (
+                <div className="max-h-[400px] overflow-auto rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Lead</TableHead>
+                        <TableHead>Telefone</TableHead>
+                        <TableHead>Renovação</TableHead>
+                        <TableHead className="text-right">Ação</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {duplicates.map((d) => (
+                        <TableRow key={d.leadId}>
+                          <TableCell className="text-xs">{d.leadName}</TableCell>
+                          <TableCell className="text-xs">{d.leadPhone}</TableCell>
+                          <TableCell className="text-xs">{d.renovacaoName}</TableCell>
+                          <TableCell className="text-right">
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button size="sm" variant="destructive" disabled={deletingId === d.leadId}>
+                                  <Trash2 className="mr-1 h-3 w-3" />
+                                  Excluir lead
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Excluir lead?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    O card "{d.leadName}" será removido da tela de Leads. A renovação correspondente NÃO será afetada.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => deleteLeadById(d.leadId)}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    Sim, excluir
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* STEP: Column mapping */}
         {step === "columns" && (
           <Card>
