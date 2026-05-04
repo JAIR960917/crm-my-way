@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Upload, ArrowRight, ArrowLeft, Check, AlertTriangle, FileSpreadsheet, Trash2 } from "lucide-react";
+import { Upload, ArrowRight, ArrowLeft, Check, AlertTriangle, FileSpreadsheet, Trash2, RefreshCw, Search } from "lucide-react";
+import { resolveLeadIdentity } from "@/lib/leadIdentity";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -114,6 +115,117 @@ export default function ImportLeadsPage() {
   const [importProgress, setImportProgress] = useState(0);
   const [importTotal, setImportTotal] = useState(0);
   const [importErrors, setImportErrors] = useState<string[]>([]);
+
+  // Cross-check leads vs renovacoes by phone
+  type DuplicateMatch = {
+    leadId: string;
+    leadName: string;
+    leadPhone: string;
+    renovacaoId: string;
+    renovacaoName: string;
+  };
+  const [scanning, setScanning] = useState(false);
+  const [duplicates, setDuplicates] = useState<DuplicateMatch[] | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const extractPhones = (data: Record<string, any>): string[] => {
+    const phones: string[] = [];
+    const walk = (v: any) => {
+      if (v == null) return;
+      if (typeof v === "string" || typeof v === "number") {
+        const digits = String(v).replace(/\D/g, "");
+        if (digits.length >= 8) phones.push(digits.slice(-8));
+      } else if (Array.isArray(v)) {
+        v.forEach(walk);
+      } else if (typeof v === "object") {
+        Object.values(v).forEach(walk);
+      }
+    };
+    walk(data);
+    return phones;
+  };
+
+  const scanDuplicates = async () => {
+    setScanning(true);
+    try {
+      const [leadsRes, renovsRes, leadFieldsRes, renovFieldsRes] = await Promise.all([
+        supabase.from("crm_leads").select("id, data").limit(10000),
+        supabase.from("crm_renovacoes").select("id, data").limit(10000),
+        supabase.from("crm_form_fields").select("id, label, is_name_field, is_phone_field"),
+        supabase.from("crm_renovacao_form_fields").select("id, label, is_name_field, is_phone_field"),
+      ]);
+      if (leadsRes.error) throw leadsRes.error;
+      if (renovsRes.error) throw renovsRes.error;
+
+      const leadFields = (leadFieldsRes.data || []) as any[];
+      const renovFields = (renovFieldsRes.data || []) as any[];
+
+      // Build renovacao phone index: suffix(8) -> { id, name }
+      const renovIndex = new Map<string, { id: string; name: string }>();
+      (renovsRes.data || []).forEach((r: any) => {
+        const data = (r.data || {}) as Record<string, any>;
+        const identity = resolveLeadIdentity(data, renovFields);
+        const phones = extractPhones(data);
+        phones.forEach((suffix) => {
+          if (!renovIndex.has(suffix)) {
+            renovIndex.set(suffix, { id: r.id, name: identity.nome || "Sem nome" });
+          }
+        });
+      });
+
+      const matches: DuplicateMatch[] = [];
+      const seen = new Set<string>();
+      (leadsRes.data || []).forEach((l: any) => {
+        const data = (l.data || {}) as Record<string, any>;
+        const identity = resolveLeadIdentity(data, leadFields);
+        const phones = extractPhones(data);
+        for (const suffix of phones) {
+          const ren = renovIndex.get(suffix);
+          if (ren && !seen.has(l.id)) {
+            seen.add(l.id);
+            matches.push({
+              leadId: l.id,
+              leadName: identity.nome || "Sem nome",
+              leadPhone: identity.telefone || suffix,
+              renovacaoId: ren.id,
+              renovacaoName: ren.name,
+            });
+            break;
+          }
+        }
+      });
+
+      setDuplicates(matches);
+      toast.success(`${matches.length} lead(s) com telefone também em Renovações.`);
+    } catch (err: any) {
+      toast.error(`Erro ao verificar: ${err.message || err}`);
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const deleteLeadById = async (leadId: string) => {
+    setDeletingId(leadId);
+    try {
+      // Cascade-clean dependent tables first
+      await Promise.all([
+        supabase.from("crm_lead_notes").delete().eq("lead_id", leadId),
+        supabase.from("lead_activities").delete().eq("lead_id", leadId),
+        supabase.from("crm_appointments").delete().eq("lead_id", leadId),
+        supabase.from("notifications").delete().eq("lead_id", leadId),
+        supabase.from("scheduled_whatsapp_messages").delete().eq("lead_id", leadId),
+      ]);
+      const { error } = await supabase.from("crm_leads").delete().eq("id", leadId);
+      if (error) throw error;
+      setDuplicates((prev) => (prev ? prev.filter((d) => d.leadId !== leadId) : prev));
+      toast.success("Lead excluído.");
+    } catch (err: any) {
+      toast.error(`Erro ao excluir: ${err.message || err}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
 
   const { data: formFields = [] } = useQuery({
     queryKey: ["import-form-fields"],
@@ -536,6 +648,85 @@ export default function ImportLeadsPage() {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Duplicate check: leads vs renovacoes */}
+        {step === "upload" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Verificar leads duplicados em Renovações</CardTitle>
+              <CardDescription>
+                Compara o telefone dos leads com os clientes da tela de Renovações. Se o mesmo telefone
+                existir nos dois lugares, você pode excluir o card da tela de Leads.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Button onClick={scanDuplicates} disabled={scanning} variant="secondary">
+                {scanning ? (
+                  <><RefreshCw className="mr-2 h-4 w-4 animate-spin" /> Verificando...</>
+                ) : (
+                  <><Search className="mr-2 h-4 w-4" /> Verificar agora</>
+                )}
+              </Button>
+
+              {duplicates && duplicates.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Nenhum lead encontrado com telefone também em Renovações.
+                </p>
+              )}
+
+              {duplicates && duplicates.length > 0 && (
+                <div className="max-h-[400px] overflow-auto rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Lead</TableHead>
+                        <TableHead>Telefone</TableHead>
+                        <TableHead>Renovação</TableHead>
+                        <TableHead className="text-right">Ação</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {duplicates.map((d) => (
+                        <TableRow key={d.leadId}>
+                          <TableCell className="text-xs">{d.leadName}</TableCell>
+                          <TableCell className="text-xs">{d.leadPhone}</TableCell>
+                          <TableCell className="text-xs">{d.renovacaoName}</TableCell>
+                          <TableCell className="text-right">
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button size="sm" variant="destructive" disabled={deletingId === d.leadId}>
+                                  <Trash2 className="mr-1 h-3 w-3" />
+                                  Excluir lead
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Excluir lead?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    O card "{d.leadName}" será removido da tela de Leads. A renovação correspondente NÃO será afetada.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => deleteLeadById(d.leadId)}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    Sim, excluir
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
