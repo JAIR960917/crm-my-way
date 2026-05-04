@@ -64,6 +64,12 @@ export default function NewLeadPage() {
   const [agFormaPagamento, setAgFormaPagamento] = useState("");
   const [agCanal, setAgCanal] = useState("");
 
+  // Duplicate phone detection
+  const [duplicateInfo, setDuplicateInfo] = useState<
+    | { leadId: string; ownerName: string; isMine: boolean }
+    | null
+  >(null);
+
   const CANAIS_AGENDAMENTO = [
     "Ligação Leads", "Ligação Renovação", "Loja", "Rede Social", "Ação Adam",
     "Convênios", "PAP", "Reavaliação", "Recomendação", "Teste de Visão Online",
