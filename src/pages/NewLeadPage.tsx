@@ -13,6 +13,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, WifiOff, ArrowLeft, Check, Eye, CalendarIcon, Clock } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { addToOfflineQueue, syncOfflineQueue, getOfflineQueue, type OfflineAppointmentPayload } from "@/lib/offlineSync";
 import { formatPhoneBR } from "@/lib/phoneFormat";
 import { format, parse } from "date-fns";
@@ -62,6 +63,12 @@ export default function NewLeadPage() {
   const [agTime, setAgTime] = useState("09:00");
   const [agFormaPagamento, setAgFormaPagamento] = useState("");
   const [agCanal, setAgCanal] = useState("");
+
+  // Duplicate phone detection
+  const [duplicateInfo, setDuplicateInfo] = useState<
+    | { leadId: string; ownerName: string; isMine: boolean }
+    | null
+  >(null);
 
   const CANAIS_AGENDAMENTO = [
     "Ligação Leads", "Ligação Renovação", "Loja", "Rede Social", "Ação Adam",
@@ -332,6 +339,29 @@ export default function NewLeadPage() {
     }
 
     setSaving(true);
+
+    // Server-side check: telefone já existe no banco?
+    try {
+      const { nome: _n, telefone: phoneCheck } = resolveLeadIdentity(
+        normalizeLeadData({ ...formData }, fields),
+        fields,
+      );
+      const digitsCheck = (phoneCheck || "").replace(/\D/g, "");
+      if (digitsCheck.length >= 8 && navigator.onLine) {
+        const { data: dup } = await supabase.rpc("find_lead_by_phone", { _phone: digitsCheck });
+        const row = Array.isArray(dup) ? dup[0] : null;
+        if (row) {
+          setSaving(false);
+          setDuplicateInfo({
+            leadId: row.lead_id,
+            ownerName: row.owner_name || "outro vendedor",
+            isMine: !!row.is_mine,
+          });
+          return;
+        }
+      }
+    } catch {}
+
 
     // Resolve final status: if agendou=sim → status "agendado" (if exists), else use rules
     let resolvedStatus = resolveStatus();
@@ -805,6 +835,34 @@ export default function NewLeadPage() {
           )}
         </div>
       </div>
+      <AlertDialog open={!!duplicateInfo} onOpenChange={(o) => !o && setDuplicateInfo(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {duplicateInfo?.isMine ? "Lead já cadastrado" : "Telefone já cadastrado"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {duplicateInfo?.isMine
+                ? "Esse lead já está cadastrado em sua carteira. Deseja abrir o cadastro para atualizá-lo?"
+                : `Esse lead já está cadastrado pelo vendedor ${duplicateInfo?.ownerName}.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Fechar</AlertDialogCancel>
+            {duplicateInfo?.isMine && (
+              <AlertDialogAction
+                onClick={() => {
+                  if (duplicateInfo) {
+                    navigate(`/leads?edit=${duplicateInfo.leadId}`);
+                  }
+                }}
+              >
+                Atualizar lead
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }

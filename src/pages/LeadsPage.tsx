@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { syncOfflineQueue, getOfflineQueue } from "@/lib/offlineSync";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -52,6 +52,7 @@ const colorMap: Record<string, { header: string; badge: string }> = {
 export default function LeadsPage() {
   const { user, isAdmin, isGerente } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [columns, setColumns] = useState<CrmColumn[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [statuses, setStatuses] = useState<CrmStatus[]>([]);
@@ -339,6 +340,25 @@ export default function LeadsPage() {
     setFormAssigned(lead.assigned_to || "");
     setOpen(true);
   };
+
+  // Abre automaticamente o lead se houver ?edit=<id> na URL
+  // (vindo da tela de novo lead quando há cadastro duplicado).
+  useEffect(() => {
+    const editId = searchParams.get("edit");
+    if (!editId) return;
+    (async () => {
+      const { data } = await supabase
+        .from("crm_leads")
+        .select("id, data, status, assigned_to, created_by, created_at, scheduled_date, comprou")
+        .eq("id", editId)
+        .maybeSingle();
+      if (data) openEdit(data as Lead);
+      const next = new URLSearchParams(searchParams);
+      next.delete("edit");
+      setSearchParams(next, { replace: true });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams.get("edit")]);
 
   const resolveStatus = (data: Record<string, any>): string => {
     const defaultStatus = statuses.length > 0 ? statuses[0].key : formStatus;

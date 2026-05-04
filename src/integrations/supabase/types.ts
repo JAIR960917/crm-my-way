@@ -1953,6 +1953,15 @@ export type Database = {
       decrypt_secret: { Args: { _ciphertext: string }; Returns: string }
       delete_all_leads_cascade: { Args: never; Returns: Json }
       encrypt_secret: { Args: { _plaintext: string }; Returns: string }
+      find_lead_by_phone: {
+        Args: { _phone: string }
+        Returns: {
+          is_mine: boolean
+          lead_id: string
+          owner_name: string
+          owner_user_id: string
+        }[]
+      }
       get_company_user_ids: { Args: never; Returns: string[] }
       get_my_company_id: { Args: never; Returns: string }
       get_profile_names: {
