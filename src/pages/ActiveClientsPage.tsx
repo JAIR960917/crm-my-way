@@ -142,10 +142,12 @@ export default function ActiveClientsPage() {
       if (filterAssignedTo === "__unassigned__") res = res.is("assigned_to", null);
       else if (filterAssignedTo !== "all") res = res.eq("assigned_to", filterAssignedTo);
       // Exclui clientes inadimplentes (com cobrança ativa) da tela de renovação
-      res = res.not("ssotica_cliente_id", "in", "(select ssotica_cliente_id from crm_cobrancas where ssotica_cliente_id is not null)");
+      if (cobrancaClienteIds.length > 0) {
+        res = res.not("ssotica_cliente_id", "in", `(${cobrancaClienteIds.join(",")})`);
+      }
       return res;
     },
-  }), [filterCompanyId, filterAssignedTo, allowedCompanyIds]);
+  }), [filterCompanyId, filterAssignedTo, allowedCompanyIds, cobrancaClienteIds]);
 
   // ilike search across name/phone in jsonb
   const buildSearchOr = useCallback((q: string) => {
