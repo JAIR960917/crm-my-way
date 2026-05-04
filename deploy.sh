@@ -351,12 +351,17 @@ EOF
 # Restart geral (auth, rest, edge, realtime)
 # ---------------------------------------------------------------------------
 run_restart() {
-  log "Reiniciando serviços supabase..."
-  for c in supabase-meta supabase-studio supabase-edge-functions supabase-rest supabase-auth supabase-realtime; do
-    if docker ps --format '{{.Names}}' | grep -q "^${c}$"; then
-      docker restart "$c" >/dev/null && ok "  $c"
-    fi
-  done
+  log "Recriando serviços supabase para reaplicar variáveis do .env..."
+  docker compose up -d --force-recreate \
+    supabase-kong \
+    supabase-auth \
+    supabase-rest \
+    supabase-realtime \
+    supabase-storage \
+    supabase-meta \
+    supabase-edge-functions \
+    supabase-studio
+  ok "Serviços do backend recriados com as credenciais atuais do .env"
 }
 
 case "$MODE" in
