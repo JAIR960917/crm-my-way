@@ -340,6 +340,29 @@ export default function NewLeadPage() {
 
     setSaving(true);
 
+    // Server-side check: telefone já existe no banco?
+    try {
+      const { nome: _n, telefone: phoneCheck } = resolveLeadIdentity(
+        normalizeLeadData({ ...formData }, fields),
+        fields,
+      );
+      const digitsCheck = (phoneCheck || "").replace(/\D/g, "");
+      if (digitsCheck.length >= 8 && navigator.onLine) {
+        const { data: dup } = await supabase.rpc("find_lead_by_phone", { _phone: digitsCheck });
+        const row = Array.isArray(dup) ? dup[0] : null;
+        if (row) {
+          setSaving(false);
+          setDuplicateInfo({
+            leadId: row.lead_id,
+            ownerName: row.owner_name || "outro vendedor",
+            isMine: !!row.is_mine,
+          });
+          return;
+        }
+      }
+    } catch {}
+
+
     // Resolve final status: if agendou=sim → status "agendado" (if exists), else use rules
     let resolvedStatus = resolveStatus();
     if (agendou === "sim") {
