@@ -844,7 +844,7 @@ export default function NewLeadPage() {
             <AlertDialogDescription>
               {duplicateInfo?.isMine
                 ? "Esse lead já está cadastrado em sua carteira. Deseja abrir o cadastro para atualizá-lo?"
-                : `Esse lead já está cadastrado pelo vendedor ${duplicateInfo?.ownerName}.`}
+                : `Esse lead já está cadastrado pelo vendedor ${duplicateInfo?.ownerName}. Por favor, descarte esse lead e não entre em contato com o mesmo.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
