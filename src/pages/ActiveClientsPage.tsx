@@ -140,6 +140,8 @@ export default function ActiveClientsPage() {
       }
       if (filterAssignedTo === "__unassigned__") res = res.is("assigned_to", null);
       else if (filterAssignedTo !== "all") res = res.eq("assigned_to", filterAssignedTo);
+      // Exclui clientes inadimplentes (com cobrança ativa) da tela de renovação
+      res = res.not("ssotica_cliente_id", "in", "(select ssotica_cliente_id from crm_cobrancas where ssotica_cliente_id is not null)");
       return res;
     },
   }), [filterCompanyId, filterAssignedTo, allowedCompanyIds]);
