@@ -71,6 +71,37 @@ END $$;
 SQL
 }
 
+sync_frontend_assets_cache() {
+  local cache_root="${PROJECT_DIR}/.frontend-assets-cache"
+  local cache_assets_dir="${cache_root}/assets"
+
+  mkdir -p "$cache_assets_dir"
+
+  if [ -d "${PROJECT_DIR}/dist/assets" ]; then
+    cp -a "${PROJECT_DIR}/dist/assets/." "$cache_assets_dir/"
+    ok "Cache local de assets históricos atualizado"
+    return 0
+  fi
+
+  local image_id
+  image_id="$(docker compose images -q crm-frontend 2>/dev/null | tail -n 1)"
+  if [ -z "$image_id" ]; then
+    warn "Imagem do frontend não encontrada para montar cache de assets históricos"
+    return 1
+  fi
+
+  local temp_container
+  temp_container="$(docker create "$image_id")"
+  if ! docker cp "${temp_container}:/usr/share/nginx/html/assets/." "$cache_assets_dir/"; then
+    docker rm -f "$temp_container" >/dev/null 2>&1 || true
+    warn "Não foi possível copiar os assets do frontend para o cache histórico"
+    return 1
+  fi
+
+  docker rm -f "$temp_container" >/dev/null 2>&1 || true
+  ok "Cache de assets históricos atualizado"
+}
+
 # ---------------------------------------------------------------------------
 # Migrations (aplica os .sql novos no Postgres do Supabase self-hosted)
 # ---------------------------------------------------------------------------
@@ -180,16 +211,8 @@ SQL
   local app_supabase_url="${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-}}"
   local app_supabase_anon="${SUPABASE_ANON_KEY:-${ANON_KEY:-}}"
   if [ -n "${app_supabase_url}" ] && [ -n "${app_supabase_anon}" ]; then
-    if ! db_exec "ALTER DATABASE postgres SET \"app.settings.supabase_url\" = '${app_supabase_url}';"; then
-      warn "Sem permissão para definir app.settings.supabase_url via ALTER DATABASE (continuando)."
-    fi
-    if ! db_exec "ALTER DATABASE postgres SET \"app.settings.supabase_anon_key\" = '${app_supabase_anon}';"; then
-      warn "Sem permissão para definir app.settings.supabase_anon_key via ALTER DATABASE (continuando)."
-    fi
-
-    # Fallback persistente em system_settings para ambientes onde ALTER DATABASE
-    # não é permitido ou não sobrevive ao restore. A migration nova lê estes
-    # valores antes de usar current_setting(...).
+    # Persistimos apenas em system_settings para evitar GUCs legadas do banco
+    # ficarem "presas" entre restores/updates e quebrarem auth/API.
     db_exec "
       CREATE TABLE IF NOT EXISTS public.system_settings (
         id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -211,6 +234,10 @@ SQL
       ON CONFLICT (setting_key)
       DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
     " || warn "Não foi possível gravar backend_anon_key em system_settings (continuando)."
+
+    db_exec "ALTER DATABASE postgres RESET \"app.settings.jwt_secret\";" || warn "Não foi possível limpar app.settings.jwt_secret legado (continuando)."
+    db_exec "ALTER DATABASE postgres RESET \"app.settings.supabase_url\";" || warn "Não foi possível limpar app.settings.supabase_url legado (continuando)."
+    db_exec "ALTER DATABASE postgres RESET \"app.settings.supabase_anon_key\";" || warn "Não foi possível limpar app.settings.supabase_anon_key legado (continuando)."
   fi
 
   db_exec "
@@ -319,6 +346,7 @@ EOF
   if [ "${FRONTEND_BUILD_MODE:-docker}" = "docker" ] && command -v docker >/dev/null 2>&1; then
     log "Rebuild do frontend via docker compose (modo docker)..."
     docker compose build crm-frontend
+    sync_frontend_assets_cache || warn "Seguindo sem atualizar cache histórico de assets"
     docker compose up -d --force-recreate crm-frontend
     ok "Frontend rebuildado e reiniciado via docker compose"
     return 0
@@ -338,6 +366,8 @@ EOF
     return 1
   fi
   ok "Build concluído em ./dist"
+
+  sync_frontend_assets_cache || warn "Seguindo sem atualizar cache histórico de assets"
 
   if docker ps --format '{{.Names}}' | grep -q "^crm-frontend$"; then
     log "Restart do container crm-frontend..."
@@ -362,6 +392,13 @@ run_restart() {
     supabase-meta \
     supabase-edge-functions \
     supabase-studio
+  if docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
+    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+ALTER DATABASE postgres RESET "app.settings.jwt_secret";
+ALTER DATABASE postgres RESET "app.settings.supabase_url";
+ALTER DATABASE postgres RESET "app.settings.supabase_anon_key";
+SQL
+  fi
   ok "Serviços do backend recriados com as credenciais atuais do .env"
 }
 
