@@ -252,6 +252,8 @@ services:
     volumes:
       # runtime-config.js is generated on VPS by deploy.sh and read by index.html
       - ./public/runtime-config.js:/usr/share/nginx/html/runtime-config.js:ro
+      # Histórico de assets para evitar quebra quando browser/SW ainda pede hash antigo
+      - ./.frontend-assets-cache:/usr/share/nginx/html/.asset-history:ro
 
 volumes:
   supabase-db-data:
