@@ -226,6 +226,30 @@ export default function ImportLeadsPage() {
     }
   };
 
+  const [deletingAll, setDeletingAll] = useState(false);
+  const deleteAllDuplicates = async () => {
+    if (!duplicates || duplicates.length === 0) return;
+    setDeletingAll(true);
+    try {
+      const ids = duplicates.map((d) => d.leadId);
+      await Promise.all([
+        supabase.from("crm_lead_notes").delete().in("lead_id", ids),
+        supabase.from("lead_activities").delete().in("lead_id", ids),
+        supabase.from("crm_appointments").delete().in("lead_id", ids),
+        supabase.from("notifications").delete().in("lead_id", ids),
+        supabase.from("scheduled_whatsapp_messages").delete().in("lead_id", ids),
+      ]);
+      const { error } = await supabase.from("crm_leads").delete().in("id", ids);
+      if (error) throw error;
+      setDuplicates([]);
+      toast.success(`${ids.length} lead(s) duplicado(s) excluído(s).`);
+    } catch (err: any) {
+      toast.error(`Erro ao excluir todos: ${err.message || err}`);
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
 
   const { data: formFields = [] } = useQuery({
     queryKey: ["import-form-fields"],
@@ -675,6 +699,36 @@ export default function ImportLeadsPage() {
                 <p className="text-sm text-muted-foreground">
                   Nenhum lead encontrado com telefone também em Renovações.
                 </p>
+              )}
+
+              {duplicates && duplicates.length > 0 && (
+                <div className="flex justify-end">
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button size="sm" variant="destructive" disabled={deletingAll}>
+                        <Trash2 className="mr-1 h-3 w-3" />
+                        {deletingAll ? "Excluindo..." : `Excluir todos os ${duplicates.length} duplicados`}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir todos os duplicados?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {duplicates.length} card(s) serão removidos da tela de Leads. As renovações correspondentes NÃO serão afetadas.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={deleteAllDuplicates}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                          Sim, excluir todos
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               )}
 
               {duplicates && duplicates.length > 0 && (
