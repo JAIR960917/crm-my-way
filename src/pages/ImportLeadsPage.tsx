@@ -677,33 +677,9 @@ export default function ImportLeadsPage() {
               )}
 
               {duplicates && duplicates.length > 0 && (
-                <div className="flex justify-end">
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button size="sm" variant="destructive" disabled={deletingAll}>
-                        <Trash2 className="mr-1 h-3 w-3" />
-                        {deletingAll ? "Excluindo..." : `Excluir todos os ${duplicates.length} duplicados`}
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Excluir todos os duplicados?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          {duplicates.length} card(s) serão removidos da tela de Leads. As renovações correspondentes NÃO serão afetadas.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={deleteAllDuplicates}
-                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        >
-                          Sim, excluir todos
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
+                <p className="text-sm text-muted-foreground">
+                  {duplicates.length} lead(s) com telefone também em Renovações. Use o botão individual ao lado de cada lead para excluí-lo da tela de Leads.
+                </p>
               )}
 
               {duplicates && duplicates.length > 0 && (
