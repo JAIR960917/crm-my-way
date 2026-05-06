@@ -505,17 +505,18 @@ export default function ActiveClientsPage() {
   // Build per-status item list (paginated or filtered from search)
   const getByStatus = useCallback((key: string): { items: Renovacao[]; total: number; hasMore: boolean; loading: boolean } => {
     if (isSearching) {
-      const filtered = (searchResults || []).filter((r) => r.status === key);
+      const filtered = applyCobrancaExclusion((searchResults || []).filter((r) => r.status === key));
       return { items: sortByTaskPriority(filtered), total: filtered.length, hasMore: false, loading: searching };
     }
     const col = paginatedColumns[key];
+    const items = applyCobrancaExclusion(col?.items || []);
     return {
-      items: sortByTaskPriority(col?.items || []),
+      items: sortByTaskPriority(items),
       total: col?.total || 0,
       hasMore: col?.hasMore || false,
       loading: col?.loading || false,
     };
-  }, [paginatedColumns, isSearching, searchResults, searching, sortByTaskPriority]);
+  }, [paginatedColumns, isSearching, searchResults, searching, sortByTaskPriority, applyCobrancaExclusion]);
 
   const totalDisplayed = useMemo(() => {
     if (isSearching) return searchResults?.length || 0;
