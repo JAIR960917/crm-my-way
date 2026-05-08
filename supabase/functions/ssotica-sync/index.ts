@@ -17,6 +17,7 @@ const MAX_HISTORY_DAYS = 2880; // 96 meses
 const CHUNK_DAYS = 183;        // ~6 meses por chunk (usado pelo backfill histórico)
 const COBRANCAS_LOOKBACK_DAYS = 730; // faixa histórica total coberta pelo ciclo incremental
 const COBRANCAS_FUTURE_DAYS = 60; // pegar parcelas que vencem em breve
+const PER_INTEGRATION_TIMEOUT_MS = 120_000;
 // 24 meses ÷ 8 fatias = ~3 meses por execução. Reduzido de 4 para 8 porque
 // lojas grandes (Caicó, Jucurutu) estouravam o limite de ~400s da edge function
 // mesmo isoladas. Com 3 meses cada execução roda em <200s. Cobertura total
@@ -2007,6 +2008,25 @@ function isRunningSyncStale(integration: Pick<Integration, "sync_status" | "upda
   return Date.now() - updatedAt > RUNNING_SYNC_STALE_MINUTES * 60 * 1000;
 }
 
+async function shouldRunGlobalConsolidation(supabase: any, onlyIntegrationId?: string): Promise<boolean> {
+  if (!onlyIntegrationId) return true;
+
+  const { data: coordinator, error } = await supabase
+    .from("ssotica_integrations")
+    .select("id")
+    .eq("is_active", true)
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(`[ssotica-sync][consolidation] falha ao determinar coordenador; executando mesmo assim: ${error.message}`);
+    return true;
+  }
+
+  return !coordinator || coordinator.id === onlyIntegrationId;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -2367,12 +2387,11 @@ Deno.serve(async (req) => {
         }).select("id").single();
         logId = log?.id ?? null;
 
-        // ⏱️ Timeout interno por integração: 4 min (240s) — bem abaixo dos ~400s
-        // do edge runtime e dos 5 min do auto-cleanup. Isso garante que mesmo se
+        // ⏱️ Timeout interno por integração: 2 min (120s) — abaixo do idle timeout
+        // do runtime hospedado. Isso garante que mesmo se
         // a SSótica travar/lentificar para uma loja específica, o catch abaixo
         // roda, o log é marcado como "error" com diagnóstico claro, e a próxima
         // execução do cron pode imediatamente tentar de novo (sem ficar 5min "running").
-        const PER_INTEGRATION_TIMEOUT_MS = 240_000;
         const integrationStart = Date.now();
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => {
@@ -2393,9 +2412,15 @@ Deno.serve(async (req) => {
           console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=contas_receber:done processed=${cr.processed} created=${cr.created} updated=${cr.updated}`);
 
           // Checkpoint 2: Consolidação cross-store de cobranças
-          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=consolidation:start`);
-          const consolidationAfterReceber = await consolidateCrossStoreCobrancas(supabase);
-          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=consolidation:done groups_merged=${consolidationAfterReceber.groups_merged} cards_removed=${consolidationAfterReceber.cards_removed}`);
+          const shouldConsolidateAfterReceber = await shouldRunGlobalConsolidation(supabase, onlyIntegrationId);
+          let consolidationAfterReceber = { groups_merged: 0, cards_removed: 0 };
+          if (shouldConsolidateAfterReceber) {
+            console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=consolidation:start`);
+            consolidationAfterReceber = await consolidateCrossStoreCobrancas(supabase);
+            console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=consolidation:done groups_merged=${consolidationAfterReceber.groups_merged} cards_removed=${consolidationAfterReceber.cards_removed}`);
+          } else {
+            console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=consolidation:skipped coordinator_only=true`);
+          }
 
           // Checkpoint 3: Vendas
           console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=vendas:start`);
@@ -2457,11 +2482,16 @@ Deno.serve(async (req) => {
     // (por CPF/telefone) que estejam em lojas diferentes. Mantém o card da loja
     // que possui a parcela mais antiga e une todas as parcelas em atraso ali.
     let consolidation: { groups_merged: number; cards_removed: number } = { groups_merged: 0, cards_removed: 0 };
-    try {
-      consolidation = await consolidateCrossStoreCobrancas(supabase);
-      console.log(`[ssotica-sync][consolidation] groups_merged=${consolidation.groups_merged} cards_removed=${consolidation.cards_removed}`);
-    } catch (e) {
-      console.error("[ssotica-sync][consolidation] erro:", e instanceof Error ? e.message : String(e));
+    const shouldRunFinalConsolidation = await shouldRunGlobalConsolidation(supabase, onlyIntegrationId);
+    if (shouldRunFinalConsolidation) {
+      try {
+        consolidation = await consolidateCrossStoreCobrancas(supabase);
+        console.log(`[ssotica-sync][consolidation] groups_merged=${consolidation.groups_merged} cards_removed=${consolidation.cards_removed}`);
+      } catch (e) {
+        console.error("[ssotica-sync][consolidation] erro:", e instanceof Error ? e.message : String(e));
+      }
+    } else {
+      console.log(`[ssotica-sync][consolidation] skipped coordinator_only=true integration=${onlyIntegrationId}`);
     }
 
     return new Response(JSON.stringify({ ok: true, results, consolidation, started_at: new Date().toISOString() }), {
