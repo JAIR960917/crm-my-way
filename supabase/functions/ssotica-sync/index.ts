@@ -2367,14 +2367,50 @@ Deno.serve(async (req) => {
         }).select("id").single();
         logId = log?.id ?? null;
 
-        // 1. Contas a Receber primeiro (para que Renovações saibam quem tem dívida)
-        const cr = await syncContasReceber(supabase, integ, undefined, { manualRecent: manualRecent && !!onlyIntegrationId });
-        const consolidationAfterReceber = await consolidateCrossStoreCobrancas(supabase);
-        console.log(`[ssotica-sync][consolidation-after-cobrancas] empresa=${integ.company_id} groups_merged=${consolidationAfterReceber.groups_merged} cards_removed=${consolidationAfterReceber.cards_removed}`);
-        // 2. Vendas
-        const v = await syncVendas(supabase, integ, forceFull, cr.clientesQuitados);
-        // 3. Reconciliação: garante que ninguém com cobrança aberta esteja em Renovação
-        const reconciled = await reconcileRenovacoesVsCobrancas(supabase, integ.company_id);
+        // ⏱️ Timeout interno por integração: 4 min (240s) — bem abaixo dos ~400s
+        // do edge runtime e dos 5 min do auto-cleanup. Isso garante que mesmo se
+        // a SSótica travar/lentificar para uma loja específica, o catch abaixo
+        // roda, o log é marcado como "error" com diagnóstico claro, e a próxima
+        // execução do cron pode imediatamente tentar de novo (sem ficar 5min "running").
+        const PER_INTEGRATION_TIMEOUT_MS = 240_000;
+        const integrationStart = Date.now();
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            const elapsed = Math.round((Date.now() - integrationStart) / 1000);
+            reject(new Error(
+              `Timeout interno (${elapsed}s) — integração ${integ.id} (empresa=${integ.company_id}) ` +
+              `não concluiu em ${PER_INTEGRATION_TIMEOUT_MS / 1000}s. ` +
+              `Provável causa: SSótica lenta/travada, volume de dados grande, ou loop em uma etapa específica. ` +
+              `Veja os checkpoints anteriores no log para identificar onde travou.`
+            ));
+          }, PER_INTEGRATION_TIMEOUT_MS);
+        });
+
+        const work = (async () => {
+          // Checkpoint 1: Contas a Receber (para que Renovações saibam quem tem dívida)
+          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=contas_receber:start`);
+          const cr = await syncContasReceber(supabase, integ, undefined, { manualRecent: manualRecent && !!onlyIntegrationId });
+          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=contas_receber:done processed=${cr.processed} created=${cr.created} updated=${cr.updated}`);
+
+          // Checkpoint 2: Consolidação cross-store de cobranças
+          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=consolidation:start`);
+          const consolidationAfterReceber = await consolidateCrossStoreCobrancas(supabase);
+          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=consolidation:done groups_merged=${consolidationAfterReceber.groups_merged} cards_removed=${consolidationAfterReceber.cards_removed}`);
+
+          // Checkpoint 3: Vendas
+          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=vendas:start`);
+          const v = await syncVendas(supabase, integ, forceFull, cr.clientesQuitados);
+          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=vendas:done processed=${v.processed} created=${v.created} updated=${v.updated}`);
+
+          // Checkpoint 4: Reconciliação Renovações × Cobranças
+          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=reconcile:start`);
+          const reconciled = await reconcileRenovacoesVsCobrancas(supabase, integ.company_id);
+          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=reconcile:done removed=${reconciled}`);
+
+          return { cr, v, consolidationAfterReceber, reconciled };
+        })();
+
+        const { cr, v, consolidationAfterReceber, reconciled } = await Promise.race([work, timeoutPromise]);
         console.log(`[ssotica-sync][incremental] empresa=${integ.company_id} reconciliação removeu ${reconciled} renovações com dívida aberta`);
 
         const finishedAt = new Date().toISOString();
