@@ -62,12 +62,12 @@ VALUES ('backend_anon_key', '${app_supabase_anon}')
 ON CONFLICT (setting_key)
 DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
 
-DO $$
+DO \$do\$
 BEGIN
   IF to_regprocedure('public.manage_ssotica_cron()') IS NOT NULL THEN
     PERFORM public.manage_ssotica_cron();
   END IF;
-END $$;
+END \$do\$;
 SQL
 }
 
