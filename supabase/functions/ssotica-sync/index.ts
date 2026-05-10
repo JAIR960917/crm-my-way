@@ -17,7 +17,10 @@ const MAX_HISTORY_DAYS = 2880; // 96 meses
 const CHUNK_DAYS = 183;        // ~6 meses por chunk (usado pelo backfill histórico)
 const COBRANCAS_LOOKBACK_DAYS = 730; // faixa histórica total coberta pelo ciclo incremental
 const COBRANCAS_FUTURE_DAYS = 60; // pegar parcelas que vencem em breve
-const PER_INTEGRATION_TIMEOUT_MS = 120_000;
+// 350s — bem abaixo do hard-limit do edge runtime (~400s) mas alto o
+// suficiente para que lojas grandes (Parelhas/Caicó) consigam concluir
+// contas_receber + vendas + reconcile mesmo quando a SSótica responde devagar.
+const PER_INTEGRATION_TIMEOUT_MS = 350_000;
 // 24 meses ÷ 8 fatias = ~3 meses por execução. Reduzido de 4 para 8 porque
 // lojas grandes (Caicó, Jucurutu) estouravam o limite do runtime mesmo isoladas.
 // Como o cron atual roda 4x por dia, percorremos as 8 fatias ao longo de 2 dias
