@@ -2075,8 +2075,36 @@ Deno.serve(async (req) => {
     const forceFull: boolean = body.force_full === true;
     const manualRecent: boolean = body.manual_recent === true;
 
-    // ========== MODO 1: tick do cron — processa próximo chunk de qualquer integração pronta ==========
+    // 🔒 LOCK GLOBAL: Sincronização é 100% manual e UMA loja por vez.
+    // Se OUTRA loja estiver rodando/agendada, recusa o pedido.
+    // Continuações automáticas do MESMO backfill passam (a query exclui a própria loja).
+    if (mode !== "consolidate_only" && onlyIntegrationId) {
+      const { data: busy } = await supabase
+        .from("ssotica_integrations")
+        .select("id, sync_status, backfill_status")
+        .neq("id", onlyIntegrationId)
+        .or("sync_status.eq.running,backfill_status.in.(running,scheduled)");
+      if (busy && busy.length > 0) {
+        return new Response(JSON.stringify({
+          ok: false,
+          locked: true,
+          busy_count: busy.length,
+          message: `Outra loja já está sincronizando. Aguarde terminar antes de iniciar esta sincronização.`,
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
+
+
+    // ========== MODO 1: DESATIVADO — sincronização agora é 100% manual por loja ==========
     if (mode === "backfill_tick") {
+      return new Response(JSON.stringify({
+        ok: true,
+        mode: "backfill_tick",
+        disabled: true,
+        message: "Sincronização automática desativada. Cada loja só sincroniza ao clicar manualmente.",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (false && mode === "backfill_tick_disabled") {
       // Inclui tanto "running" (já em andamento) quanto "scheduled" (agendadas pelo "Ressincronizar tudo").
       // Quando uma loja "scheduled" é pega, promovemos para "running" antes de processar.
       const { data: pending } = await supabase
