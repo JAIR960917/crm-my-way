@@ -312,6 +312,16 @@ export default function SSoticaIntegrationsPage() {
       const { data, error } = await supabase.functions.invoke("ssotica-sync", { body });
       if (error) throw error;
 
+      if (data?.locked) {
+        toast({
+          title: "Outra loja está sincronizando",
+          description: data.message || "Aguarde a sincronização atual terminar antes de iniciar outra.",
+          variant: "destructive",
+        });
+        await fetchAll();
+        return;
+      }
+
       if (forceFull) {
         toast({
           title: "Backfill de 96 meses iniciado",
