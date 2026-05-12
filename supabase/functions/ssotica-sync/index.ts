@@ -142,6 +142,9 @@ function getManualRecentCobrancaWindow(now = new Date()): { start: Date; end: Da
 }
 
 function getDispatchConfig(req: Request): DispatchConfig {
+  // Prefer internal URL for pg_net dispatch (avoids external proxies that may strip auth headers).
+  // Set SUPABASE_INTERNAL_URL=http://supabase-kong:8000 in self-hosted deployments.
+  const envInternalUrl = Deno.env.get("SUPABASE_INTERNAL_URL");
   const envPublicUrl = Deno.env.get("SUPABASE_PUBLIC_URL");
   const envUrl = Deno.env.get("SUPABASE_URL");
   const envAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -155,12 +158,11 @@ function getDispatchConfig(req: Request): DispatchConfig {
     requestUrl = null;
   }
 
+  const baseUrl = envInternalUrl ?? envPublicUrl ?? envUrl;
   return {
-    url: envPublicUrl
-      ? `${envPublicUrl.replace(/\/+$/, "")}/functions/v1/ssotica-sync`
-      : envUrl
-        ? `${envUrl.replace(/\/+$/, "")}/functions/v1/ssotica-sync`
-        : requestUrl,
+    url: baseUrl
+      ? `${baseUrl.replace(/\/+$/, "")}/functions/v1/ssotica-sync`
+      : requestUrl,
     auth: envAnonKey ? `Bearer ${envAnonKey}` : requestAuth,
   };
 }
