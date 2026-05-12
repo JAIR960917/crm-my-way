@@ -197,9 +197,9 @@ export default function ActiveClientsPage() {
     const profs = unwrap(profsRes, "perfis", [] as Profile[]);
     const roles = unwrap(rolesRes, "papéis", [] as UserRole[]);
     const comps = unwrap(compsRes, "empresas", [] as Company[]);
-    const ff = unwrap(ffRes, "campos do formulário", [] as FormField[]);
+    const ff = unwrap<any[]>(ffRes as PromiseSettledResult<{ data: any[]; error: any }>, "campos do formulário", []);
     const acts = unwrap(actsRes, "atividades", [] as RenovacaoActivity[]);
-    const notes = unwrap(notesRes, "notas", [] as any[]);
+    const notes = unwrap<any[]>(notesRes as PromiseSettledResult<{ data: any[]; error: any }>, "notas", []);
 
     setStatuses(sts);
     setProfiles(profs);
