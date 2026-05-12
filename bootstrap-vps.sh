@@ -222,7 +222,6 @@ ${FRONTEND_DOMAIN} {
 }
 
 ${API_DOMAIN} {
-  encode gzip
   reverse_proxy 127.0.0.1:${KONG_HTTP_PORT}
 }
 EOF
