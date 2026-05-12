@@ -427,7 +427,7 @@ run_restart() {
     supabase-realtime \
     supabase-storage \
     supabase-meta \
-    supabase-edge-functions \
+    supabase-functions \
     supabase-studio
   if docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
     docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
