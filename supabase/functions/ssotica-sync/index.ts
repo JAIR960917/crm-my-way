@@ -2075,8 +2075,16 @@ Deno.serve(async (req) => {
     const forceFull: boolean = body.force_full === true;
     const manualRecent: boolean = body.manual_recent === true;
 
-    // ========== MODO 1: tick do cron — processa próximo chunk de qualquer integração pronta ==========
+    // ========== MODO 1: DESATIVADO — sincronização agora é 100% manual por loja ==========
     if (mode === "backfill_tick") {
+      return new Response(JSON.stringify({
+        ok: true,
+        mode: "backfill_tick",
+        disabled: true,
+        message: "Sincronização automática desativada. Cada loja só sincroniza ao clicar manualmente.",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (false && mode === "backfill_tick_disabled") {
       // Inclui tanto "running" (já em andamento) quanto "scheduled" (agendadas pelo "Ressincronizar tudo").
       // Quando uma loja "scheduled" é pega, promovemos para "running" antes de processar.
       const { data: pending } = await supabase
