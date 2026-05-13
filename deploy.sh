@@ -454,6 +454,7 @@ EOF
 # ---------------------------------------------------------------------------
 run_restart() {
   log "Recriando serviços supabase para reaplicar variáveis do .env..."
+  sync_internal_db_role_passwords || true
   docker compose up -d --force-recreate \
     supabase-kong \
     supabase-auth \
