@@ -35,7 +35,41 @@ if [ -f "${PROJECT_DIR}/.env" ]; then
   set +a
 fi
 
+if [ -n "${POSTGRES_PASSWORD:-}" ]; then
+  POSTGRES_PASSWORD_URLENC="$(python3 - <<'PY'
+import os
+import urllib.parse
+
+print(urllib.parse.quote(os.environ['POSTGRES_PASSWORD'], safe=''))
+PY
+)"
+  export POSTGRES_PASSWORD_URLENC
+fi
+
 MODE="${1:-all}"
+
+sync_internal_db_role_passwords() {
+  [ -n "${POSTGRES_PASSWORD:-}" ] || return 0
+
+  if docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
+    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -v role_password="$POSTGRES_PASSWORD" >/dev/null <<'SQL'
+ALTER ROLE supabase_auth_admin WITH LOGIN PASSWORD :'role_password';
+SQL
+    ok "Senha do role supabase_auth_admin sincronizada com o .env"
+    return 0
+  fi
+
+  if command -v psql >/dev/null 2>&1 && [ -n "${SUPABASE_DB_URL:-}" ]; then
+    psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -v role_password="$POSTGRES_PASSWORD" >/dev/null <<'SQL'
+ALTER ROLE supabase_auth_admin WITH LOGIN PASSWORD :'role_password';
+SQL
+    ok "Senha do role supabase_auth_admin sincronizada com o .env"
+    return 0
+  fi
+
+  warn "Não consegui sincronizar a senha do role supabase_auth_admin antes do restart"
+  return 1
+}
 
 persist_backend_runtime_settings_vps() {
   local app_supabase_url="${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-}}"
@@ -420,6 +454,7 @@ EOF
 # ---------------------------------------------------------------------------
 run_restart() {
   log "Recriando serviços supabase para reaplicar variáveis do .env..."
+  sync_internal_db_role_passwords || true
   docker compose up -d --force-recreate \
     supabase-kong \
     supabase-auth \
