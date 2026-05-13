@@ -140,6 +140,8 @@ export default function ActiveClientsPage() {
       }
       if (filterAssignedTo === "__unassigned__") res = res.is("assigned_to", null);
       else if (filterAssignedTo !== "all") res = res.eq("assigned_to", filterAssignedTo);
+      // Exclui clientes inadimplentes (com cobrança ativa) da tela de renovação
+      res = res.not("ssotica_cliente_id", "in", "(select ssotica_cliente_id from crm_cobrancas where ssotica_cliente_id is not null)");
       return res;
     },
   }), [filterCompanyId, filterAssignedTo, allowedCompanyIds]);
@@ -171,7 +173,7 @@ export default function ActiveClientsPage() {
 
   // Load static data once (statuses, profiles, fields, etc.)
   const loadMeta = useCallback(async () => {
-    const [stsRes, profsRes, rolesRes, compsRes, ffRes, actsRes, notesRes] = await Promise.allSettled([
+    const [{ data: sts }, { data: profs }, { data: roles }, { data: comps }, { data: ff }, { data: acts }, { data: notes }] = await Promise.all([
       supabase.from("crm_renovacao_statuses").select("*").order("position"),
       supabase.rpc("get_profile_names"),
       supabase.from("user_roles").select("user_id, role"),
@@ -180,80 +182,42 @@ export default function ActiveClientsPage() {
       supabase.from("renovacao_activities").select("id,renovacao_id,title,scheduled_date,completed_at"),
       supabase.from("crm_renovacao_notes").select("renovacao_id"),
     ]);
-
-    const unwrap = <T,>(result: PromiseSettledResult<{ data: T; error: any }>, label: string, fallback: T): T => {
-      if (result.status !== "fulfilled") {
-        console.error(`[Renovação] Falha ao carregar ${label}`, result.reason);
-        return fallback;
-      }
-      if (result.value.error) {
-        console.error(`[Renovação] Erro ao carregar ${label}`, result.value.error);
-        return fallback;
-      }
-      return (result.value.data ?? fallback) as T;
-    };
-
-    const sts = unwrap(stsRes, "status", [] as CrmStatus[]);
-    const profs = unwrap(profsRes, "perfis", [] as Profile[]);
-    const roles = unwrap(rolesRes, "papéis", [] as UserRole[]);
-    const comps = unwrap(compsRes, "empresas", [] as Company[]);
-    const ff = unwrap<any[]>(ffRes as PromiseSettledResult<{ data: any[]; error: any }>, "campos do formulário", []);
-    const acts = unwrap(actsRes, "atividades", [] as RenovacaoActivity[]);
-    const notes = unwrap<any[]>(notesRes as PromiseSettledResult<{ data: any[]; error: any }>, "notas", []);
-
-    setStatuses(sts);
-    setProfiles(profs);
-    setUserRoles(roles);
-    setFields(ff as unknown as FormField[]);
-    setActivities(acts);
+    setStatuses((sts || []) as CrmStatus[]);
+    setProfiles((profs || []) as Profile[]);
+    setUserRoles((roles || []) as UserRole[]);
+    setFields((ff || []) as unknown as FormField[]);
+    setActivities((acts || []) as RenovacaoActivity[]);
     setNoteIds(new Set((notes || []).map((n: any) => n.renovacao_id)));
 
     // For gerente: restrict allowed companies to their own (profile + manager_companies)
     if (isGerente && !isAdmin && user?.id) {
-      const [myProfileRes, mgrCompaniesRes] = await Promise.allSettled([
+      const [{ data: myProfile }, { data: mgrCompanies }] = await Promise.all([
         supabase.from("profiles").select("company_id").eq("user_id", user.id).maybeSingle(),
         supabase.from("manager_companies").select("company_id").eq("user_id", user.id),
       ]);
-
-      const myProfile = myProfileRes.status === "fulfilled" && !myProfileRes.value.error ? myProfileRes.value.data : null;
-      const mgrCompanies = mgrCompaniesRes.status === "fulfilled" && !mgrCompaniesRes.value.error ? (mgrCompaniesRes.value.data || []) : [];
-
-      if (myProfileRes.status !== "fulfilled" || myProfileRes.value.error) {
-        console.error("[Renovação] Erro ao carregar perfil do gerente", myProfileRes.status === "fulfilled" ? myProfileRes.value.error : myProfileRes.reason);
-      }
-      if (mgrCompaniesRes.status !== "fulfilled" || mgrCompaniesRes.value.error) {
-        console.error("[Renovação] Erro ao carregar empresas do gerente", mgrCompaniesRes.status === "fulfilled" ? mgrCompaniesRes.value.error : mgrCompaniesRes.reason);
-      }
-
       const ids = new Set<string>();
       if (myProfile?.company_id) ids.add(myProfile.company_id);
       (mgrCompanies || []).forEach((m: any) => m?.company_id && ids.add(m.company_id));
       const allowed = Array.from(ids);
       setAllowedCompanyIds(allowed);
-      setCompanies((comps || []).filter((c) => allowed.includes(c.id)));
+      setCompanies(((comps || []) as Company[]).filter((c) => allowed.includes(c.id)));
     } else {
       setAllowedCompanyIds(null);
-      setCompanies(comps || []);
+      setCompanies((comps || []) as Company[]);
     }
   }, [isGerente, isAdmin, user?.id]);
 
   // Count unassigned (server-side)
   const refreshUnassignedCount = useCallback(async () => {
-    try {
-      let q = supabase
-        .from("crm_renovacoes")
-        .select("id", { count: "exact", head: true })
-        .is("assigned_to", null)
-        .not("ssotica_company_id", "is", null);
-      if (filterCompanyId !== "all") q = q.eq("ssotica_company_id", filterCompanyId);
-      else if (allowedCompanyIds && allowedCompanyIds.length > 0) q = q.in("ssotica_company_id", allowedCompanyIds);
-      const { count, error } = await q;
-      if (error) throw error;
-      setUnassignedCount(count || 0);
-    } catch (error) {
-      console.error("[Renovação] Erro ao contar cards sem responsável", error);
-      setUnassignedCount(0);
-    }
+    let q = supabase
+      .from("crm_renovacoes")
+      .select("id", { count: "exact", head: true })
+      .is("assigned_to", null)
+      .not("ssotica_company_id", "is", null);
+    if (filterCompanyId !== "all") q = q.eq("ssotica_company_id", filterCompanyId);
+    else if (allowedCompanyIds && allowedCompanyIds.length > 0) q = q.in("ssotica_company_id", allowedCompanyIds);
+    const { count } = await q;
+    setUnassignedCount(count || 0);
   }, [filterCompanyId, allowedCompanyIds]);
 
   useEffect(() => { loadMeta(); }, [loadMeta]);
@@ -531,9 +495,8 @@ export default function ActiveClientsPage() {
       return { items: sortByTaskPriority(filtered), total: filtered.length, hasMore: false, loading: searching };
     }
     const col = paginatedColumns[key];
-    const items = col?.items || [];
     return {
-      items: sortByTaskPriority(items),
+      items: sortByTaskPriority(col?.items || []),
       total: col?.total || 0,
       hasMore: col?.hasMore || false,
       loading: col?.loading || false,

@@ -17,16 +17,11 @@ const MAX_HISTORY_DAYS = 2880; // 96 meses
 const CHUNK_DAYS = 183;        // ~6 meses por chunk (usado pelo backfill histórico)
 const COBRANCAS_LOOKBACK_DAYS = 730; // faixa histórica total coberta pelo ciclo incremental
 const COBRANCAS_FUTURE_DAYS = 60; // pegar parcelas que vencem em breve
-// 350s — bem abaixo do hard-limit do edge runtime (~400s) mas alto o
-// suficiente para que lojas grandes (Parelhas/Caicó) consigam concluir
-// contas_receber + vendas + reconcile mesmo quando a SSótica responde devagar.
-const PER_INTEGRATION_TIMEOUT_MS = 350_000;
 // 24 meses ÷ 8 fatias = ~3 meses por execução. Reduzido de 4 para 8 porque
-// lojas grandes (Caicó, Jucurutu) estouravam o limite do runtime mesmo isoladas.
-// Como o cron atual roda 4x por dia, percorremos as 8 fatias ao longo de 2 dias
-// (em vez de deixar metade das fatias sem nunca rodar).
+// lojas grandes (Caicó, Jucurutu) estouravam o limite de ~400s da edge function
+// mesmo isoladas. Com 3 meses cada execução roda em <200s. Cobertura total
+// continua sendo 24 meses, agora distribuída em 8 ciclos de 3h (24h completas).
 const INCREMENTAL_COBRANCAS_SLICES = 8;
-const SSOTICA_INCREMENTAL_RUNS_PER_DAY = 4;
 const RUNNING_SYNC_STALE_MINUTES = 5;
 const BACKFILL_CLAIM_WINDOW_MS = RUNNING_SYNC_STALE_MINUTES * 60 * 1000;
 const BACKFILL_HEARTBEAT_MS = 45 * 1000;
@@ -107,21 +102,9 @@ function statusKeyForRenovacao(diasDesdeUltimaCompra: number | null): string {
 
 function getBrasiliaCycleSlot(date = new Date()): number {
   const br = new Date(date.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-  // O cron da SSótica roda 4x por dia (~6h). Antes usávamos o relógio dividido
-  // em 8 slots de 3h, o que fazia apenas os slots ímpares rodarem (ex.: 04h,
-  // 10h, 16h, 22h => 1,3,5,7) e metade da janela histórica nunca era visitada.
-  // Agora calculamos o slot pela sequência real das execuções: 4 rodadas por dia,
-  // avançando 1 slot por rodada. Assim as 8 fatias são cobertas em 2 dias sem
-  // aumentar o volume por execução.
-  const hoursPerRun = Math.max(1, Math.floor(24 / SSOTICA_INCREMENTAL_RUNS_PER_DAY));
-  const runIndex = Math.min(
-    SSOTICA_INCREMENTAL_RUNS_PER_DAY - 1,
-    Math.floor(br.getHours() / hoursPerRun),
-  );
-  const brasiliaDaySerial = Math.floor(
-    Date.UTC(br.getFullYear(), br.getMonth(), br.getDate()) / 86400000,
-  );
-  return ((brasiliaDaySerial * SSOTICA_INCREMENTAL_RUNS_PER_DAY) + runIndex) % INCREMENTAL_COBRANCAS_SLICES;
+  // 24 horas / SLICES = horas por slot (3h quando SLICES=8)
+  const hoursPerSlot = Math.max(1, Math.floor(24 / INCREMENTAL_COBRANCAS_SLICES));
+  return Math.floor(br.getHours() / hoursPerSlot) % INCREMENTAL_COBRANCAS_SLICES;
 }
 
 function getIncrementalCobrancaWindow(now = new Date()): { start: Date; end: Date; slot: number } {
@@ -142,9 +125,6 @@ function getManualRecentCobrancaWindow(now = new Date()): { start: Date; end: Da
 }
 
 function getDispatchConfig(req: Request): DispatchConfig {
-  // Prefer internal URL for pg_net dispatch (avoids external proxies that may strip auth headers).
-  // Set SUPABASE_INTERNAL_URL=http://supabase-kong:8000 in self-hosted deployments.
-  const envInternalUrl = Deno.env.get("SUPABASE_INTERNAL_URL");
   const envPublicUrl = Deno.env.get("SUPABASE_PUBLIC_URL");
   const envUrl = Deno.env.get("SUPABASE_URL");
   const envAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -158,11 +138,12 @@ function getDispatchConfig(req: Request): DispatchConfig {
     requestUrl = null;
   }
 
-  const baseUrl = envInternalUrl ?? envPublicUrl ?? envUrl;
   return {
-    url: baseUrl
-      ? `${baseUrl.replace(/\/+$/, "")}/functions/v1/ssotica-sync`
-      : requestUrl,
+    url: envPublicUrl
+      ? `${envPublicUrl.replace(/\/+$/, "")}/functions/v1/ssotica-sync`
+      : envUrl
+        ? `${envUrl.replace(/\/+$/, "")}/functions/v1/ssotica-sync`
+        : requestUrl,
     auth: envAnonKey ? `Bearer ${envAnonKey}` : requestAuth,
   };
 }
@@ -765,31 +746,17 @@ async function syncContasReceber(
   for (const [clienteIdNum, bucket] of parcelasPorCliente.entries()) {
     const { cliente, parcelas, hasNegativadoSerasa, hasAjuizado, ajuizadoVariant, hasEmAtraso } = bucket;
 
-    // Procura primeiro card da PRÓPRIA loja. Se não existir, busca card consolidado
-    // em OUTRA loja para o mesmo cliente — assim evitamos o flap onde a consolidação
-    // cross-store deletava o card da loja perdedora a cada ciclo, e a sync por loja
-    // criava um novo no ciclo seguinte (loop "criado → excluído → criado…").
+    // Upsert apenas do card desta própria loja. A consolidação cross-store roda
+    // ao final da sync e é ela quem decide qual loja vence e quais parcelas serão unificadas.
+    // Se apagarmos cards de outras lojas aqui, perdemos parcelas antes do merge final.
     const { data: existingSameStore } = await supabase
       .from("crm_cobrancas")
-      .select("id, assigned_to, created_by, scheduled_date, status, valor, vencimento, dias_atraso, data, ssotica_company_id")
+      .select("id, assigned_to, created_by, scheduled_date, status, valor, vencimento, dias_atraso, data")
       .eq("ssotica_cliente_id", clienteIdNum)
       .eq("ssotica_company_id", integ.company_id)
       .maybeSingle();
 
-    let existingCobranca = existingSameStore as ExistingCobranca | null;
-    if (!existingCobranca) {
-      const { data: existingOtherStore } = await supabase
-        .from("crm_cobrancas")
-        .select("id, assigned_to, created_by, scheduled_date, status, valor, vencimento, dias_atraso, data, ssotica_company_id")
-        .eq("ssotica_cliente_id", clienteIdNum)
-        .neq("ssotica_company_id", integ.company_id)
-        .order("vencimento", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (existingOtherStore) {
-        existingCobranca = existingOtherStore as ExistingCobranca;
-      }
-    }
+    const existingCobranca = existingSameStore as ExistingCobranca | null;
 
     // ===== MERGE com parcelas já existentes no banco =====
     // Como o sync incremental cobre apenas ~92 dias por slot, parcelas de outros
@@ -2040,25 +2007,6 @@ function isRunningSyncStale(integration: Pick<Integration, "sync_status" | "upda
   return Date.now() - updatedAt > RUNNING_SYNC_STALE_MINUTES * 60 * 1000;
 }
 
-async function shouldRunGlobalConsolidation(supabase: any, onlyIntegrationId?: string): Promise<boolean> {
-  if (!onlyIntegrationId) return true;
-
-  const { data: coordinator, error } = await supabase
-    .from("ssotica_integrations")
-    .select("id")
-    .eq("is_active", true)
-    .order("id", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.warn(`[ssotica-sync][consolidation] falha ao determinar coordenador; executando mesmo assim: ${error.message}`);
-    return true;
-  }
-
-  return !coordinator || coordinator.id === onlyIntegrationId;
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -2075,36 +2023,8 @@ Deno.serve(async (req) => {
     const forceFull: boolean = body.force_full === true;
     const manualRecent: boolean = body.manual_recent === true;
 
-    // 🔒 LOCK GLOBAL: Sincronização é 100% manual e UMA loja por vez.
-    // Se OUTRA loja estiver rodando/agendada, recusa o pedido.
-    // Continuações automáticas do MESMO backfill passam (a query exclui a própria loja).
-    if (mode !== "consolidate_only" && onlyIntegrationId) {
-      const { data: busy } = await supabase
-        .from("ssotica_integrations")
-        .select("id, sync_status, backfill_status")
-        .neq("id", onlyIntegrationId)
-        .or("sync_status.eq.running,backfill_status.in.(running,scheduled)");
-      if (busy && busy.length > 0) {
-        return new Response(JSON.stringify({
-          ok: false,
-          locked: true,
-          busy_count: busy.length,
-          message: `Outra loja já está sincronizando. Aguarde terminar antes de iniciar esta sincronização.`,
-        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-    }
-
-
-    // ========== MODO 1: DESATIVADO — sincronização agora é 100% manual por loja ==========
+    // ========== MODO 1: tick do cron — processa próximo chunk de qualquer integração pronta ==========
     if (mode === "backfill_tick") {
-      return new Response(JSON.stringify({
-        ok: true,
-        mode: "backfill_tick",
-        disabled: true,
-        message: "Sincronização automática desativada. Cada loja só sincroniza ao clicar manualmente.",
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-    if (false && mode === "backfill_tick_disabled") {
       // Inclui tanto "running" (já em andamento) quanto "scheduled" (agendadas pelo "Ressincronizar tudo").
       // Quando uma loja "scheduled" é pega, promovemos para "running" antes de processar.
       const { data: pending } = await supabase
@@ -2392,37 +2312,21 @@ Deno.serve(async (req) => {
     for (const integ of integrations as Integration[]) {
       let logId: string | null = null;
       try {
-        // 🔓 Sync MANUAL (botão "Sincronizar" de uma loja específica): força destrave.
-        // Mesmo que outra execução tenha travado essa loja em "running" (e ainda não
-        // tenha passado o auto-cleanup de 15min), liberamos AGORA — afeta apenas a
-        // loja escolhida, sem mexer nas outras.
-        const isManualSingle = !!onlyIntegrationId && manualRecent;
-
-        if (!isManualSingle && integ.sync_status === "running" && !isRunningSyncStale(integ)) {
+        if (integ.sync_status === "running" && !isRunningSyncStale(integ)) {
           results.push({ integration_id: integ.id, ok: true, skipped: true, reason: "already_running" });
           continue;
         }
 
-        if (isManualSingle || isRunningSyncStale(integ)) {
+        if (isRunningSyncStale(integ)) {
           await supabase
             .from("ssotica_sync_logs")
             .update({
               finished_at: new Date().toISOString(),
               status: "error",
-              error_message: isManualSingle
-                ? "Execução anterior encerrada — usuário acionou sincronização manual desta loja."
-                : `Execução anterior excedeu ${RUNNING_SYNC_STALE_MINUTES} min e foi encerrada automaticamente antes do novo ciclo.`,
+              error_message: `Execução anterior excedeu ${RUNNING_SYNC_STALE_MINUTES} min e foi encerrada automaticamente antes do novo ciclo.`,
             })
             .eq("integration_id", integ.id)
             .eq("status", "running");
-          // Garante que o claim abaixo encontre sync_status != "running"
-          if (isManualSingle && integ.sync_status === "running") {
-            await supabase
-              .from("ssotica_integrations")
-              .update({ sync_status: "idle" })
-              .eq("id", integ.id);
-            integ.sync_status = "idle";
-          }
         }
 
         const { data: claimedIntegration } = await supabase
@@ -2463,55 +2367,14 @@ Deno.serve(async (req) => {
         }).select("id").single();
         logId = log?.id ?? null;
 
-        // ⏱️ Timeout interno por integração: 2 min (120s) — abaixo do idle timeout
-        // do runtime hospedado. Isso garante que mesmo se
-        // a SSótica travar/lentificar para uma loja específica, o catch abaixo
-        // roda, o log é marcado como "error" com diagnóstico claro, e a próxima
-        // execução do cron pode imediatamente tentar de novo (sem ficar 5min "running").
-        const integrationStart = Date.now();
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => {
-            const elapsed = Math.round((Date.now() - integrationStart) / 1000);
-            reject(new Error(
-              `Timeout interno (${elapsed}s) — integração ${integ.id} (empresa=${integ.company_id}) ` +
-              `não concluiu em ${PER_INTEGRATION_TIMEOUT_MS / 1000}s. ` +
-              `Provável causa: SSótica lenta/travada, volume de dados grande, ou loop em uma etapa específica. ` +
-              `Veja os checkpoints anteriores no log para identificar onde travou.`
-            ));
-          }, PER_INTEGRATION_TIMEOUT_MS);
-        });
-
-        const work = (async () => {
-          // Checkpoint 1: Contas a Receber (para que Renovações saibam quem tem dívida)
-          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=contas_receber:start`);
-          const cr = await syncContasReceber(supabase, integ, undefined, { manualRecent: manualRecent && !!onlyIntegrationId });
-          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=contas_receber:done processed=${cr.processed} created=${cr.created} updated=${cr.updated}`);
-
-          // Checkpoint 2: Consolidação cross-store de cobranças
-          const shouldConsolidateAfterReceber = await shouldRunGlobalConsolidation(supabase, onlyIntegrationId);
-          let consolidationAfterReceber = { groups_merged: 0, cards_removed: 0 };
-          if (shouldConsolidateAfterReceber) {
-            console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=consolidation:start`);
-            consolidationAfterReceber = await consolidateCrossStoreCobrancas(supabase);
-            console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=consolidation:done groups_merged=${consolidationAfterReceber.groups_merged} cards_removed=${consolidationAfterReceber.cards_removed}`);
-          } else {
-            console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=consolidation:skipped coordinator_only=true`);
-          }
-
-          // Checkpoint 3: Vendas
-          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=vendas:start`);
-          const v = await syncVendas(supabase, integ, forceFull, cr.clientesQuitados);
-          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=vendas:done processed=${v.processed} created=${v.created} updated=${v.updated}`);
-
-          // Checkpoint 4: Reconciliação Renovações × Cobranças
-          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=reconcile:start`);
-          const reconciled = await reconcileRenovacoesVsCobrancas(supabase, integ.company_id);
-          console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=reconcile:done removed=${reconciled}`);
-
-          return { cr, v, consolidationAfterReceber, reconciled };
-        })();
-
-        const { cr, v, consolidationAfterReceber, reconciled } = await Promise.race([work, timeoutPromise]);
+        // 1. Contas a Receber primeiro (para que Renovações saibam quem tem dívida)
+        const cr = await syncContasReceber(supabase, integ, undefined, { manualRecent: manualRecent && !!onlyIntegrationId });
+        const consolidationAfterReceber = await consolidateCrossStoreCobrancas(supabase);
+        console.log(`[ssotica-sync][consolidation-after-cobrancas] empresa=${integ.company_id} groups_merged=${consolidationAfterReceber.groups_merged} cards_removed=${consolidationAfterReceber.cards_removed}`);
+        // 2. Vendas
+        const v = await syncVendas(supabase, integ, forceFull, cr.clientesQuitados);
+        // 3. Reconciliação: garante que ninguém com cobrança aberta esteja em Renovação
+        const reconciled = await reconcileRenovacoesVsCobrancas(supabase, integ.company_id);
         console.log(`[ssotica-sync][incremental] empresa=${integ.company_id} reconciliação removeu ${reconciled} renovações com dívida aberta`);
 
         const finishedAt = new Date().toISOString();
@@ -2558,16 +2421,11 @@ Deno.serve(async (req) => {
     // (por CPF/telefone) que estejam em lojas diferentes. Mantém o card da loja
     // que possui a parcela mais antiga e une todas as parcelas em atraso ali.
     let consolidation: { groups_merged: number; cards_removed: number } = { groups_merged: 0, cards_removed: 0 };
-    const shouldRunFinalConsolidation = await shouldRunGlobalConsolidation(supabase, onlyIntegrationId);
-    if (shouldRunFinalConsolidation) {
-      try {
-        consolidation = await consolidateCrossStoreCobrancas(supabase);
-        console.log(`[ssotica-sync][consolidation] groups_merged=${consolidation.groups_merged} cards_removed=${consolidation.cards_removed}`);
-      } catch (e) {
-        console.error("[ssotica-sync][consolidation] erro:", e instanceof Error ? e.message : String(e));
-      }
-    } else {
-      console.log(`[ssotica-sync][consolidation] skipped coordinator_only=true integration=${onlyIntegrationId}`);
+    try {
+      consolidation = await consolidateCrossStoreCobrancas(supabase);
+      console.log(`[ssotica-sync][consolidation] groups_merged=${consolidation.groups_merged} cards_removed=${consolidation.cards_removed}`);
+    } catch (e) {
+      console.error("[ssotica-sync][consolidation] erro:", e instanceof Error ? e.message : String(e));
     }
 
     return new Response(JSON.stringify({ ok: true, results, consolidation, started_at: new Date().toISOString() }), {

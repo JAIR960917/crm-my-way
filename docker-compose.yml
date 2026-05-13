@@ -32,7 +32,7 @@ services:
       GOTRUE_API_PORT: 9999
       API_EXTERNAL_URL: ${SUPABASE_PUBLIC_URL}
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD_URLENC:-${POSTGRES_PASSWORD}}@supabase-db:5432/${POSTGRES_DB:-postgres}
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB:-postgres}
       GOTRUE_SITE_URL: ${SITE_URL}
       GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS:-}
       GOTRUE_JWT_SECRET: ${JWT_SECRET}
@@ -44,7 +44,7 @@ services:
       GOTRUE_MAILER_AUTOCONFIRM: "true"
       GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-admin@example.com}
       GOTRUE_SMTP_HOST: ${SMTP_HOST:-}
-      GOTRUE_SMTP_PORT: ${SMTP_PORT:-587}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT:-}
       GOTRUE_SMTP_USER: ${SMTP_USER:-}
       GOTRUE_SMTP_PASS: ${SMTP_PASS:-}
       GOTRUE_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME:-CRM}
@@ -252,8 +252,6 @@ services:
     volumes:
       # runtime-config.js is generated on VPS by deploy.sh and read by index.html
       - ./public/runtime-config.js:/usr/share/nginx/html/runtime-config.js:ro
-      # Histórico de assets para evitar quebra quando browser/SW ainda pede hash antigo
-      - ./.frontend-assets-cache:/usr/share/nginx/html/.asset-history:ro
 
 volumes:
   supabase-db-data:

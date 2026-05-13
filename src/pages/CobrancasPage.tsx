@@ -422,9 +422,7 @@ export default function CobrancasPage() {
     const col = paginatedColumns[key];
     return {
       groups: sorted,
-      // Mostra o total real de cobranças no banco para esta coluna,
-      // não apenas o número de grupos carregados em memória.
-      total: typeof col?.total === "number" ? col.total : sorted.length,
+      total: sorted.length,
       hasMore: col?.hasMore || false,
       loading: col?.loading || false,
     };
