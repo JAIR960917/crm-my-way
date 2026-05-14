@@ -357,15 +357,28 @@ type CompanyRole = {
 
 type ExistingCobranca = {
   id: string;
+  assigned_to: string | null;
+  created_by?: string | null;
+  scheduled_date?: string | null;
+  status: string;
+  valor: number | null;
   vencimento: string | null;
+  dias_atraso?: number | null;
+  data?: Record<string, unknown> | null;
+  ssotica_company_id?: string | null;
   ssotica_parcela_id: number | null;
+  ssotica_titulo_id?: number | null;
 };
 
 type ExistingRenovacao = {
   id: string;
+  data?: Record<string, unknown> | null;
   data_ultima_compra: string | null;
   status: string;
   assigned_to: string | null;
+  ssotica_venda_id?: number | null;
+  valor?: number | null;
+  scheduled_date?: string | null;
 };
 
 type StoredCobranca = {
@@ -382,6 +395,13 @@ function normalizeIdentifier(value: string): string {
   const onlyDigits = raw.replace(/\D/g, "");
   const isCnpj = !/[a-zA-Z]/.test(raw) && onlyDigits.length === 14;
   return isCnpj ? onlyDigits : raw;
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+  return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`).join(",")}}`;
 }
 
 function normalizeName(value: unknown): string {
