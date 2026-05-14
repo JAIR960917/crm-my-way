@@ -426,7 +426,7 @@ async function syncContasReceber(
   supabase: any,
   integ: Integration,
   windowOverride?: { start: Date; end: Date },
-  options?: { manualRecent?: boolean },
+  options?: { manualRecent?: boolean; fullSweep?: boolean },
 ): Promise<{ processed: number; created: number; updated: number; removed: number; chunks: number; clientesQuitados: number[] }> {
   // Normaliza "hoje" para meia-noite UTC do dia atual no fuso de Brasília (UTC-3).
   // Sem isso, após 21h de Brasília o `new Date()` em UTC já estaria no dia seguinte,
@@ -437,10 +437,18 @@ async function syncContasReceber(
   // Janela: no incremental processamos 1 fatia por rodada do ciclo de 24 meses,
   // para garantir que toda empresa conclua dentro do tempo do cron.
   // Quando há windowOverride (modo backfill), processa apenas o chunk indicado.
-  const manualRecentWindow = !windowOverride && options?.manualRecent ? getManualRecentCobrancaWindow(today) : null;
-  const incrementalWindow = windowOverride || manualRecentWindow ? null : getIncrementalCobrancaWindow(today);
-  const overallStart = windowOverride?.start ?? manualRecentWindow?.start ?? incrementalWindow!.start;
-  const overallEnd = windowOverride?.end ?? manualRecentWindow?.end ?? incrementalWindow!.end;
+  // fullSweep: varre toda a janela histórica (96 meses) com a lógica de
+  // deleção habilitada — usado no fim do backfill para limpar cards de
+  // cobrança cujo cliente já não tem dívidas em aberto.
+  const fullSweepWindow = !windowOverride && options?.fullSweep
+    ? { start: addDays(today, -MAX_HISTORY_DAYS), end: addDays(today, COBRANCAS_FUTURE_DAYS) }
+    : null;
+  const manualRecentWindow = !windowOverride && !fullSweepWindow && options?.manualRecent
+    ? getManualRecentCobrancaWindow(today)
+    : null;
+  const incrementalWindow = windowOverride || manualRecentWindow || fullSweepWindow ? null : getIncrementalCobrancaWindow(today);
+  const overallStart = windowOverride?.start ?? manualRecentWindow?.start ?? fullSweepWindow?.start ?? incrementalWindow!.start;
+  const overallEnd = windowOverride?.end ?? manualRecentWindow?.end ?? fullSweepWindow?.end ?? incrementalWindow!.end;
   const isBackfillChunk = !!windowOverride;
 
   let processed = 0, created = 0, updated = 0, removed = 0;
