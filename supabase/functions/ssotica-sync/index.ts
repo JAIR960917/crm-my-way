@@ -1869,12 +1869,12 @@ async function runBackfillChunk(
   const total = Math.max(configuredTotal, 32);
   const idx = integ.backfill_chunk_index || 0;
 
-  if (configuredTotal !== total) {
-    await supabase.from("ssotica_integrations").update({
-      backfill_total_chunks: total,
-      updated_at: nowIso,
-    }).eq("id", integ.id).neq("backfill_status", "done");
-    integ.backfill_total_chunks = total;
+    if (configuredTotal !== total) {
+      await supabase.from("ssotica_integrations").update({
+        backfill_total_chunks: total,
+        updated_at: nowIso,
+      }).eq("id", integ.id);
+      integ.backfill_total_chunks = total;
     console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} migrada automaticamente de ${configuredTotal} para ${total} chunks`);
   }
 
