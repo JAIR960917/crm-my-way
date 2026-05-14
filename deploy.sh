@@ -44,7 +44,11 @@ persist_backend_runtime_settings_vps() {
   [ -n "${app_supabase_url}" ] && [ -n "${app_supabase_anon}" ] || return 0
   docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$" || return 1
 
-  docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 >/dev/null <<SQL
+  docker exec -i "$DB_CONTAINER" \
+    psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 \
+      -v backend_url="${app_supabase_url}" \
+      -v backend_key="${app_supabase_anon}" \
+      >/dev/null <<'SQL'
 CREATE TABLE IF NOT EXISTS public.system_settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   setting_key text NOT NULL UNIQUE,
@@ -53,22 +57,86 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
 );
 
 INSERT INTO public.system_settings (setting_key, setting_value)
-VALUES ('backend_public_url', '${app_supabase_url}')
+VALUES ('backend_public_url', :'backend_url')
 ON CONFLICT (setting_key)
 DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
 
 INSERT INTO public.system_settings (setting_key, setting_value)
-VALUES ('backend_anon_key', '${app_supabase_anon}')
+VALUES ('backend_anon_key', :'backend_key')
 ON CONFLICT (setting_key)
 DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
 
-DO $$
-BEGIN
-  IF to_regprocedure('public.manage_ssotica_cron()') IS NOT NULL THEN
-    PERFORM public.manage_ssotica_cron();
-  END IF;
-END $$;
+SELECT public.manage_ssotica_cron()
+WHERE to_regprocedure('public.manage_ssotica_cron()') IS NOT NULL;
 SQL
+}
+
+sync_frontend_assets_cache() {
+  local cache_root="${PROJECT_DIR}/.frontend-assets-cache"
+  local cache_assets_dir="${cache_root}/assets"
+  local latest_assets_dir=""
+  local temp_assets_dir=""
+
+  mkdir -p "$cache_assets_dir"
+
+  update_frontend_asset_aliases() {
+    local source_assets_dir="$1"
+    local target_assets_dir="$2"
+    local latest_js=""
+    local latest_css=""
+
+    latest_js="$(ls "${source_assets_dir}"/index-*.js 2>/dev/null | head -n 1 || true)"
+    latest_css="$(ls "${source_assets_dir}"/index-*.css 2>/dev/null | head -n 1 || true)"
+
+    if [ -n "$latest_js" ]; then
+      cp "$latest_js" "${target_assets_dir}/index-latest.js"
+    fi
+
+    if [ -n "$latest_css" ]; then
+      cp "$latest_css" "${target_assets_dir}/index-latest.css"
+    fi
+  }
+
+  if docker ps --format '{{.Names}}' | grep -q '^crm-frontend$'; then
+    docker cp "crm-frontend:/usr/share/nginx/html/assets/." "$cache_assets_dir/" >/dev/null 2>&1 || \
+      warn "Não foi possível copiar os assets do container atual para o cache histórico"
+  fi
+
+  local image_id
+  image_id="$(docker compose images -q crm-frontend 2>/dev/null | tail -n 1)"
+
+  if [ -n "$image_id" ]; then
+    local temp_container
+    temp_container="$(docker create "$image_id")"
+    temp_assets_dir="$(mktemp -d)"
+
+    if docker cp "${temp_container}:/usr/share/nginx/html/assets/." "$temp_assets_dir/"; then
+      cp -a "${temp_assets_dir}/." "$cache_assets_dir/"
+      latest_assets_dir="$temp_assets_dir"
+    else
+      warn "Não foi possível copiar os assets da imagem recém-buildada para o cache histórico"
+    fi
+
+    docker rm -f "$temp_container" >/dev/null 2>&1 || true
+  fi
+
+  if [ -z "$latest_assets_dir" ] && [ -d "${PROJECT_DIR}/dist/assets" ]; then
+    cp -a "${PROJECT_DIR}/dist/assets/." "$cache_assets_dir/"
+    latest_assets_dir="${PROJECT_DIR}/dist/assets"
+  fi
+
+  if [ -z "$latest_assets_dir" ]; then
+    warn "Nenhuma fonte de assets encontrada para montar o cache histórico do frontend"
+    return 1
+  fi
+
+  update_frontend_asset_aliases "$latest_assets_dir" "$cache_assets_dir"
+
+  if [ -n "$temp_assets_dir" ] && [ -d "$temp_assets_dir" ]; then
+    rm -rf "$temp_assets_dir"
+  fi
+
+  ok "Cache de assets históricos atualizado"
 }
 
 # ---------------------------------------------------------------------------
@@ -180,16 +248,8 @@ SQL
   local app_supabase_url="${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-}}"
   local app_supabase_anon="${SUPABASE_ANON_KEY:-${ANON_KEY:-}}"
   if [ -n "${app_supabase_url}" ] && [ -n "${app_supabase_anon}" ]; then
-    if ! db_exec "ALTER DATABASE postgres SET \"app.settings.supabase_url\" = '${app_supabase_url}';"; then
-      warn "Sem permissão para definir app.settings.supabase_url via ALTER DATABASE (continuando)."
-    fi
-    if ! db_exec "ALTER DATABASE postgres SET \"app.settings.supabase_anon_key\" = '${app_supabase_anon}';"; then
-      warn "Sem permissão para definir app.settings.supabase_anon_key via ALTER DATABASE (continuando)."
-    fi
-
-    # Fallback persistente em system_settings para ambientes onde ALTER DATABASE
-    # não é permitido ou não sobrevive ao restore. A migration nova lê estes
-    # valores antes de usar current_setting(...).
+    # Persistimos apenas em system_settings para evitar GUCs legadas do banco
+    # ficarem "presas" entre restores/updates e quebrarem auth/API.
     db_exec "
       CREATE TABLE IF NOT EXISTS public.system_settings (
         id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -211,6 +271,10 @@ SQL
       ON CONFLICT (setting_key)
       DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
     " || warn "Não foi possível gravar backend_anon_key em system_settings (continuando)."
+
+    db_exec "ALTER DATABASE postgres RESET \"app.settings.jwt_secret\";" || warn "Não foi possível limpar app.settings.jwt_secret legado (continuando)."
+    db_exec "ALTER DATABASE postgres RESET \"app.settings.supabase_url\";" || warn "Não foi possível limpar app.settings.supabase_url legado (continuando)."
+    db_exec "ALTER DATABASE postgres RESET \"app.settings.supabase_anon_key\";" || warn "Não foi possível limpar app.settings.supabase_anon_key legado (continuando)."
   fi
 
   db_exec "
@@ -319,6 +383,7 @@ EOF
   if [ "${FRONTEND_BUILD_MODE:-docker}" = "docker" ] && command -v docker >/dev/null 2>&1; then
     log "Rebuild do frontend via docker compose (modo docker)..."
     docker compose build crm-frontend
+    sync_frontend_assets_cache || warn "Seguindo sem atualizar cache histórico de assets"
     docker compose up -d --force-recreate crm-frontend
     ok "Frontend rebuildado e reiniciado via docker compose"
     return 0
@@ -338,6 +403,8 @@ EOF
     return 1
   fi
   ok "Build concluído em ./dist"
+
+  sync_frontend_assets_cache || warn "Seguindo sem atualizar cache histórico de assets"
 
   if docker ps --format '{{.Names}}' | grep -q "^crm-frontend$"; then
     log "Restart do container crm-frontend..."
@@ -360,8 +427,15 @@ run_restart() {
     supabase-realtime \
     supabase-storage \
     supabase-meta \
-    supabase-edge-functions \
+    supabase-functions \
     supabase-studio
+  if docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
+    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+ALTER DATABASE postgres RESET "app.settings.jwt_secret";
+ALTER DATABASE postgres RESET "app.settings.supabase_url";
+ALTER DATABASE postgres RESET "app.settings.supabase_anon_key";
+SQL
+  fi
   ok "Serviços do backend recriados com as credenciais atuais do .env"
 }
 
