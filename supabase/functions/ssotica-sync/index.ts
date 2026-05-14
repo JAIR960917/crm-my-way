@@ -357,15 +357,28 @@ type CompanyRole = {
 
 type ExistingCobranca = {
   id: string;
+  assigned_to: string | null;
+  created_by?: string | null;
+  scheduled_date?: string | null;
+  status: string;
+  valor: number | null;
   vencimento: string | null;
+  dias_atraso?: number | null;
+  data?: Record<string, unknown> | null;
+  ssotica_company_id?: string | null;
   ssotica_parcela_id: number | null;
+  ssotica_titulo_id?: number | null;
 };
 
 type ExistingRenovacao = {
   id: string;
+  data?: Record<string, unknown> | null;
   data_ultima_compra: string | null;
   status: string;
   assigned_to: string | null;
+  ssotica_venda_id?: number | null;
+  valor?: number | null;
+  scheduled_date?: string | null;
 };
 
 type StoredCobranca = {
@@ -382,6 +395,13 @@ function normalizeIdentifier(value: string): string {
   const onlyDigits = raw.replace(/\D/g, "");
   const isCnpj = !/[a-zA-Z]/.test(raw) && onlyDigits.length === 14;
   return isCnpj ? onlyDigits : raw;
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+  return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`).join(",")}}`;
 }
 
 function normalizeName(value: unknown): string {
@@ -937,26 +957,38 @@ async function syncContasReceber(
     let targetCobrancaId = existingCobranca?.id ?? null;
 
     if (existingCobranca) {
-      const { error: updateCobErr } = await supabase
-        .from("crm_cobrancas")
-        .update({
-          ssotica_parcela_id: maisAntiga.parcela_id,
-          ssotica_titulo_id: maisAntiga.titulo_id,
-          data,
-          valor: totalAtraso,
-          vencimento: maisAntiga.vencimento,
-          dias_atraso: maisAntiga.dias_atraso,
-          status: colunaKey,
-          scheduled_date: maisAntiga.vencimento,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", existingCobranca.id);
+      const cobrancaMudou =
+        existingCobranca.ssotica_parcela_id !== (maisAntiga.parcela_id ?? null) ||
+        (existingCobranca as any).ssotica_titulo_id !== (maisAntiga.titulo_id ?? null) ||
+        Number(existingCobranca.valor ?? 0) !== totalAtraso ||
+        (existingCobranca.vencimento ?? null) !== (maisAntiga.vencimento ?? null) ||
+        Number((existingCobranca as any).dias_atraso ?? 0) !== Number(maisAntiga.dias_atraso ?? 0) ||
+        existingCobranca.status !== colunaKey ||
+        ((existingCobranca as any).scheduled_date ?? null) !== (maisAntiga.vencimento ?? null) ||
+        stableStringify((existingCobranca as any).data ?? null) !== stableStringify(data);
 
-      if (updateCobErr) {
-        throw new Error(`Falha ao atualizar cobrança ${existingCobranca.id} do cliente ${clienteIdNum}: ${updateCobErr.message}`);
+      if (cobrancaMudou) {
+        const { error: updateCobErr } = await supabase
+          .from("crm_cobrancas")
+          .update({
+            ssotica_parcela_id: maisAntiga.parcela_id,
+            ssotica_titulo_id: maisAntiga.titulo_id,
+            data,
+            valor: totalAtraso,
+            vencimento: maisAntiga.vencimento,
+            dias_atraso: maisAntiga.dias_atraso,
+            status: colunaKey,
+            scheduled_date: maisAntiga.vencimento,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existingCobranca.id);
+
+        if (updateCobErr) {
+          throw new Error(`Falha ao atualizar cobrança ${existingCobranca.id} do cliente ${clienteIdNum}: ${updateCobErr.message}`);
+        }
+
+        updated++;
       }
-
-      updated++;
     } else {
       const { data: insertedCob, error: insertCobErr } = await supabase.from("crm_cobrancas").insert({
         company_id: integ.company_id,
@@ -1646,7 +1678,11 @@ async function syncVendas(
       const dataMaisRecente = !existingRenovacao.data_ultima_compra || existingRenovacao.data_ultima_compra < dataReferencia;
       const statusMudou = existingRenovacao.status !== newStatus;
       const assignedMudou = (existingRenovacao.assigned_to ?? null) !== resolvedAssignedTo;
-      if (dataMaisRecente || statusMudou || assignedMudou) {
+      const renovacaoDataMudou = stableStringify(existingRenovacao.data ?? null) !== stableStringify(renovacaoData);
+      const vendaMudou = Number(existingRenovacao.ssotica_venda_id ?? 0) !== Number(info.vendaId ?? 0);
+      const valorMudou = Number(existingRenovacao.valor ?? 0) !== Number(info.valor ?? 0);
+      const scheduledMudou = (existingRenovacao.scheduled_date ?? null) !== (dataReferencia ?? null);
+      if (dataMaisRecente || statusMudou || assignedMudou || renovacaoDataMudou || vendaMudou || valorMudou || scheduledMudou) {
         await supabase
           .from("crm_renovacoes")
           .update({
