@@ -1,18 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
+import { getRuntimeConfig, isRealtimeEnabled } from '@/lib/runtime-config';
 
-type RuntimeConfig = {
-  supabaseUrl?: string;
-  supabasePublishableKey?: string;
-};
-
-declare global {
-  interface Window {
-    __CRM_RUNTIME_CONFIG__?: RuntimeConfig;
-  }
-}
-
-const runtimeConfig = window.__CRM_RUNTIME_CONFIG__ ?? {};
+const runtimeConfig = getRuntimeConfig();
 
 const SUPABASE_URL = runtimeConfig.supabaseUrl || import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY =
@@ -32,5 +22,10 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: localStorage,
     persistSession: true,
     autoRefreshToken: true,
-  }
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: isRealtimeEnabled() ? 10 : 0,
+    },
+  },
 });
