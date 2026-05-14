@@ -372,6 +372,7 @@ type StoredCobranca = {
   id: string;
   ssotica_parcela_id: number | null;
   ssotica_cliente_id: number | null;
+  vencimento?: string | null;
 };
 
 // Normaliza um valor para usar nas APIs do SSótica.
@@ -743,6 +744,9 @@ async function syncContasReceber(
     }
   }
   const chunksProcessed = 1;
+  const allowMissingAsPaid = !!manualRecentWindow;
+  let removedByDirectEvidence = 0;
+  let removedByAbsence = 0;
   console.log(`[ssotica-sync][cobrancas] empresa=${integ.company_id} janela=${ymd(overallStart)}→${ymd(overallEnd)} processed=${processed} clientes_em_atraso=${parcelasPorCliente.size} backfill_chunk=${isBackfillChunk}${manualRecentWindow ? " manual_recent=true" : incrementalWindow ? ` slot=${incrementalWindow.slot + 1}/${INCREMENTAL_COBRANCAS_SLICES}` : ""}`);
 
   // Janela atual em formato YYYY-MM-DD para decidir quais parcelas existentes
@@ -997,7 +1001,7 @@ async function syncContasReceber(
   if (!isBackfillChunk) {
     const { data: cobrancasNoBanco } = await supabase
       .from("crm_cobrancas")
-      .select("id, ssotica_parcela_id, ssotica_cliente_id, data, assigned_to")
+      .select("id, ssotica_parcela_id, ssotica_cliente_id, vencimento, data, assigned_to")
       .eq("ssotica_company_id", integ.company_id)
       .not("ssotica_cliente_id", "is", null);
     const storedCobrancas = (cobrancasNoBanco ?? []) as (StoredCobranca & { data?: any })[];
@@ -1038,20 +1042,29 @@ async function syncContasReceber(
         const parcelasDoCard = Array.isArray((cob as any)?.data?.parcelas_atrasadas)
           ? ((cob as any).data.parcelas_atrasadas as any[])
           : [];
+        const parcelasDaLojaAtual = parcelasDoCard.filter((p) => {
+          const parcelaCompanyId = p?.ssotica_company_id ? String(p.ssotica_company_id) : String(integ.company_id);
+          return parcelaCompanyId === String(integ.company_id);
+        });
+        const hasParcelasOutraLoja = parcelasDoCard.some((p) => {
+          const parcelaCompanyId = p?.ssotica_company_id ? String(p.ssotica_company_id) : String(integ.company_id);
+          return parcelaCompanyId !== String(integ.company_id);
+        });
         const parcelaIdsDoCard = Array.from(new Set([
           ...(parcelaId ? [parcelaId] : []),
-          ...parcelasDoCard
+          ...parcelasDaLojaAtual
             .map((p) => (p?.parcela_id != null ? Number(p.parcela_id) : null))
             .filter((id): id is number => Number.isFinite(id) && id > 0),
         ]));
         const clienteId = Number(cob.ssotica_cliente_id);
+        const parcelasConhecidasDaLoja = parcelasDaLojaAtual.length > 0
+          ? parcelasDaLojaAtual
+          : (cob.vencimento ? [{ vencimento: cob.vencimento }] : []);
+        const todasParcelasDaLojaNaJanela = parcelasConhecidasDaLoja.length > 0
+          && parcelasConhecidasDaLoja.every((p) => isParcelaInWindow(p?.vencimento ?? null));
 
         // Cliente AINDA tem parcelas em atraso na janela atual → mantém o card
         if (parcelasPorCliente.has(clienteId)) continue;
-
-        // Cliente NÃO apareceu na janela de sync → não temos evidência de pagamento.
-        // Mantém o card (a parcela pode estar fora da janela ou pode não ter sido paginada).
-        if (!clientesAfetados.has(clienteId)) continue;
 
         // Defesa extra: se QUALQUER parcela deste card apareceu como ativa nesta
         // sync, segura (race condition entre páginas / card consolidado com mais
@@ -1065,10 +1078,23 @@ async function syncContasReceber(
         // conjunto real de parcelas do lead.
         // Se alguma parcela conhecida não foi vista como inativa nesta janela,
         // NÃO deletamos — preferimos manter um falso positivo do que migrar errado.
-        if (
-          parcelaIdsDoCard.length === 0 ||
-          !parcelaIdsDoCard.every((id) => parcelasInativasIds.has(id))
-        ) continue;
+        const hasDirectQuitacaoEvidence =
+          parcelaIdsDoCard.length > 0 &&
+          parcelaIdsDoCard.every((id) => parcelasInativasIds.has(id));
+
+        // Fallback para sync manual recente: a API da SSótica costuma remover da
+        // resposta as parcelas já pagas. Nessa situação, se TODAS as parcelas
+        // conhecidas deste card (somente da loja atual) estavam dentro da janela
+        // revisada e nenhuma apareceu como ativa, tratamos o desaparecimento como
+        // quitação. Nunca aplicamos isso em backfill/chunks parciais nem em cards
+        // cross-store, porque ali a ausência não é evidência suficiente.
+        const hasAbsenceQuitacaoEvidence =
+          allowMissingAsPaid &&
+          !clientesAfetados.has(clienteId) &&
+          !hasParcelasOutraLoja &&
+          todasParcelasDaLojaNaJanela;
+
+        if (!hasDirectQuitacaoEvidence && !hasAbsenceQuitacaoEvidence) continue;
 
         // OK, evidência confirmada de quitação DESTA parcela: remove só este card.
         const cobData = (cob as any).data ?? {};
@@ -1079,6 +1105,8 @@ async function syncContasReceber(
 
         await supabase.from("crm_cobrancas").delete().eq("id", cob.id);
         removed++;
+        if (hasDirectQuitacaoEvidence) removedByDirectEvidence++;
+        else if (hasAbsenceQuitacaoEvidence) removedByAbsence++;
 
         // ⚠️ IMPORTANTE: o cliente pode ter OUTRAS parcelas em aberto (mais
         // antigas ou em outros cards). Só consideramos "quitado de verdade"
@@ -1210,7 +1238,7 @@ async function syncContasReceber(
   const topSituacoes = Array.from(situacoesVistas.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10);
-  console.log(`[ssotica-sync][cobrancas] empresa=${integ.company_id} processed=${processed} created=${created} updated=${updated} removed=${removed} quitados=${clientesQuitadosSet.size} skipped=${JSON.stringify(skipped)} top_situacoes=${JSON.stringify(topSituacoes)}`);
+  console.log(`[ssotica-sync][cobrancas] empresa=${integ.company_id} processed=${processed} created=${created} updated=${updated} removed=${removed} removed_direct=${removedByDirectEvidence} removed_absence=${removedByAbsence} quitados=${clientesQuitadosSet.size} skipped=${JSON.stringify(skipped)} top_situacoes=${JSON.stringify(topSituacoes)}`);
 
   return { processed, created, updated, removed, chunks: chunksProcessed, clientesQuitados: Array.from(clientesQuitadosSet) };
 }
