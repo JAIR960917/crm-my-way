@@ -1765,6 +1765,7 @@ async function consolidateCrossStoreCobrancas(supabase: any): Promise<{ groups_m
         vencimento: maisAntiga.vencimento,
         dias_atraso: maisAntiga.dias_atraso,
         scheduled_date: maisAntiga.vencimento,
+        updated_at: new Date().toISOString(),
       })
       .eq("id", winner.id);
 
