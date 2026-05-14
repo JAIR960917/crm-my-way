@@ -454,6 +454,7 @@ async function syncContasReceber(
   const fullSweepWindow = !windowOverride && options?.fullSweep
     ? { start: addDays(today, -MAX_HISTORY_DAYS), end: addDays(today, COBRANCAS_FUTURE_DAYS) }
     : null;
+  const isFullSweep = !!fullSweepWindow;
   const manualRecentWindow = !windowOverride && !fullSweepWindow && options?.manualRecent
     ? getManualRecentCobrancaWindow(today)
     : null;
