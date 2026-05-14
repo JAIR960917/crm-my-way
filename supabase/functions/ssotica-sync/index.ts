@@ -454,6 +454,7 @@ async function syncContasReceber(
   const fullSweepWindow = !windowOverride && options?.fullSweep
     ? { start: addDays(today, -MAX_HISTORY_DAYS), end: addDays(today, COBRANCAS_FUTURE_DAYS) }
     : null;
+  const isFullSweep = !!fullSweepWindow;
   const manualRecentWindow = !windowOverride && !fullSweepWindow && options?.manualRecent
     ? getManualRecentCobrancaWindow(today)
     : null;
@@ -1137,7 +1138,14 @@ async function syncContasReceber(
           todasParcelasDaLojaNaJanela &&
           !hasParcelasOutraLoja;
 
-        if (!hasDirectQuitacaoEvidence && !allowAbsenceAsPaid) continue;
+        // 3) Em modo fullSweep (varredura completa de 96 meses, executada ao
+        //    final do backfill ou via "Resincronizar tudo"), qualquer card
+        //    cujo cliente NÃO apareça com nenhuma parcela ativa em toda a
+        //    janela histórica é considerado quitado. Cobre cards antigos de
+        //    Negativado/Ajuizado cujas parcelas a SSótica já removeu da API.
+        const allowFullSweepEmptyClient = isFullSweep;
+
+        if (!hasDirectQuitacaoEvidence && !allowAbsenceAsPaid && !allowFullSweepEmptyClient) continue;
 
         // OK, evidência confirmada de quitação DESTA parcela: remove só este card.
         const cobData = (cob as any).data ?? {};
