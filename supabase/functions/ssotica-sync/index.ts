@@ -2032,15 +2032,16 @@ async function runBackfillChunk(
       }
     }
 
-    // RECONCILIAÇÃO: no chunk final, além da reconciliação, roda uma varredura
-    // recente de Contas a Receber. Isso é crucial porque a SSótica costuma
-    // remover da resposta as parcelas já pagas; durante o backfill por chunks não
-    // deletamos cards por ausência, então essa passada final recente é a que limpa
-    // cobranças quitadas e devolve o cliente para Renovação.
+    // RECONCILIAÇÃO: no chunk final, roda uma varredura COMPLETA (96 meses)
+    // de Contas a Receber com a lógica de deleção habilitada. Isso é crucial
+    // porque a SSótica costuma remover da resposta as parcelas já pagas;
+    // durante o backfill por chunks não deletamos cards por ausência, então
+    // essa passada final é a que limpa cobranças quitadas (de qualquer época)
+    // e devolve o cliente para Renovação.
     if (finished) {
       try {
-        const finalRecentCobrancas = await syncContasReceber(supabase, integ, undefined, { manualRecent: true });
-        console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} refresh final recente: removed=${finalRecentCobrancas.removed} quitados=${finalRecentCobrancas.clientesQuitados.length}`);
+        const finalSweepCobrancas = await syncContasReceber(supabase, integ, undefined, { fullSweep: true });
+        console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} full sweep final: removed=${finalSweepCobrancas.removed} quitados=${finalSweepCobrancas.clientesQuitados.length}`);
         const reconciled = await reconcileRenovacoesVsCobrancas(supabase, integ.company_id);
         console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} reconciliação final removeu ${reconciled} renovações com dívida aberta`);
       } catch (recErr) {
