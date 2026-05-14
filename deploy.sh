@@ -374,7 +374,8 @@ run_frontend() {
   cat > "$runtime_config_path" <<EOF
 window.__CRM_RUNTIME_CONFIG__ = {
   supabaseUrl: "${frontend_backend_url}",
-  supabasePublishableKey: "${frontend_publishable_key}"
+  supabasePublishableKey: "${frontend_publishable_key}",
+  disableRealtime: true
 };
 EOF
 
