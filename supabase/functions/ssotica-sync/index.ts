@@ -911,8 +911,10 @@ async function syncContasReceber(
       }
     }
 
+    let targetCobrancaId = existingCobranca?.id ?? null;
+
     if (existingCobranca) {
-      await supabase
+      const { error: updateCobErr } = await supabase
         .from("crm_cobrancas")
         .update({
           ssotica_parcela_id: maisAntiga.parcela_id,
@@ -926,9 +928,14 @@ async function syncContasReceber(
           updated_at: new Date().toISOString(),
         })
         .eq("id", existingCobranca.id);
+
+      if (updateCobErr) {
+        throw new Error(`Falha ao atualizar cobrança ${existingCobranca.id} do cliente ${clienteIdNum}: ${updateCobErr.message}`);
+      }
+
       updated++;
     } else {
-      const { data: insertedCob } = await supabase.from("crm_cobrancas").insert({
+      const { data: insertedCob, error: insertCobErr } = await supabase.from("crm_cobrancas").insert({
         company_id: integ.company_id,
         ssotica_parcela_id: maisAntiga.parcela_id,
         ssotica_titulo_id: maisAntiga.titulo_id,
@@ -942,6 +949,12 @@ async function syncContasReceber(
         status: colunaKey,
         scheduled_date: maisAntiga.vencimento,
       }).select("id").maybeSingle();
+
+      if (insertCobErr) {
+        throw new Error(`Falha ao criar cobrança do cliente ${clienteIdNum}: ${insertCobErr.message}`);
+      }
+
+      targetCobrancaId = (insertedCob as any)?.id ?? null;
       created++;
 
       // Verifica se o cliente vinha de Renovação ANTES de logar
@@ -992,7 +1005,7 @@ async function syncContasReceber(
         to_status_key: colunaKey,
         to_status_label: cobStatusLabelByKey.get(colunaKey) ?? colunaKey,
         source_record_id: (renovacaoExistente as any).id,
-        target_record_id: existingCobranca?.id ?? null,
+        target_record_id: targetCobrancaId,
         ssotica_cliente_id: clienteIdNum,
       });
     }
