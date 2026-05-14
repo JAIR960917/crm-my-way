@@ -86,10 +86,13 @@ services:
       PORT: 4000
       DB_HOST: supabase-db
       DB_PORT: 5432
-      DB_USER: postgres
+      DB_USER: supabase_admin
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-postgres}
       DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
+      # Isola tabela de migrations do realtime no schema _realtime
+      # (evita conflito com schema_migrations do Supabase no schema public)
+      MIGRATIONS_TABLE: schema_migrations
       DB_ENC_KEY: supabaserealtime
       API_JWT_SECRET: ${JWT_SECRET}
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
