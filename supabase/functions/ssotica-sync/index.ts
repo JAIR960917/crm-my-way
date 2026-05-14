@@ -1090,7 +1090,6 @@ async function syncContasReceber(
         // cross-store, porque ali a ausência não é evidência suficiente.
         const hasAbsenceQuitacaoEvidence =
           allowMissingAsPaid &&
-          !clientesAfetados.has(clienteId) &&
           !hasParcelasOutraLoja &&
           todasParcelasDaLojaNaJanela;
 
