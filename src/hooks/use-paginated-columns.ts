@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { isRealtimeEnabled } from "@/lib/runtime-config";
 
 // Generic Kanban column pagination hook.
 // Each column status has its own paginated list, count and "loadMore" support.
@@ -252,6 +253,7 @@ export function usePaginatedColumns<T extends { id: string; status: string }>(
 
   // Realtime: refresh columns when the underlying table changes
   useEffect(() => {
+    if (!isRealtimeEnabled()) return;
     if (statusKeys.length === 0) return;
     let scheduled = false;
     const refresh = () => {

@@ -15,6 +15,7 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CalendarCheck, Plus, Pencil, Trash2, CalendarIcon, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isRealtimeEnabled } from "@/lib/runtime-config";
 
 type Appointment = {
   id: string;
@@ -123,6 +124,7 @@ export default function AppointmentsPage() {
 
   // Realtime: refresh appointments when the table changes
   useEffect(() => {
+    if (!isRealtimeEnabled()) return;
     let scheduled = false;
     const refresh = () => {
       if (scheduled) return;
