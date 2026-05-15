@@ -231,7 +231,11 @@ export default function SSoticaStatusPage() {
       body: {
         mode: hasPendingBackfill ? "resume_backfill" : "incremental",
         integration_id: id,
-        manual_recent: !hasPendingBackfill,
+        // Sempre força o sweep de quitação por ausência no clique manual,
+        // mesmo com backfill em andamento — caso contrário cards antigos
+        // já pagos (cuja parcela a SSótica removeu da resposta) ficam presos
+        // até o backfill terminar (pode levar dias em lojas grandes).
+        manual_recent: true,
       },
     });
     setActionId(null);

@@ -2550,13 +2550,26 @@ Deno.serve(async (req) => {
         // visível: chunk 1/16 sendo "iniciado" repetidamente sem nunca ir pro 2/16.
         // O incremental real só roda DEPOIS que o backfill chegar a "done". =====
         if (integ.backfill_status === "running" || integ.backfill_status === "scheduled") {
+          // 🧹 Sync MANUAL ("Sincronizar agora") com backfill pendente: roda PRIMEIRO
+          // o sweep de contas a receber em modo manualRecent (365d + 60 futuros)
+          // para limpar cards cuja parcela a SSótica já removeu da resposta
+          // (ex.: cliente quitou e o card ficou preso). Sem isso, o usuário teria
+          // que esperar o backfill terminar (pode levar dias em lojas grandes).
+          let manualSweep: any = null;
+          if (isManualSingle) {
+            try {
+              console.log(`[ssotica-sync][manual_sweep] empresa=${integ.company_id} rodando sweep de quitação antes do chunk de backfill`);
+              manualSweep = await syncContasReceber(supabase, integ, undefined, { manualRecent: true });
+              console.log(`[ssotica-sync][manual_sweep] empresa=${integ.company_id} sweep done removed=${manualSweep?.removed ?? 0} updated=${manualSweep?.updated ?? 0}`);
+            } catch (e) {
+              console.error(`[ssotica-sync][manual_sweep] empresa=${integ.company_id} falhou: ${(e as Error).message}`);
+            }
+          }
           const r = await runBackfillChunk(supabase, integ, dispatchConfig);
-          // libera o sync_status pra próxima invocação (que pode ser outro chunk
-          // do backfill, OU o incremental se já terminou).
           await supabase.from("ssotica_integrations").update({
             sync_status: "idle",
           }).eq("id", integ.id);
-          results.push({ integration_id: integ.id, ok: true, mode: "backfill_chunk", chunk: r });
+          results.push({ integration_id: integ.id, ok: true, mode: "backfill_chunk", chunk: r, manual_sweep: manualSweep });
           continue;
         }
 
