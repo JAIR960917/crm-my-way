@@ -35,6 +35,14 @@ if [ -f "${PROJECT_DIR}/.env" ]; then
   set +a
 fi
 
+docker_compose() {
+  if [ -f "${PROJECT_DIR}/.env" ]; then
+    docker compose --env-file "${PROJECT_DIR}/.env" "$@"
+  else
+    docker compose "$@"
+  fi
+}
+
 MODE="${1:-all}"
 
 persist_backend_runtime_settings_vps() {
@@ -103,7 +111,7 @@ sync_frontend_assets_cache() {
   fi
 
   local image_id
-  image_id="$(docker compose images -q crm-frontend 2>/dev/null | tail -n 1)"
+  image_id="$(docker_compose images -q crm-frontend 2>/dev/null | tail -n 1)"
 
   if [ -n "$image_id" ]; then
     local temp_container
@@ -383,9 +391,9 @@ EOF
   # estejam consistentes dentro da imagem do container crm-frontend.
   if [ "${FRONTEND_BUILD_MODE:-docker}" = "docker" ] && command -v docker >/dev/null 2>&1; then
     log "Rebuild do frontend via docker compose (modo docker)..."
-    docker compose build crm-frontend
+    docker_compose build crm-frontend
     sync_frontend_assets_cache || warn "Seguindo sem atualizar cache histórico de assets"
-    docker compose up -d --force-recreate crm-frontend
+    docker_compose up -d --force-recreate crm-frontend
     ok "Frontend rebuildado e reiniciado via docker compose"
     return 0
   fi
@@ -421,7 +429,7 @@ EOF
 # ---------------------------------------------------------------------------
 run_restart() {
   log "Recriando serviços supabase para reaplicar variáveis do .env..."
-  docker compose up -d --force-recreate \
+  docker_compose up -d --force-recreate \
     supabase-kong \
     supabase-auth \
     supabase-rest \
