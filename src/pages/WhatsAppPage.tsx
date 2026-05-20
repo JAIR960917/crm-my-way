@@ -484,8 +484,12 @@ export default function WhatsAppPage() {
             {/* Create New Instance */}
             {canManage && (
               <div className="rounded-lg border bg-card p-4 space-y-3">
-                <h3 className="font-semibold text-sm flex items-center gap-2">
-                  <Plus className="h-4 w-4" /> Criar Nova Instância
+                <h3 className="font-semibold text-sm flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2"><Plus className="h-4 w-4" /> Criar Nova Instância</span>
+                  <Button size="sm" variant="outline" onClick={handleSyncFromApiFull} disabled={instanceLoading}>
+                    {instanceLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                    Importar da API Full
+                  </Button>
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   <div className="space-y-1">
