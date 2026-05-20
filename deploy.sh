@@ -370,11 +370,11 @@ run_frontend() {
   # Por padrão o frontend aponta para o backend self-hosted desta VPS,
   # usando SUPABASE_PUBLIC_URL/ANON_KEY do .env. Para forçar Lovable Cloud
   # ou outro backend, defina FRONTEND_SUPABASE_URL/FRONTEND_SUPABASE_PUBLISHABLE_KEY no .env.
-  local frontend_backend_url="${FRONTEND_SUPABASE_URL:-${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-}}}"
-  local frontend_publishable_key="${FRONTEND_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_ANON_KEY:-${ANON_KEY:-}}}"
+  local frontend_backend_url="${FRONTEND_SUPABASE_URL:-${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-${VITE_SUPABASE_URL:-}}}}"
+  local frontend_publishable_key="${FRONTEND_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_ANON_KEY:-${ANON_KEY:-${VITE_SUPABASE_PUBLISHABLE_KEY:-}}}}"
 
   if [ -z "$frontend_backend_url" ] || [ -z "$frontend_publishable_key" ]; then
-    err "Defina SUPABASE_PUBLIC_URL e ANON_KEY (ou FRONTEND_SUPABASE_URL/FRONTEND_SUPABASE_PUBLISHABLE_KEY) no .env antes do build do frontend."
+    err "Defina SUPABASE_PUBLIC_URL e ANON_KEY (ou FRONTEND_SUPABASE_URL/FRONTEND_SUPABASE_PUBLISHABLE_KEY, ou VITE_SUPABASE_URL/VITE_SUPABASE_PUBLISHABLE_KEY) no .env antes do build do frontend."
     return 1
   fi
 
