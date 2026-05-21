@@ -2234,6 +2234,38 @@ async function shouldRunGlobalConsolidation(supabase: any, onlyIntegrationId?: s
   return !coordinator || coordinator.id === onlyIntegrationId;
 }
 
+// 🔒 LOCK GLOBAL — apenas UMA loja sincroniza por vez. Considera "ocupada" qualquer
+// integração com sync_status="running" OU backfill_status em ("running","scheduled")
+// com updated_at dentro da janela de stale. Órfãs (updated_at antigo) são ignoradas.
+async function getOtherBusyIntegration(
+  supabase: any,
+  exceptId: string,
+): Promise<{ id: string; company_id: string } | null> {
+  const staleCutoff = new Date(Date.now() - RUNNING_SYNC_STALE_MINUTES * 60 * 1000).toISOString();
+  const { data } = await supabase
+    .from("ssotica_integrations")
+    .select("id, company_id, sync_status, backfill_status, updated_at")
+    .neq("id", exceptId)
+    .eq("is_active", true)
+    .or("sync_status.eq.running,backfill_status.eq.running,backfill_status.eq.scheduled")
+    .gte("updated_at", staleCutoff)
+    .limit(1);
+  return (data && data.length > 0) ? data[0] as any : null;
+}
+
+function busyResponse(busy: { id: string; company_id: string }): Response {
+  return new Response(
+    JSON.stringify({
+      ok: false,
+      error: "another_store_busy",
+      busy_integration_id: busy.id,
+      busy_company_id: busy.company_id,
+      message: "Outra loja já está sincronizando. Aguarde concluir antes de iniciar uma nova sincronização (apenas 1 loja por vez).",
+    }),
+    { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+  );
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -2316,40 +2348,16 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ========== MODO 1: tick do cron — processa próximo chunk de qualquer integração pronta ==========
+    // ========== MODO 1 (DESATIVADO): backfill_tick.
+    // Sincronização agora é 100% manual — uma loja por vez. O modo de fan-out
+    // automático foi removido para evitar que múltiplas lojas disparem em
+    // paralelo, sobrecarregando a SSótica e causando timeouts.
     if (mode === "backfill_tick") {
-      // Inclui tanto "running" (já em andamento) quanto "scheduled" (agendadas pelo "Ressincronizar tudo").
-      // Quando uma loja "scheduled" é pega, promovemos para "running" antes de processar.
-      const { data: pending } = await supabase
-        .from("ssotica_integrations")
-        .select("*")
-        .eq("is_active", true)
-        .in("backfill_status", ["running", "scheduled"])
-        .lte("backfill_next_run_at", new Date().toISOString())
-        .order("backfill_next_run_at", { ascending: true })
-        .limit(BACKFILL_MAX_PARALLEL); // limita concorrência para evitar cancelamento do worker
-      const list = await decryptIntegrations(supabase, (pending ?? []) as Integration[]);
-      if (list.length === 0) {
-        return new Response(JSON.stringify({ ok: true, message: "Nenhum chunk pronto" }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const results: any[] = [];
-      for (const integ of list) {
-        // Promove "scheduled" → "running" para que runBackfillChunk processe normalmente
-        if (integ.backfill_status === "scheduled") {
-          await supabase
-            .from("ssotica_integrations")
-            .update({ backfill_status: "running", sync_status: "running" })
-            .eq("id", integ.id);
-          (integ as any).backfill_status = "running";
-        }
-        const r = await runBackfillChunk(supabase, integ, dispatchConfig);
-        results.push({ integration_id: integ.id, ...r });
-      }
-      return new Response(JSON.stringify({ ok: true, mode: "backfill_tick", results }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(JSON.stringify({
+        ok: false,
+        error: "mode_disabled",
+        message: "O modo backfill_tick foi desativado. Sincronização é manual: dispare cada loja individualmente.",
+      }), { status: 410, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ========== MODO 2: consolidar cobranças cross-store sem reimportar dados ==========
@@ -2374,12 +2382,10 @@ Deno.serve(async (req) => {
         rawScope === "cobrancas" || rawScope === "renovacoes" ? rawScope : "all";
       const initialPhase: "cr" | "vendas" = scope === "renovacoes" ? "vendas" : "cr";
 
-      // 🔒 EXCLUSIVIDADE: pausa qualquer outra loja em execução para evitar
-      // sobrecarregar a SSótica com requisições paralelas e estourar timeouts.
-      // Marca como "idle" e zera o agendamento de backfill das demais. O backfill
-      // pode ser retomado depois manualmente pelo botão Sincronizar.
-      // Obs: feito em duas chamadas separadas para evitar o problema do PostgREST
-      // que confunde vírgulas dentro de `in.()` quando usado em `.or()`.
+      // 🔒 LOCK GLOBAL: rejeita se outra loja está ocupada (apenas 1 por vez).
+      const busy = await getOtherBusyIntegration(supabase, onlyIntegrationId);
+      if (busy) return busyResponse(busy);
+
       try {
         const pauseFields = {
           sync_status: "idle",
@@ -2453,6 +2459,11 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+
+      // 🔒 LOCK GLOBAL: rejeita se outra loja está ocupada.
+      const busy = await getOtherBusyIntegration(supabase, onlyIntegrationId);
+      if (busy) return busyResponse(busy);
+
 
       const nowIso = new Date().toISOString();
       const { data: current, error: currentError } = await supabase
@@ -2530,35 +2541,36 @@ Deno.serve(async (req) => {
     }
 
     // ========== MODO 4 (default): sync incremental ==========
-    // 🔒 EXCLUSIVIDADE: clique manual em "Sincronizar" de UMA loja pausa as
-    // demais para evitar sobrecarregar a SSótica com requisições paralelas.
-    if (onlyIntegrationId && manualRecent) {
-      await supabase
-        .from("ssotica_integrations")
-        .update({
-          sync_status: "idle",
-          backfill_status: "idle",
-          backfill_next_run_at: null,
-          last_error: "Pausado automaticamente — outra loja foi acionada manualmente.",
-          updated_at: new Date().toISOString(),
-        })
-        .neq("id", onlyIntegrationId)
-        .or("sync_status.eq.running,backfill_status.in.(running,scheduled)");
+    // Sincronização é 100% manual: integration_id é OBRIGATÓRIO. Fan-out automático
+    // para todas as lojas foi removido — cada loja é disparada individualmente pela UI.
+    if (!onlyIntegrationId) {
+      return new Response(JSON.stringify({
+        ok: false,
+        error: "integration_id_required",
+        message: "integration_id é obrigatório. Sincronização global automática foi desativada — dispare cada loja manualmente.",
+      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const query = supabase
+    // 🔒 LOCK GLOBAL: rejeita se outra loja está ocupada (apenas 1 por vez).
+    // Como getOtherBusyIntegration exclui o próprio onlyIntegrationId, a auto-
+    // continuação de chunks via pg_net da MESMA loja passa normalmente.
+    {
+      const busy = await getOtherBusyIntegration(supabase, onlyIntegrationId);
+      if (busy) return busyResponse(busy);
+    }
+
+    const { data: integrations, error: intErr } = await supabase
       .from("ssotica_integrations")
       .select("*")
-      .eq("is_active", true);
-    if (onlyIntegrationId) query.eq("id", onlyIntegrationId);
-
-    const { data: integrations, error: intErr } = await query;
+      .eq("is_active", true)
+      .eq("id", onlyIntegrationId);
     if (intErr) throw intErr;
     if (!integrations || integrations.length === 0) {
       return new Response(JSON.stringify({ ok: true, message: "Nenhuma integração ativa" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
 
     // 🧹 LIMPEZA AUTOMÁTICA: SEMPRE roda (fan-out OU sub-invocação single).
     // Libera integrações que ficaram presas em "running" há mais de
@@ -2616,46 +2628,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ⚡ FAN-OUT via pg_net: enfileiramos um POST HTTP no banco para cada loja.
-    // Diferente de `fetch + waitUntil` (que pode ser morto quando o runtime pai
-    // termina), `pg_net.http_post` é executado pelo worker do Postgres — cada
-    // chamada vira uma invocação totalmente isolada da edge function, com seu
-    // próprio orçamento de tempo. Isso elimina os travamentos de Caicó/Jucurutu
-    // que ocorriam quando o runtime pai era encerrado antes dos disparos paralelos.
-    if (!onlyIntegrationId && integrations.length > 1) {
-      if (!dispatchConfig.url || !dispatchConfig.auth) {
-        throw new Error("Configuração de dispatch ausente para enfileirar o fan-out das integrações");
-      }
-      const dispatched: string[] = [];
-      const fanoutSkipped: any[] = [];
-      const fanoutErrors: any[] = [];
-      for (const integ of integrations as Integration[]) {
-        if (integ.sync_status === "running" && !isRunningSyncStale(integ as any)) {
-          fanoutSkipped.push({ integration_id: integ.id, ok: true, skipped: true, reason: "already_running" });
-          continue;
-        }
-        const { error: dispatchErr } = await supabase.rpc("ssotica_enqueue_sync", {
-          _url: dispatchConfig.url,
-          _auth: dispatchConfig.auth,
-          _integration_id: integ.id,
-          _force_full: forceFull,
-        });
-        if (dispatchErr) {
-          console.error(`[ssotica-sync][fanout] erro enfileirando ${integ.id}:`, dispatchErr);
-          fanoutErrors.push({ integration_id: integ.id, error: dispatchErr.message });
-          continue;
-        }
-        dispatched.push(integ.id);
-      }
-      return new Response(JSON.stringify({
-        ok: true,
-        mode: "incremental_fanout_pgnet",
-        dispatched_count: dispatched.length,
-        dispatched,
-        skipped: fanoutSkipped,
-        errors: fanoutErrors,
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
+    // Fan-out automático foi removido — sincronização é sempre per-store manual.
+
+
 
     await decryptIntegrations(supabase, integrations as Integration[]);
 
