@@ -402,12 +402,13 @@ export default function WhatsAppPage() {
     }
   }, [instances.length]);
 
-  useEffect(() => {
-    if (!loading && isAdmin && instances.length === 0 && !instanceLoading && !autoSyncTriedRef.current) {
-      autoSyncTriedRef.current = true;
-      void handleSyncFromApiFull();
-    }
-  }, [loading, isAdmin, instances.length, instanceLoading]);
+  // Auto-sync desativado — botão mantido apenas para uso futuro
+  // useEffect(() => {
+  //   if (!loading && isAdmin && instances.length === 0 && !instanceLoading && !autoSyncTriedRef.current) {
+  //     autoSyncTriedRef.current = true;
+  //     void handleSyncFromApiFull();
+  //   }
+  // }, [loading, isAdmin, instances.length, instanceLoading]);
 
   const resetForm = () => {
     setName(""); setMessage(""); setImageUrl(null);
@@ -555,8 +556,8 @@ export default function WhatsAppPage() {
             {/* Sync from API Full - botão destacado */}
             {canManage && (
               <div className="flex justify-end">
-                <Button onClick={handleSyncFromApiFull} disabled={instanceLoading} className="gap-2">
-                  {instanceLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                <Button onClick={handleSyncFromApiFull} disabled className="gap-2" title="Desativado — disponível para uso futuro">
+                  <RefreshCw className="h-4 w-4" />
                   Sincronizar instâncias da API Full
                 </Button>
               </div>
