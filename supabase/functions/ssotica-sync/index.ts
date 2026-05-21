@@ -260,6 +260,7 @@ interface Integration {
   backfill_started_at: string | null;
   backfill_next_run_at: string | null;
   backfill_phase?: string | null; // 'cr' | 'vendas' — etapa atual dentro do chunk
+  backfill_scope?: string | null; // 'all' | 'cobrancas' | 'renovacoes' — escopo do backfill atual
 }
 
 // Descriptografa bearer_token e license_code (que ficam criptografados em repouso no banco).
