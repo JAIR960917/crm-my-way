@@ -411,18 +411,19 @@ export default function SSoticaIntegrationsPage() {
     }
   }
 
-  async function handleSyncNow(integ: Integration, forceFull = false) {
+  async function handleSyncNow(integ: Integration, forceFull = false, scope: "all" | "cobrancas" | "renovacoes" = "all") {
     setSyncingId(integ.id);
     try {
       const body = forceFull
-        ? { mode: "start_backfill", integration_id: integ.id }
+        ? { mode: "start_backfill", integration_id: integ.id, scope }
         : { integration_id: integ.id, manual_recent: true };
       const { data, error } = await supabase.functions.invoke("ssotica-sync", { body });
       if (error) throw error;
 
       if (forceFull) {
+        const scopeLabel = scope === "renovacoes" ? "renovações" : scope === "cobrancas" ? "cobranças" : "completo";
         toast({
-          title: "Backfill de 96 meses iniciado",
+          title: `Backfill de 96 meses (${scopeLabel}) iniciado`,
           description: "O progresso será atualizado automaticamente nesta tela conforme os próximos lotes forem concluídos.",
         });
       } else {
@@ -662,15 +663,29 @@ export default function SSoticaIntegrationsPage() {
                             size="sm"
                             variant="secondary"
                             onClick={() => {
-                              if (confirm("Iniciar backfill de 96 meses (8 anos)?\n\nO processamento roda em 32 lotes de ~3 meses. O progresso será atualizado automaticamente nesta tela.\n\nFaça uma loja por vez para evitar sobrecarga.")) {
-                                handleSyncNow(integ, true);
+                              if (confirm("Iniciar backfill de 96 meses (Cobranças)?\n\nIsso vai reimportar todas as contas a receber dos últimos 8 anos e também atualizar os cards de renovação (pois clientes que pagaram migram para renovação).\n\nO processamento roda em 32 lotes. Faça uma loja por vez para evitar sobrecarga.")) {
+                                handleSyncNow(integ, true, "cobrancas");
                               }
                             }}
                             disabled={syncingId === integ.id || !integ.is_active}
-                            title="Backfill completo de 96 meses em 32 lotes de ~3 meses"
+                            title="Backfill de cobranças (também atualiza renovações)"
                           >
                             <RefreshCw className="h-3 w-3 mr-1" />
-                            Backfill 96m
+                            Backfill Cobranças
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                              if (confirm("Iniciar backfill de 96 meses (Renovações)?\n\nIsso vai reimportar apenas as vendas dos últimos 8 anos para atualizar os cards de renovação.\n\nO processamento roda em 32 lotes. Faça uma loja por vez para evitar sobrecarga.")) {
+                                handleSyncNow(integ, true, "renovacoes");
+                              }
+                            }}
+                            disabled={syncingId === integ.id || !integ.is_active}
+                            title="Backfill apenas de renovações (vendas)"
+                          >
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                            Backfill Renovações
                           </Button>
                           {((integ as any).backfill_status === "running" || (integ as any).backfill_status === "scheduled") && (
                             <Button
