@@ -2003,13 +2003,26 @@ async function runBackfillChunk(
 
   // Fase atual dentro do chunk: 'cr' (cobranças) → 'vendas'.
   // Cada fase é uma invocação separada para respeitar o limite de CPU do edge runtime.
-  const phase: "cr" | "vendas" = (integ.backfill_phase === "vendas") ? "vendas" : "cr";
+  // Escopo do backfill define quais fases rodam:
+  //   - 'all'         → cr + vendas (cobranças e renovações)
+  //   - 'cobrancas'   → apenas cr  (mas também roda vendas para mover pagas → renovação)
+  //   - 'renovacoes'  → apenas vendas
+  const scope: "all" | "cobrancas" | "renovacoes" =
+    (integ.backfill_scope === "cobrancas" || integ.backfill_scope === "renovacoes")
+      ? integ.backfill_scope
+      : "all";
+  const runsCr = scope === "all" || scope === "cobrancas";
+  const runsVendas = scope === "all" || scope === "cobrancas" || scope === "renovacoes";
+  // Decide a fase inicial respeitando o escopo
+  let phase: "cr" | "vendas" = (integ.backfill_phase === "vendas") ? "vendas" : "cr";
+  if (phase === "cr" && !runsCr) phase = "vendas";
+  if (phase === "vendas" && !runsVendas) phase = "cr";
 
   const { data: log } = await supabase.from("ssotica_sync_logs").insert({
     integration_id: integ.id,
     sync_type: `backfill_chunk_${idx + 1}_of_${total}_${phase}`,
     status: "running",
-    details: { chunk_index: idx, total_chunks: total, phase, range: { start: ymd(range.start), end: ymd(range.end) } },
+    details: { chunk_index: idx, total_chunks: total, phase, scope, range: { start: ymd(range.start), end: ymd(range.end) } },
   }).select("id").single();
   const logId = log?.id ?? null;
   const stopHeartbeat = startBackfillHeartbeat({
@@ -2028,12 +2041,25 @@ async function runBackfillChunk(
       v = await syncVendas(supabase, integ, false, [], range);
     }
 
-    // Avanço de fase/chunk:
-    // - Se acabou de rodar 'cr', próximo passo é 'vendas' do MESMO chunk.
-    // - Se acabou de rodar 'vendas', avança para o próximo chunk em fase 'cr'.
-    const phaseDone = phase === "vendas";
-    const nextIdx = phaseDone ? idx + 1 : idx;
-    const nextPhase: "cr" | "vendas" = phaseDone ? "cr" : "vendas";
+    // Avanço de fase/chunk respeitando o escopo:
+    // - Se acabou 'cr' e o escopo também roda 'vendas' → próxima fase do MESMO chunk = 'vendas'.
+    // - Caso contrário → avança chunk e volta para a primeira fase válida do escopo.
+    let nextIdx = idx;
+    let nextPhase: "cr" | "vendas" = phase;
+    let phaseDone = false;
+    if (phase === "cr") {
+      if (runsVendas) {
+        nextPhase = "vendas";
+      } else {
+        phaseDone = true;
+        nextIdx = idx + 1;
+        nextPhase = "cr";
+      }
+    } else {
+      phaseDone = true;
+      nextIdx = idx + 1;
+      nextPhase = runsCr ? "cr" : "vendas";
+    }
     const finished = phaseDone && nextIdx >= total;
     const finishedAt = new Date().toISOString();
     const nextRunAt = finished ? null : finishedAt;
