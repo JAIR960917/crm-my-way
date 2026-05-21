@@ -220,10 +220,8 @@ export default function TriggerCampaigns({ instances }: Props) {
     setSaving(true);
 
     try {
-      // Para Cobranças, força a instância oticaJoonker mesmo se empresa for Global
-      const joonkerInstance = instances.find(i => i.is_active && i.name?.toLowerCase().includes("oticajoonker"));
-      const forcedInstanceId = moduleKey === "cobrancas" && joonkerInstance ? joonkerInstance.id : null;
-      const effectiveInstanceId = forcedInstanceId || instanceId || null;
+      // Para Cobranças, o backend faz round-robin entre instâncias sem empresa vinculada.
+      const effectiveInstanceId = moduleKey === "cobrancas" ? null : (instanceId || null);
 
       const basePayload: any = {
         name: name.trim(),
