@@ -2628,46 +2628,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ⚡ FAN-OUT via pg_net: enfileiramos um POST HTTP no banco para cada loja.
-    // Diferente de `fetch + waitUntil` (que pode ser morto quando o runtime pai
-    // termina), `pg_net.http_post` é executado pelo worker do Postgres — cada
-    // chamada vira uma invocação totalmente isolada da edge function, com seu
-    // próprio orçamento de tempo. Isso elimina os travamentos de Caicó/Jucurutu
-    // que ocorriam quando o runtime pai era encerrado antes dos disparos paralelos.
-    if (!onlyIntegrationId && integrations.length > 1) {
-      if (!dispatchConfig.url || !dispatchConfig.auth) {
-        throw new Error("Configuração de dispatch ausente para enfileirar o fan-out das integrações");
-      }
-      const dispatched: string[] = [];
-      const fanoutSkipped: any[] = [];
-      const fanoutErrors: any[] = [];
-      for (const integ of integrations as Integration[]) {
-        if (integ.sync_status === "running" && !isRunningSyncStale(integ as any)) {
-          fanoutSkipped.push({ integration_id: integ.id, ok: true, skipped: true, reason: "already_running" });
-          continue;
-        }
-        const { error: dispatchErr } = await supabase.rpc("ssotica_enqueue_sync", {
-          _url: dispatchConfig.url,
-          _auth: dispatchConfig.auth,
-          _integration_id: integ.id,
-          _force_full: forceFull,
-        });
-        if (dispatchErr) {
-          console.error(`[ssotica-sync][fanout] erro enfileirando ${integ.id}:`, dispatchErr);
-          fanoutErrors.push({ integration_id: integ.id, error: dispatchErr.message });
-          continue;
-        }
-        dispatched.push(integ.id);
-      }
-      return new Response(JSON.stringify({
-        ok: true,
-        mode: "incremental_fanout_pgnet",
-        dispatched_count: dispatched.length,
-        dispatched,
-        skipped: fanoutSkipped,
-        errors: fanoutErrors,
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
+    // Fan-out automático foi removido — sincronização é sempre per-store manual.
+
+
 
     await decryptIntegrations(supabase, integrations as Integration[]);
 
