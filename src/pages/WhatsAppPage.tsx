@@ -588,6 +588,34 @@ export default function WhatsAppPage() {
                 </Button>
               </div>
             )}
+            {/* Configurações de envio */}
+            {canManage && (
+              <div className="rounded-lg border bg-card p-4 space-y-3">
+                <h3 className="font-semibold text-sm flex items-center gap-2">
+                  <Clock className="h-4 w-4" /> Configurações de envio
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Intervalo entre envios (segundos)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={sendDelaySeconds}
+                      onChange={(e) => setSendDelaySeconds(e.target.value)}
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Tempo de espera entre cada mensagem enviada. Vale para todos os módulos (incluindo o round-robin de Cobranças).
+                    </p>
+                  </div>
+                  <div>
+                    <Button onClick={handleSaveSendDelay} disabled={savingDelay} className="w-full sm:w-auto">
+                      {savingDelay ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+                      Salvar intervalo
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
             {/* Create New Instance */}
             {canManage && (
               <div className="rounded-lg border bg-card p-4 space-y-3">
