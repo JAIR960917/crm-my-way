@@ -698,6 +698,11 @@ export default function CobrancasPage() {
               <Plus className="mr-2 h-4 w-4" />Nova Cobrança
             </Button>
           )}
+          {isAdmin && (
+            <Button size="sm" variant="destructive" onClick={() => setBulkDeleteOpen(true)}>
+              <Trash2 className="mr-2 h-4 w-4" />Excluir todos
+            </Button>
+          )}
         </div>
       </div>
 
