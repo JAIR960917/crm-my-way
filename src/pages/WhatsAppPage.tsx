@@ -527,15 +527,20 @@ export default function WhatsAppPage() {
         {/* Instance Management Tab */}
         {isAdmin && (
           <TabsContent value="instance" className="flex-1 space-y-4">
+            {/* Sync from API Full - botão destacado */}
+            {canManage && (
+              <div className="flex justify-end">
+                <Button onClick={handleSyncFromApiFull} disabled={instanceLoading} className="gap-2">
+                  {instanceLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Sincronizar instâncias da API Full
+                </Button>
+              </div>
+            )}
             {/* Create New Instance */}
             {canManage && (
               <div className="rounded-lg border bg-card p-4 space-y-3">
-                <h3 className="font-semibold text-sm flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-2"><Plus className="h-4 w-4" /> Criar Nova Instância</span>
-                  <Button size="sm" variant="outline" onClick={handleSyncFromApiFull} disabled={instanceLoading}>
-                    {instanceLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                    Importar da API Full
-                  </Button>
+                <h3 className="font-semibold text-sm flex items-center gap-2">
+                  <Plus className="h-4 w-4" /> Criar Nova Instância
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   <div className="space-y-1">
