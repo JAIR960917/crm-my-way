@@ -315,6 +315,16 @@ function buildCobrancaVars(
   }, 0);
   const totalEffective = totalParcelas > 0 ? totalParcelas : Number(data.total_atraso || 0);
 
+  // Lista formatada das parcelas vencidas, ordenadas por número
+  const vencidasParaLista = vencidas.slice().sort((a, b) =>
+    Number(a?.numero_parcela || 0) - Number(b?.numero_parcela || 0),
+  );
+  const listaParcelasVencidas = vencidasParaLista.map((p) => {
+    const num = p?.numero_parcela ?? "?";
+    const total = p?.ssotica_raw?.titulo?.qtd_parcelas ?? p?.qtd_parcelas ?? "?";
+    return `Parcela ${num}/${total} Valor ${formatBRL(p?.valor)}\n                        Data ${formatDateBR(p?.vencimento)}`;
+  }).join("\n");
+
   const companyId = card?.company_id || card?.ssotica_company_id || null;
   const company = companyId ? companies.get(companyId) : null;
 
@@ -327,6 +337,7 @@ function buildCobrancaVars(
     cnpj_empresa: company?.cnpj || "",
     nome_empresa: company?.name || "",
     valor_total_parcelas: formatBRL(totalEffective),
+    parcelas_vencidas: listaParcelasVencidas,
   };
 }
 function applyTemplateVars(template: string, vars: Record<string, string>): string {
