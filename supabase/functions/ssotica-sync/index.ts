@@ -2107,7 +2107,7 @@ async function runBackfillChunk(
 
     console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} fase=${phase} OK. ${finished ? 'CONCLUÍDO!' : `próximo: chunk ${nextIdx + 1} fase ${nextPhase} (agendado)`}`);
 
-    if (!finished) {
+    if (!finished && !wasPausedByUser) {
       try {
         if (!dispatchConfig.url || !dispatchConfig.auth) {
           console.warn(`[ssotica-sync][backfill] empresa=${integ.company_id} continuação automática não disparada agora; runner agendado continuará pelo backfill_next_run_at`);
