@@ -478,8 +478,8 @@ export default function WhatsAppPage() {
       }));
       ({ error } = await supabase.from("whatsapp_campaigns").insert(rows));
     } else if (companyId === "__GLOBAL__") {
-      // Global: normalmente usa instância da empresa do lead, mas para Cobranças força oticaJoonker
-      ({ error } = await supabase.from("whatsapp_campaigns").insert({ ...basePayload, company_id: null, instance_id: forcedInstanceId, is_active: false }));
+      // Global: usa instância da empresa do lead (ou round-robin se Cobranças)
+      ({ error } = await supabase.from("whatsapp_campaigns").insert({ ...basePayload, company_id: null, instance_id: effectiveInstanceId, is_active: false }));
     } else {
       ({ error } = await supabase.from("whatsapp_campaigns").insert({ ...basePayload, company_id: companyId, is_active: false }));
     }
