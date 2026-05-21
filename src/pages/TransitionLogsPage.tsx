@@ -605,6 +605,7 @@ export default function TransitionLogsPage() {
                     <TableHead>Evento</TableHead>
                     <TableHead>Cliente</TableHead>
                     <TableHead>Coluna</TableHead>
+                    <TableHead>Instância</TableHead>
                     <TableHead>Detalhes</TableHead>
                     <TableHead>Empresa</TableHead>
                   </TableRow>
