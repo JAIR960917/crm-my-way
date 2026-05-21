@@ -234,6 +234,17 @@ export default function SSoticaStatusPage() {
       },
     });
     setActionId(null);
+    // Lock global: outra loja está sincronizando.
+    if (data && (data as any).error === "another_store_busy") {
+      toast({
+        title: "Outra loja está sincronizando",
+        description: (data as any).message ?? "Aguarde terminar antes de iniciar outra (1 loja por vez).",
+        variant: "destructive",
+      });
+      load();
+      return;
+    }
+
     if (error) {
       const isAlreadyRunning =
         error.message?.includes("non-2xx") &&
