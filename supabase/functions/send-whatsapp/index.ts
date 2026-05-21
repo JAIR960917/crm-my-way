@@ -623,13 +623,18 @@ serve(async (req) => {
         if (cards.length === 0) continue;
 
         const { data: existingSends } = await supabase.from("whatsapp_trigger_sends")
-          .select("lead_id, step_id, status").eq("campaign_id", tc.id);
+          .select("lead_id, step_id, status, sent_at").eq("campaign_id", tc.id);
 
         const sendsByCard = new Map<string, Set<string>>();
+        // Última data de envio bem-sucedido por card (para regra "1 envio por entrada na coluna")
+        const lastSentAtByCard = new Map<string, number>();
         for (const s of (existingSends || []) as any[]) {
           if (s.status === "sent") {
             if (!sendsByCard.has(s.lead_id)) sendsByCard.set(s.lead_id, new Set());
             sendsByCard.get(s.lead_id)!.add(s.step_id);
+            const ts = s.sent_at ? new Date(s.sent_at).getTime() : 0;
+            const prev = lastSentAtByCard.get(s.lead_id) || 0;
+            if (ts > prev) lastSentAtByCard.set(s.lead_id, ts);
           }
         }
 
@@ -682,6 +687,12 @@ serve(async (req) => {
           const enteredAt = new Date(card.updated_at);
           const now = new Date();
           const daysSinceEntry = Math.floor((now.getTime() - enteredAt.getTime()) / (1000 * 60 * 60 * 24));
+
+          // Regra: 1 gatilho por entrada na coluna.
+          // Se já houve envio bem-sucedido APÓS o card entrar na coluna atual,
+          // não envia novamente até que o card saia e volte (updated_at muda).
+          const lastSentTs = lastSentAtByCard.get(card.id) || 0;
+          if (lastSentTs >= enteredAt.getTime()) continue;
 
           for (const step of steps) {
             if (sentStepIds.has(step.id)) continue;
