@@ -291,6 +291,14 @@ serve(async (req) => {
     const userToCompany = await buildUserToCompanyMap(supabase);
     const companyToSession = await buildCompanyToSessionMap(supabase);
 
+    // Configurações dinâmicas
+    const SEND_DELAY_MS = await loadSendDelayMs(supabase);
+    const unboundSessions = await loadUnboundSessions(supabase);
+    const pickRoundRobinSession = (index: number): string | null => {
+      if (unboundSessions.length === 0) return null;
+      return unboundSessions[index % unboundSessions.length];
+    };
+
     // ========== PERIOD CAMPAIGNS ==========
     const { data: campaigns } = await supabase.from("whatsapp_campaigns")
       .select("*").eq("is_active", true).lte("start_date", today).gte("end_date", today);
