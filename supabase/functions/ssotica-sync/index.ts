@@ -2692,7 +2692,7 @@ Deno.serve(async (req) => {
         _url: dispatchConfig.url,
         _auth: dispatchConfig.auth,
         _integration_id: onlyIntegrationId,
-        _force_full: true,
+        _force_full: false,
       });
       if (dispatchErr) throw dispatchErr;
 
