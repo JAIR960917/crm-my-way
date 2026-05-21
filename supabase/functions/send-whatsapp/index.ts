@@ -328,6 +328,17 @@ serve(async (req) => {
       return cobrancasSessions[index % cobrancasSessions.length];
     };
 
+    // Mapa session -> nome da instância (para logs de gatilho de cobrança)
+    const sessionToInstanceName = new Map<string, string>();
+    {
+      const { data: allInstances } = await supabase
+        .from("whatsapp_instances")
+        .select("session, name");
+      for (const i of (allInstances || []) as any[]) {
+        if (i?.session) sessionToInstanceName.set(i.session, i.name || i.session);
+      }
+    }
+
     // ========== PERIOD CAMPAIGNS ==========
     const { data: campaigns } = await supabase.from("whatsapp_campaigns")
       .select("*").eq("is_active", true).lte("start_date", today).gte("end_date", today);
