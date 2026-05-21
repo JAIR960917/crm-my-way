@@ -411,18 +411,19 @@ export default function SSoticaIntegrationsPage() {
     }
   }
 
-  async function handleSyncNow(integ: Integration, forceFull = false) {
+  async function handleSyncNow(integ: Integration, forceFull = false, scope: "all" | "cobrancas" | "renovacoes" = "all") {
     setSyncingId(integ.id);
     try {
       const body = forceFull
-        ? { mode: "start_backfill", integration_id: integ.id }
+        ? { mode: "start_backfill", integration_id: integ.id, scope }
         : { integration_id: integ.id, manual_recent: true };
       const { data, error } = await supabase.functions.invoke("ssotica-sync", { body });
       if (error) throw error;
 
       if (forceFull) {
+        const scopeLabel = scope === "renovacoes" ? "renovações" : scope === "cobrancas" ? "cobranças" : "completo";
         toast({
-          title: "Backfill de 96 meses iniciado",
+          title: `Backfill de 96 meses (${scopeLabel}) iniciado`,
           description: "O progresso será atualizado automaticamente nesta tela conforme os próximos lotes forem concluídos.",
         });
       } else {
