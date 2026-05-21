@@ -663,15 +663,29 @@ export default function SSoticaIntegrationsPage() {
                             size="sm"
                             variant="secondary"
                             onClick={() => {
-                              if (confirm("Iniciar backfill de 96 meses (8 anos)?\n\nO processamento roda em 32 lotes de ~3 meses. O progresso será atualizado automaticamente nesta tela.\n\nFaça uma loja por vez para evitar sobrecarga.")) {
-                                handleSyncNow(integ, true);
+                              if (confirm("Iniciar backfill de 96 meses (Cobranças)?\n\nIsso vai reimportar todas as contas a receber dos últimos 8 anos e também atualizar os cards de renovação (pois clientes que pagaram migram para renovação).\n\nO processamento roda em 32 lotes. Faça uma loja por vez para evitar sobrecarga.")) {
+                                handleSyncNow(integ, true, "cobrancas");
                               }
                             }}
                             disabled={syncingId === integ.id || !integ.is_active}
-                            title="Backfill completo de 96 meses em 32 lotes de ~3 meses"
+                            title="Backfill de cobranças (também atualiza renovações)"
                           >
                             <RefreshCw className="h-3 w-3 mr-1" />
-                            Backfill 96m
+                            Backfill Cobranças
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                              if (confirm("Iniciar backfill de 96 meses (Renovações)?\n\nIsso vai reimportar apenas as vendas dos últimos 8 anos para atualizar os cards de renovação.\n\nO processamento roda em 32 lotes. Faça uma loja por vez para evitar sobrecarga.")) {
+                                handleSyncNow(integ, true, "renovacoes");
+                              }
+                            }}
+                            disabled={syncingId === integ.id || !integ.is_active}
+                            title="Backfill apenas de renovações (vendas)"
+                          >
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                            Backfill Renovações
                           </Button>
                           {((integ as any).backfill_status === "running" || (integ as any).backfill_status === "scheduled") && (
                             <Button
