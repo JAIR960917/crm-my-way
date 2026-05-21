@@ -194,6 +194,17 @@ export default function TransitionLogsPage() {
     load();
     loadCompletionLogs();
     loadFlowEvents();
+
+    // Realtime: novos eventos de cobrança (gatilhos) aparecem instantaneamente
+    const channel = (supabase as any)
+      .channel("crm_cobranca_flow_events_live")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "crm_cobranca_flow_events" },
+        () => { loadFlowEvents(); }
+      )
+      .subscribe();
+    return () => { (supabase as any).removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
@@ -594,6 +605,7 @@ export default function TransitionLogsPage() {
                     <TableHead>Evento</TableHead>
                     <TableHead>Cliente</TableHead>
                     <TableHead>Coluna</TableHead>
+                    <TableHead>Instância</TableHead>
                     <TableHead>Detalhes</TableHead>
                     <TableHead>Empresa</TableHead>
                   </TableRow>
@@ -601,13 +613,13 @@ export default function TransitionLogsPage() {
                 <TableBody>
                   {flowLoading ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                         Carregando...
                       </TableCell>
                     </TableRow>
                   ) : flowEvents.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                         Nenhum evento de cobrança registrado
                       </TableCell>
                     </TableRow>
@@ -616,6 +628,7 @@ export default function TransitionLogsPage() {
                       const cobData = e.cobranca?.data ?? {};
                       const cliente = cobData?.cliente_nome ?? cobData?.nome ?? cobData?.ssotica_raw?.cliente_nome ?? "—";
                       const empresaId = e.cobranca?.company_id ?? e.cobranca?.ssotica_company_id ?? null;
+                      const instancia = e.details?.instance_name ?? e.details?.session ?? "—";
                       const eventBadge =
                         e.event_type === "gatilho_enviado" ? (
                           <Badge variant="outline" className="border-blue-300 bg-blue-500/10 text-blue-700">
@@ -651,6 +664,9 @@ export default function TransitionLogsPage() {
                           <TableCell className="font-medium">{cliente}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {e.status_label ?? e.status_key ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {String(instancia)}
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground max-w-[280px] truncate" title={String(detalhe)}>
                             {String(detalhe)}

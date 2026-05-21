@@ -328,6 +328,17 @@ serve(async (req) => {
       return cobrancasSessions[index % cobrancasSessions.length];
     };
 
+    // Mapa session -> nome da instância (para logs de gatilho de cobrança)
+    const sessionToInstanceName = new Map<string, string>();
+    {
+      const { data: allInstances } = await supabase
+        .from("whatsapp_instances")
+        .select("session, name");
+      for (const i of (allInstances || []) as any[]) {
+        if (i?.session) sessionToInstanceName.set(i.session, i.name || i.session);
+      }
+    }
+
     // ========== PERIOD CAMPAIGNS ==========
     const { data: campaigns } = await supabase.from("whatsapp_campaigns")
       .select("*").eq("is_active", true).lte("start_date", today).gte("end_date", today);
@@ -599,19 +610,57 @@ serve(async (req) => {
               if (!isFirstSend) await sleep(SEND_DELAY_MS);
               isFirstSend = false;
               const result = await sendMessage(session!, APIFULL_API_KEY, cp, messageBody, step.image_url);
+              const instanceName = sessionToInstanceName.get(session!) || session!;
               if (result.ok) {
                 await supabase.from("whatsapp_trigger_sends").insert({ campaign_id: tc.id, step_id: step.id, lead_id: card.id, phone: cp, status: "sent", sent_at: new Date().toISOString() });
                 totalSent++;
                 triggerSentNow++;
+                if (isCobrancas) {
+                  await supabase.from("crm_cobranca_flow_events").insert({
+                    cobranca_id: card.id,
+                    status_id: tc.status_id,
+                    status_key: statusKey,
+                    status_label: tcStatusLabel,
+                    event_type: "gatilho_enviado",
+                    whatsapp_trigger_campaign_id: tc.id,
+                    whatsapp_trigger_campaign_name: tc.name,
+                    details: { phone: cp, session, instance_name: instanceName, step_position: step.position, sent_at: new Date().toISOString() },
+                  });
+                }
               } else {
                 await supabase.from("whatsapp_trigger_sends").insert({ campaign_id: tc.id, step_id: step.id, lead_id: card.id, phone: cp, status: "error", error_message: result.errorMessage || "Erro" });
                 totalErrors++;
                 triggerErrorsNow++;
+                if (isCobrancas) {
+                  await supabase.from("crm_cobranca_flow_events").insert({
+                    cobranca_id: card.id,
+                    status_id: tc.status_id,
+                    status_key: statusKey,
+                    status_label: tcStatusLabel,
+                    event_type: "gatilho_falhou",
+                    whatsapp_trigger_campaign_id: tc.id,
+                    whatsapp_trigger_campaign_name: tc.name,
+                    details: { phone: cp, session, instance_name: instanceName, step_position: step.position, error: result.errorMessage || "Erro" },
+                  });
+                }
               }
             } catch (e) {
               await supabase.from("whatsapp_trigger_sends").insert({ campaign_id: tc.id, step_id: step.id, lead_id: card.id, phone: cp, status: "error", error_message: e instanceof Error ? e.message : "Unknown error" });
               totalErrors++;
               triggerErrorsNow++;
+              if (isCobrancas) {
+                const instanceName = sessionToInstanceName.get(session!) || session!;
+                await supabase.from("crm_cobranca_flow_events").insert({
+                  cobranca_id: card.id,
+                  status_id: tc.status_id,
+                  status_key: statusKey,
+                  status_label: tcStatusLabel,
+                  event_type: "gatilho_falhou",
+                  whatsapp_trigger_campaign_id: tc.id,
+                  whatsapp_trigger_campaign_name: tc.name,
+                  details: { phone: cp, session, instance_name: instanceName, step_position: step.position, error: e instanceof Error ? e.message : "Unknown error" },
+                });
+              }
             }
 
             break;
