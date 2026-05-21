@@ -2234,6 +2234,38 @@ async function shouldRunGlobalConsolidation(supabase: any, onlyIntegrationId?: s
   return !coordinator || coordinator.id === onlyIntegrationId;
 }
 
+// 🔒 LOCK GLOBAL — apenas UMA loja sincroniza por vez. Considera "ocupada" qualquer
+// integração com sync_status="running" OU backfill_status em ("running","scheduled")
+// com updated_at dentro da janela de stale. Órfãs (updated_at antigo) são ignoradas.
+async function getOtherBusyIntegration(
+  supabase: any,
+  exceptId: string,
+): Promise<{ id: string; company_id: string } | null> {
+  const staleCutoff = new Date(Date.now() - RUNNING_SYNC_STALE_MINUTES * 60 * 1000).toISOString();
+  const { data } = await supabase
+    .from("ssotica_integrations")
+    .select("id, company_id, sync_status, backfill_status, updated_at")
+    .neq("id", exceptId)
+    .eq("is_active", true)
+    .or("sync_status.eq.running,backfill_status.eq.running,backfill_status.eq.scheduled")
+    .gte("updated_at", staleCutoff)
+    .limit(1);
+  return (data && data.length > 0) ? data[0] as any : null;
+}
+
+function busyResponse(busy: { id: string; company_id: string }): Response {
+  return new Response(
+    JSON.stringify({
+      ok: false,
+      error: "another_store_busy",
+      busy_integration_id: busy.id,
+      busy_company_id: busy.company_id,
+      message: "Outra loja já está sincronizando. Aguarde concluir antes de iniciar uma nova sincronização (apenas 1 loja por vez).",
+    }),
+    { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+  );
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
