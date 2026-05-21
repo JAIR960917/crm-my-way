@@ -472,6 +472,40 @@ export default function SSoticaIntegrationsPage() {
     }
   }
 
+  // Roda a MESMA varredura que rodou ao fim do backfill da Soledade:
+  // sweep 96 meses de Contas a Receber com deleção por ausência, depois
+  // vendas para mover quitados para Renovação e reconciliação final.
+  async function handleFullSweep(integ: Integration) {
+    if (!confirm(
+      "Forçar varredura completa de quitações?\n\n" +
+      "Vai consultar 96 meses no SSótica para esta loja, remover da Cobrança " +
+      "os clientes que já pagaram tudo e movê-los para Renovação. " +
+      "Pode levar alguns minutos. Faça uma loja por vez."
+    )) return;
+
+    setSyncingId(integ.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("ssotica-sync", {
+        body: { mode: "full_sweep", integration_id: integ.id },
+      });
+      if (error) throw error;
+      if (!(data as any)?.ok) {
+        throw new Error((data as any)?.error ?? "Erro desconhecido");
+      }
+      const cr = (data as any).contas_receber;
+      const v = (data as any).vendas;
+      toast({
+        title: "Varredura concluída",
+        description: `${cr?.removed ?? 0} cobranças removidas, ${cr?.clientesQuitados?.length ?? 0} clientes movidos para Renovação. Vendas: +${v?.created ?? 0} renovações criadas.`,
+      });
+      await fetchAll();
+    } catch (e: any) {
+      toast({ title: "Erro na varredura", description: e.message, variant: "destructive" });
+    } finally {
+      setSyncingId(null);
+    }
+  }
+
   async function handleTestConnection(integ: Integration) {
     setTestingId(integ.id);
     setTestResult(null);
@@ -735,6 +769,20 @@ export default function SSoticaIntegrationsPage() {
                               <Plug2 className="h-3 w-3 mr-1" />
                             )}
                             Testar conexão
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => handleFullSweep(integ)}
+                            disabled={syncingId === integ.id || !integ.is_active || (integ as any).backfill_status === "running" || (integ as any).backfill_status === "scheduled"}
+                            title="Varredura completa (96 meses) de quitações — move clientes pagos para Renovação. Mesma rotina que rodou na Soledade ao fim do backfill."
+                          >
+                            {syncingId === integ.id ? (
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="h-3 w-3 mr-1" />
+                            )}
+                            Varredura de quitações
                           </Button>
                           <Button size="sm" variant="ghost" onClick={() => openLogs(integ)}>
                             <History className="h-3 w-3 mr-1" />
