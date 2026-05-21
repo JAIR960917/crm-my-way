@@ -89,9 +89,30 @@ async function sendMessage(session: string, apiKey: string, phone: string, text:
   return resolveSendResult(response.ok, result);
 }
 
-// Delay between WhatsApp sends to avoid being banned (30 seconds)
-const SEND_DELAY_MS = 30_000;
+// Delay between WhatsApp sends to avoid being banned (default 30s, configurable via system_settings)
+const DEFAULT_SEND_DELAY_MS = 30_000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function loadSendDelayMs(supabase: any): Promise<number> {
+  const { data } = await supabase
+    .from("system_settings")
+    .select("setting_value")
+    .eq("setting_key", "whatsapp_send_delay_seconds")
+    .maybeSingle();
+  const secs = parseInt(data?.setting_value || "", 10);
+  if (!isNaN(secs) && secs >= 0) return secs * 1000;
+  return DEFAULT_SEND_DELAY_MS;
+}
+
+async function loadUnboundSessions(supabase: any): Promise<string[]> {
+  const { data } = await supabase
+    .from("whatsapp_instances")
+    .select("session, is_active, company_id, created_at")
+    .is("company_id", null)
+    .eq("is_active", true)
+    .order("created_at", { ascending: true });
+  return ((data || []) as any[]).map((i) => i.session).filter(Boolean);
+}
 
 // Brasília time helpers (UTC-3, no DST)
 const BRT_OFFSET_MINUTES = -180;
