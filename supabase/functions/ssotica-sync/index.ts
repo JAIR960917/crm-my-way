@@ -2508,11 +2508,15 @@ Deno.serve(async (req) => {
     // antes do auto-cleanup do ciclo seguinte rodar.
     {
       const staleCutoff = new Date(Date.now() - RUNNING_SYNC_STALE_MINUTES * 60 * 1000).toISOString();
+      const nowIsoStale = new Date().toISOString();
       const staleQuery = supabase
         .from("ssotica_integrations")
         .select("id")
         .eq("sync_status", "running")
-        .lt("updated_at", staleCutoff);
+        .lt("updated_at", staleCutoff)
+        // Só considera órfã se o lease do heartbeat também expirou (ou não existe).
+        // Isso evita matar uma execução viva que está apenas processando um chunk grande.
+        .or(`backfill_next_run_at.is.null,backfill_next_run_at.lt.${nowIsoStale}`);
       // Em sub-invocação, restringe à própria integração (evita interferir em outras lojas)
       if (onlyIntegrationId) staleQuery.eq("id", onlyIntegrationId);
       const { data: staleIntegs } = await staleQuery;
