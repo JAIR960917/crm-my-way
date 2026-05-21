@@ -670,7 +670,8 @@ serve(async (req) => {
             if (sentStepIds.has(step.id)) continue;
             if (daysSinceEntry < step.delay_days) continue;
 
-            const messageBody = step.message.replace(/\{nome\}/gi, name);
+            const vars = buildCobrancaVars(card, name, companiesMap);
+            const messageBody = applyTemplateVars(step.message, vars);
             const cp = cleanPhone(phone);
 
             try {
