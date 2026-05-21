@@ -317,10 +317,16 @@ serve(async (req) => {
         const cfg = MODULE_CONFIG[moduleKey];
         if (!cfg) continue;
 
-        // Para global, a sessão é resolvida por card (instância da empresa do lead).
-        // Para não-global, resolvemos uma sessão fixa.
-        const fixedSession = isGlobal ? null : await resolveSession(supabase, campaign.instance_id);
-        if (!isGlobal && !fixedSession) continue;
+        // Cobranças: round-robin entre instâncias sem empresa vinculada.
+        // Global (sem empresa): sessão por card (instância da empresa do lead).
+        // Caso normal: sessão fixa da campanha.
+        const isCobrancas = moduleKey === "cobrancas";
+        const fixedSession = (isGlobal || isCobrancas) ? null : await resolveSession(supabase, campaign.instance_id);
+        if (!isGlobal && !isCobrancas && !fixedSession) continue;
+        if (isCobrancas && unboundSessions.length === 0) {
+          console.warn(`[campaign ${campaign.id}] cobranças sem instâncias sem empresa vinculada — pulando`);
+          continue;
+        }
 
         const statusKey = await resolveStatusKey(supabase, cfg.statusTable, campaign.status_id);
         if (!statusKey) continue;
