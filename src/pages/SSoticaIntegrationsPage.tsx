@@ -770,6 +770,20 @@ export default function SSoticaIntegrationsPage() {
                             )}
                             Testar conexão
                           </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => handleFullSweep(integ)}
+                            disabled={syncingId === integ.id || !integ.is_active || (integ as any).backfill_status === "running" || (integ as any).backfill_status === "scheduled"}
+                            title="Varredura completa (96 meses) de quitações — move clientes pagos para Renovação. Mesma rotina que rodou na Soledade ao fim do backfill."
+                          >
+                            {syncingId === integ.id ? (
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="h-3 w-3 mr-1" />
+                            )}
+                            Varredura de quitações
+                          </Button>
                           <Button size="sm" variant="ghost" onClick={() => openLogs(integ)}>
                             <History className="h-3 w-3 mr-1" />
                             Logs
