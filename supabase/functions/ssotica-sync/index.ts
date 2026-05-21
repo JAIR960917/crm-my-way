@@ -2436,6 +2436,22 @@ Deno.serve(async (req) => {
     }
 
     // ========== MODO 4 (default): sync incremental ==========
+    // 🔒 EXCLUSIVIDADE: clique manual em "Sincronizar" de UMA loja pausa as
+    // demais para evitar sobrecarregar a SSótica com requisições paralelas.
+    if (onlyIntegrationId && manualRecent) {
+      await supabase
+        .from("ssotica_integrations")
+        .update({
+          sync_status: "idle",
+          backfill_status: "idle",
+          backfill_next_run_at: null,
+          last_error: "Pausado automaticamente — outra loja foi acionada manualmente.",
+          updated_at: new Date().toISOString(),
+        })
+        .neq("id", onlyIntegrationId)
+        .or("sync_status.eq.running,backfill_status.in.(running,scheduled)");
+    }
+
     const query = supabase
       .from("ssotica_integrations")
       .select("*")
