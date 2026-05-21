@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   MessageSquare, Plus, Trash2, Edit2, Send, Users, Calendar, Hash,
-  QrCode, RefreshCw, Wifi, WifiOff, Loader2, Smartphone, Settings2, Zap
+  QrCode, RefreshCw, Wifi, WifiOff, Loader2, Smartphone, Settings2, Zap, Clock
 } from "lucide-react";
 import TriggerCampaigns from "@/components/whatsapp/TriggerCampaigns";
 import ImageUploadField from "@/components/whatsapp/ImageUploadField";
