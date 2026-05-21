@@ -356,6 +356,23 @@ function applyTemplateVars(template: string, vars: Record<string, string>): stri
   return out;
 }
 
+function resolveCardEnteredAt(card: any): Date {
+  const data = (card?.data && typeof card.data === "object") ? card.data : {};
+  const currentStatus = String(card?.status || "");
+  const enteredStatusKey = String(data?.status_entered_status_key || "");
+  const enteredAtRaw = data?.status_entered_at;
+
+  if (enteredAtRaw && enteredStatusKey === currentStatus) {
+    const parsed = new Date(String(enteredAtRaw));
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  const fallback = new Date(card?.updated_at);
+  if (!Number.isNaN(fallback.getTime())) return fallback;
+
+  return new Date();
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -684,13 +701,13 @@ serve(async (req) => {
           }
 
           const sentStepIds = sendsByCard.get(card.id) || new Set();
-          const enteredAt = new Date(card.updated_at);
+          const enteredAt = resolveCardEnteredAt(card);
           const now = new Date();
           const daysSinceEntry = Math.floor((now.getTime() - enteredAt.getTime()) / (1000 * 60 * 60 * 24));
 
           // Regra: 1 gatilho por entrada na coluna.
           // Se já houve envio bem-sucedido APÓS o card entrar na coluna atual,
-          // não envia novamente até que o card saia e volte (updated_at muda).
+          // não envia novamente até que o card saia e volte (status_entered_at muda).
           const lastSentTs = lastSentAtByCard.get(card.id) || 0;
           if (lastSentTs >= enteredAt.getTime()) continue;
 
