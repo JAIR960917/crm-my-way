@@ -167,6 +167,32 @@ export default function WhatsAppPage() {
 
   useEffect(() => { fetchData(); /* eslint-disable-next-line */ }, [user?.id, isAdmin, isGerente]);
 
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("system_settings")
+        .select("setting_value")
+        .eq("setting_key", "whatsapp_send_delay_seconds")
+        .maybeSingle();
+      if (data?.setting_value) setSendDelaySeconds(String(data.setting_value));
+    })();
+  }, []);
+
+  const handleSaveSendDelay = async () => {
+    const secs = parseInt(sendDelaySeconds, 10);
+    if (isNaN(secs) || secs < 0) {
+      toast.error("Informe um número válido de segundos");
+      return;
+    }
+    setSavingDelay(true);
+    const { error } = await supabase
+      .from("system_settings")
+      .upsert({ setting_key: "whatsapp_send_delay_seconds", setting_value: String(secs) }, { onConflict: "setting_key" });
+    setSavingDelay(false);
+    if (error) toast.error("Erro ao salvar intervalo: " + error.message);
+    else toast.success(`Intervalo entre envios definido para ${secs}s`);
+  };
+
   const callApiFull = async (action: string, session: string, extraBody: Record<string, any> = {}) => {
     const tag = `[apifull:${action}${session ? `:${session}` : ""}]`;
     console.groupCollapsed(`${tag} request`);
