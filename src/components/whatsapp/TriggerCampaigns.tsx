@@ -522,7 +522,8 @@ export default function TriggerCampaigns({ instances }: Props) {
                   <code>{"{nome}"}</code>, <code>{"{valor_parcela_vencida}"}</code>,{" "}
                   <code>{"{valor_parcela_a_vencer}"}</code>, <code>{"{data_parcela_vencida}"}</code>,{" "}
                   <code>{"{data_parcela_a_vencer}"}</code>, <code>{"{valor_total_parcelas}"}</code>,{" "}
-                  <code>{"{nome_empresa}"}</code>, <code>{"{cnpj_empresa}"}</code>
+                  <code>{"{nome_empresa}"}</code>, <code>{"{cnpj_empresa}"}</code>,{" "}
+                  <code>{"{parcelas_vencidas}"}</code>
                 </div>
                 <ImageUploadField
                   value={step.image_url || null}
