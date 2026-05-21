@@ -2287,13 +2287,19 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      const rawScope = typeof body.scope === "string" ? body.scope : "all";
+      const scope: "all" | "cobrancas" | "renovacoes" =
+        rawScope === "cobrancas" || rawScope === "renovacoes" ? rawScope : "all";
+      // Fase inicial conforme escopo: renovações começa direto em 'vendas'.
+      const initialPhase: "cr" | "vendas" = scope === "renovacoes" ? "vendas" : "cr";
       // Reseta o progresso e marca pra rodar AGORA (próximo tick do cron pega)
       const { data: integ, error } = await supabase
         .from("ssotica_integrations")
         .update({
           backfill_chunk_index: 0,
           backfill_total_chunks: 32,
-          backfill_phase: "cr",
+          backfill_phase: initialPhase,
+          backfill_scope: scope,
           backfill_status: "scheduled",
           backfill_started_at: new Date().toISOString(),
           backfill_next_run_at: new Date().toISOString(),
@@ -2316,10 +2322,12 @@ Deno.serve(async (req) => {
       });
       if (dispatchErr) throw dispatchErr;
 
+      const scopeLabel = scope === "renovacoes" ? "renovações" : scope === "cobrancas" ? "cobranças" : "completo";
       return new Response(JSON.stringify({
         ok: true,
         mode: "start_backfill",
-        message: "Backfill de 96 meses agendado em background. Os 32 chunks rodarão automaticamente sem segurar a resposta do botão Sync.",
+        scope,
+        message: `Backfill de 96 meses (${scopeLabel}) agendado em background. Os 32 chunks rodarão automaticamente.`,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
