@@ -737,10 +737,7 @@ export default function WhatsAppPage() {
                     const next = v as ModuleKey;
                     setModuleKey(next);
                     setStatusId("");
-                    if (next === "cobrancas") {
-                      const joonker = instances.find(i => i.is_active && i.name?.toLowerCase().includes("oticajoonker"));
-                      if (joonker) setInstanceId(joonker.id);
-                    }
+                    if (next === "cobrancas") setInstanceId("");
                   }}>
                     <SelectTrigger><SelectValue placeholder="Selecione a página..." /></SelectTrigger>
                     <SelectContent>
