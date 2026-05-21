@@ -2062,21 +2062,34 @@ async function runBackfillChunk(
     }
     const finished = phaseDone && nextIdx >= total;
     const finishedAt = new Date().toISOString();
-    const nextRunAt = finished ? null : finishedAt;
-    const nextStatus = finished ? "done" : "scheduled";
 
-    await supabase.from("ssotica_integrations").update({
-      backfill_chunk_index: nextIdx,
-      backfill_phase: nextPhase,
+    // Antes de reagendar, verifica se o usuário pausou manualmente (backfill_status = 'idle').
+    // Se sim, respeita a pausa e NÃO reagenda nem avança chunk_index/phase.
+    const { data: currentState } = await supabase
+      .from("ssotica_integrations")
+      .select("backfill_status")
+      .eq("id", integ.id)
+      .maybeSingle();
+    const wasPausedByUser = currentState?.backfill_status === "idle";
+
+    const nextRunAt = finished || wasPausedByUser ? null : finishedAt;
+    const nextStatus = finished ? "done" : (wasPausedByUser ? "idle" : "scheduled");
+
+    const updatePayload: Record<string, unknown> = {
       backfill_status: nextStatus,
       backfill_next_run_at: nextRunAt,
       sync_status: "idle",
       initial_sync_done: finished ? true : integ.initial_sync_done,
       last_sync_receber_at: (phase === "cr" || finished) ? finishedAt : integ.last_sync_receber_at,
       last_sync_vendas_at: (phase === "vendas" || finished) ? finishedAt : integ.last_sync_vendas_at,
-      last_error: null,
+      last_error: wasPausedByUser ? "Pausado manualmente pelo usuário" : null,
       updated_at: finishedAt,
-    }).eq("id", integ.id).eq("backfill_chunk_index", idx);
+    };
+    if (!wasPausedByUser) {
+      updatePayload.backfill_chunk_index = nextIdx;
+      updatePayload.backfill_phase = nextPhase;
+    }
+    await supabase.from("ssotica_integrations").update(updatePayload).eq("id", integ.id).eq("backfill_chunk_index", idx);
 
     if (logId) {
       const processed = (cr?.processed ?? 0) + (v?.processed ?? 0);
@@ -2094,7 +2107,7 @@ async function runBackfillChunk(
 
     console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} chunk ${idx + 1}/${total} fase=${phase} OK. ${finished ? 'CONCLUÍDO!' : `próximo: chunk ${nextIdx + 1} fase ${nextPhase} (agendado)`}`);
 
-    if (!finished) {
+    if (!finished && !wasPausedByUser) {
       try {
         if (!dispatchConfig.url || !dispatchConfig.auth) {
           console.warn(`[ssotica-sync][backfill] empresa=${integ.company_id} continuação automática não disparada agora; runner agendado continuará pelo backfill_next_run_at`);
