@@ -322,10 +322,10 @@ serve(async (req) => {
 
     // Configurações dinâmicas
     const SEND_DELAY_MS = await loadSendDelayMs(supabase);
-    const unboundSessions = await loadUnboundSessions(supabase);
+    const cobrancasSessions = await loadCobrancasSessions(supabase);
     const pickRoundRobinSession = (index: number): string | null => {
-      if (unboundSessions.length === 0) return null;
-      return unboundSessions[index % unboundSessions.length];
+      if (cobrancasSessions.length === 0) return null;
+      return cobrancasSessions[index % cobrancasSessions.length];
     };
 
     // ========== PERIOD CAMPAIGNS ==========
@@ -352,7 +352,7 @@ serve(async (req) => {
         const isCobrancas = moduleKey === "cobrancas";
         const fixedSession = (isGlobal || isCobrancas) ? null : await resolveSession(supabase, campaign.instance_id);
         if (!isGlobal && !isCobrancas && !fixedSession) continue;
-        if (isCobrancas && unboundSessions.length === 0) {
+        if (isCobrancas && cobrancasSessions.length === 0) {
           console.warn(`[campaign ${campaign.id}] cobranças sem instâncias sem empresa vinculada — pulando`);
           continue;
         }
@@ -495,7 +495,7 @@ serve(async (req) => {
         const isCobrancas = moduleKey === "cobrancas";
         const fixedSession = (isGlobal || isCobrancas) ? null : await resolveSession(supabase, tc.instance_id);
         if (!isGlobal && !isCobrancas && !fixedSession) continue;
-        if (isCobrancas && unboundSessions.length === 0) {
+        if (isCobrancas && cobrancasSessions.length === 0) {
           console.warn(`[trigger ${tc.id}] cobranças sem instâncias sem empresa vinculada — pulando`);
           continue;
         }
