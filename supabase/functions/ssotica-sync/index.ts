@@ -2348,40 +2348,16 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ========== MODO 1: tick do cron — processa próximo chunk de qualquer integração pronta ==========
+    // ========== MODO 1 (DESATIVADO): backfill_tick.
+    // Sincronização agora é 100% manual — uma loja por vez. O modo de fan-out
+    // automático foi removido para evitar que múltiplas lojas disparem em
+    // paralelo, sobrecarregando a SSótica e causando timeouts.
     if (mode === "backfill_tick") {
-      // Inclui tanto "running" (já em andamento) quanto "scheduled" (agendadas pelo "Ressincronizar tudo").
-      // Quando uma loja "scheduled" é pega, promovemos para "running" antes de processar.
-      const { data: pending } = await supabase
-        .from("ssotica_integrations")
-        .select("*")
-        .eq("is_active", true)
-        .in("backfill_status", ["running", "scheduled"])
-        .lte("backfill_next_run_at", new Date().toISOString())
-        .order("backfill_next_run_at", { ascending: true })
-        .limit(BACKFILL_MAX_PARALLEL); // limita concorrência para evitar cancelamento do worker
-      const list = await decryptIntegrations(supabase, (pending ?? []) as Integration[]);
-      if (list.length === 0) {
-        return new Response(JSON.stringify({ ok: true, message: "Nenhum chunk pronto" }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const results: any[] = [];
-      for (const integ of list) {
-        // Promove "scheduled" → "running" para que runBackfillChunk processe normalmente
-        if (integ.backfill_status === "scheduled") {
-          await supabase
-            .from("ssotica_integrations")
-            .update({ backfill_status: "running", sync_status: "running" })
-            .eq("id", integ.id);
-          (integ as any).backfill_status = "running";
-        }
-        const r = await runBackfillChunk(supabase, integ, dispatchConfig);
-        results.push({ integration_id: integ.id, ...r });
-      }
-      return new Response(JSON.stringify({ ok: true, mode: "backfill_tick", results }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(JSON.stringify({
+        ok: false,
+        error: "mode_disabled",
+        message: "O modo backfill_tick foi desativado. Sincronização é manual: dispare cada loja individualmente.",
+      }), { status: 410, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ========== MODO 2: consolidar cobranças cross-store sem reimportar dados ==========
@@ -2406,12 +2382,10 @@ Deno.serve(async (req) => {
         rawScope === "cobrancas" || rawScope === "renovacoes" ? rawScope : "all";
       const initialPhase: "cr" | "vendas" = scope === "renovacoes" ? "vendas" : "cr";
 
-      // 🔒 EXCLUSIVIDADE: pausa qualquer outra loja em execução para evitar
-      // sobrecarregar a SSótica com requisições paralelas e estourar timeouts.
-      // Marca como "idle" e zera o agendamento de backfill das demais. O backfill
-      // pode ser retomado depois manualmente pelo botão Sincronizar.
-      // Obs: feito em duas chamadas separadas para evitar o problema do PostgREST
-      // que confunde vírgulas dentro de `in.()` quando usado em `.or()`.
+      // 🔒 LOCK GLOBAL: rejeita se outra loja está ocupada (apenas 1 por vez).
+      const busy = await getOtherBusyIntegration(supabase, onlyIntegrationId);
+      if (busy) return busyResponse(busy);
+
       try {
         const pauseFields = {
           sync_status: "idle",
