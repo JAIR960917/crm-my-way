@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   MessageSquare, Plus, Trash2, Edit2, Send, Users, Calendar, Hash,
-  QrCode, RefreshCw, Wifi, WifiOff, Loader2, Smartphone, Settings2, Zap
+  QrCode, RefreshCw, Wifi, WifiOff, Loader2, Smartphone, Settings2, Zap, Clock
 } from "lucide-react";
 import TriggerCampaigns from "@/components/whatsapp/TriggerCampaigns";
 import ImageUploadField from "@/components/whatsapp/ImageUploadField";
@@ -108,6 +108,8 @@ export default function WhatsAppPage() {
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [allowedCompanyIds, setAllowedCompanyIds] = useState<string[] | null>(null);
   const [newInstanceCompanyId, setNewInstanceCompanyId] = useState("");
+  const [sendDelaySeconds, setSendDelaySeconds] = useState<string>("30");
+  const [savingDelay, setSavingDelay] = useState(false);
   const autoSyncTriedRef = useRef(false);
 
   const canManage = isAdmin;
@@ -164,6 +166,32 @@ export default function WhatsAppPage() {
   };
 
   useEffect(() => { fetchData(); /* eslint-disable-next-line */ }, [user?.id, isAdmin, isGerente]);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("system_settings")
+        .select("setting_value")
+        .eq("setting_key", "whatsapp_send_delay_seconds")
+        .maybeSingle();
+      if (data?.setting_value) setSendDelaySeconds(String(data.setting_value));
+    })();
+  }, []);
+
+  const handleSaveSendDelay = async () => {
+    const secs = parseInt(sendDelaySeconds, 10);
+    if (isNaN(secs) || secs < 0) {
+      toast.error("Informe um número válido de segundos");
+      return;
+    }
+    setSavingDelay(true);
+    const { error } = await supabase
+      .from("system_settings")
+      .upsert({ setting_key: "whatsapp_send_delay_seconds", setting_value: String(secs) }, { onConflict: "setting_key" });
+    setSavingDelay(false);
+    if (error) toast.error("Erro ao salvar intervalo: " + error.message);
+    else toast.success(`Intervalo entre envios definido para ${secs}s`);
+  };
 
   const callApiFull = async (action: string, session: string, extraBody: Record<string, any> = {}) => {
     const tag = `[apifull:${action}${session ? `:${session}` : ""}]`;
@@ -440,10 +468,8 @@ export default function WhatsAppPage() {
     if (!user) return;
     setSaving(true);
 
-    // Para Cobranças, força a instância oticaJoonker mesmo se empresa for Global
-    const joonkerInstance = instances.find(i => i.is_active && i.name?.toLowerCase().includes("oticajoonker"));
-    const forcedInstanceId = moduleKey === "cobrancas" && joonkerInstance ? joonkerInstance.id : null;
-    const effectiveInstanceId = forcedInstanceId || instanceId || null;
+    // Para Cobranças, o backend faz round-robin entre instâncias sem empresa vinculada.
+    const effectiveInstanceId = moduleKey === "cobrancas" ? null : (instanceId || null);
 
     const basePayload: any = {
       name: name.trim(), message: message.trim(),
@@ -480,8 +506,8 @@ export default function WhatsAppPage() {
       }));
       ({ error } = await supabase.from("whatsapp_campaigns").insert(rows));
     } else if (companyId === "__GLOBAL__") {
-      // Global: normalmente usa instância da empresa do lead, mas para Cobranças força oticaJoonker
-      ({ error } = await supabase.from("whatsapp_campaigns").insert({ ...basePayload, company_id: null, instance_id: forcedInstanceId, is_active: false }));
+      // Global: usa instância da empresa do lead (ou round-robin se Cobranças)
+      ({ error } = await supabase.from("whatsapp_campaigns").insert({ ...basePayload, company_id: null, instance_id: effectiveInstanceId, is_active: false }));
     } else {
       ({ error } = await supabase.from("whatsapp_campaigns").insert({ ...basePayload, company_id: companyId, is_active: false }));
     }
@@ -560,6 +586,34 @@ export default function WhatsAppPage() {
                   <RefreshCw className="h-4 w-4" />
                   Sincronizar instâncias da API Full
                 </Button>
+              </div>
+            )}
+            {/* Configurações de envio */}
+            {canManage && (
+              <div className="rounded-lg border bg-card p-4 space-y-3">
+                <h3 className="font-semibold text-sm flex items-center gap-2">
+                  <Clock className="h-4 w-4" /> Configurações de envio
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Intervalo entre envios (segundos)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={sendDelaySeconds}
+                      onChange={(e) => setSendDelaySeconds(e.target.value)}
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Tempo de espera entre cada mensagem enviada. Vale para todos os módulos (incluindo o round-robin de Cobranças).
+                    </p>
+                  </div>
+                  <div>
+                    <Button onClick={handleSaveSendDelay} disabled={savingDelay} className="w-full sm:w-auto">
+                      {savingDelay ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+                      Salvar intervalo
+                    </Button>
+                  </div>
+                </div>
               </div>
             )}
             {/* Create New Instance */}
@@ -739,10 +793,7 @@ export default function WhatsAppPage() {
                     const next = v as ModuleKey;
                     setModuleKey(next);
                     setStatusId("");
-                    if (next === "cobrancas") {
-                      const joonker = instances.find(i => i.is_active && i.name?.toLowerCase().includes("oticajoonker"));
-                      if (joonker) setInstanceId(joonker.id);
-                    }
+                    if (next === "cobrancas") setInstanceId("");
                   }}>
                     <SelectTrigger><SelectValue placeholder="Selecione a página..." /></SelectTrigger>
                     <SelectContent>
@@ -768,7 +819,7 @@ export default function WhatsAppPage() {
                   <Label>Instância WhatsApp {companyId === "__GLOBAL__" && moduleKey !== "cobrancas" ? "" : "*"}</Label>
                   {moduleKey === "cobrancas" ? (
                     <div className="flex items-center h-10 px-3 rounded-md border border-dashed border-primary/40 text-xs text-muted-foreground">
-                      📌 Cobranças usa sempre a instância <span className="font-semibold ml-1">oticaJoonker</span>
+                      🔁 Cobranças intercala envios entre instâncias sem empresa vinculada
                     </div>
                   ) : companyId === "__GLOBAL__" ? (
                     <div className="flex items-center h-10 px-3 rounded-md border border-dashed border-border text-xs text-muted-foreground">

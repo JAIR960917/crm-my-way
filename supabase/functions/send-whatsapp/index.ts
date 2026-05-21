@@ -89,9 +89,30 @@ async function sendMessage(session: string, apiKey: string, phone: string, text:
   return resolveSendResult(response.ok, result);
 }
 
-// Delay between WhatsApp sends to avoid being banned (30 seconds)
-const SEND_DELAY_MS = 30_000;
+// Delay between WhatsApp sends to avoid being banned (default 30s, configurable via system_settings)
+const DEFAULT_SEND_DELAY_MS = 30_000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function loadSendDelayMs(supabase: any): Promise<number> {
+  const { data } = await supabase
+    .from("system_settings")
+    .select("setting_value")
+    .eq("setting_key", "whatsapp_send_delay_seconds")
+    .maybeSingle();
+  const secs = parseInt(data?.setting_value || "", 10);
+  if (!isNaN(secs) && secs >= 0) return secs * 1000;
+  return DEFAULT_SEND_DELAY_MS;
+}
+
+async function loadUnboundSessions(supabase: any): Promise<string[]> {
+  const { data } = await supabase
+    .from("whatsapp_instances")
+    .select("session, is_active, company_id, created_at")
+    .is("company_id", null)
+    .eq("is_active", true)
+    .order("created_at", { ascending: true });
+  return ((data || []) as any[]).map((i) => i.session).filter(Boolean);
+}
 
 // Brasília time helpers (UTC-3, no DST)
 const BRT_OFFSET_MINUTES = -180;
@@ -270,6 +291,14 @@ serve(async (req) => {
     const userToCompany = await buildUserToCompanyMap(supabase);
     const companyToSession = await buildCompanyToSessionMap(supabase);
 
+    // Configurações dinâmicas
+    const SEND_DELAY_MS = await loadSendDelayMs(supabase);
+    const unboundSessions = await loadUnboundSessions(supabase);
+    const pickRoundRobinSession = (index: number): string | null => {
+      if (unboundSessions.length === 0) return null;
+      return unboundSessions[index % unboundSessions.length];
+    };
+
     // ========== PERIOD CAMPAIGNS ==========
     const { data: campaigns } = await supabase.from("whatsapp_campaigns")
       .select("*").eq("is_active", true).lte("start_date", today).gte("end_date", today);
@@ -288,10 +317,16 @@ serve(async (req) => {
         const cfg = MODULE_CONFIG[moduleKey];
         if (!cfg) continue;
 
-        // Para global, a sessão é resolvida por card (instância da empresa do lead).
-        // Para não-global, resolvemos uma sessão fixa.
-        const fixedSession = isGlobal ? null : await resolveSession(supabase, campaign.instance_id);
-        if (!isGlobal && !fixedSession) continue;
+        // Cobranças: round-robin entre instâncias sem empresa vinculada.
+        // Global (sem empresa): sessão por card (instância da empresa do lead).
+        // Caso normal: sessão fixa da campanha.
+        const isCobrancas = moduleKey === "cobrancas";
+        const fixedSession = (isGlobal || isCobrancas) ? null : await resolveSession(supabase, campaign.instance_id);
+        if (!isGlobal && !isCobrancas && !fixedSession) continue;
+        if (isCobrancas && unboundSessions.length === 0) {
+          console.warn(`[campaign ${campaign.id}] cobranças sem instâncias sem empresa vinculada — pulando`);
+          continue;
+        }
 
         const statusKey = await resolveStatusKey(supabase, cfg.statusTable, campaign.status_id);
         if (!statusKey) continue;
@@ -327,6 +362,8 @@ serve(async (req) => {
         let campaignSentNow = 0;
         let campaignErrorsNow = 0;
         let aborted = false;
+        // Round-robin index para cobrancas (persistente entre execuções via sentIds.size)
+        let rrIndex = sentIds.size;
 
         for (const card of pendingCards) {
           // Re-check window mid-batch (in case we cross end_time)
@@ -340,9 +377,12 @@ serve(async (req) => {
           const { phone, name } = resolveCardFields(moduleKey, data, nameFields, phoneFields);
           if (!phone) continue;
 
-          // Resolve sessão por card quando global
+          // Resolve sessão por card
           let session = fixedSession;
-          if (isGlobal) {
+          if (isCobrancas) {
+            session = pickRoundRobinSession(rrIndex);
+            rrIndex++;
+          } else if (isGlobal) {
             const cardCompanyId = resolveCardCompanyId(card, userToCompany);
             if (!cardCompanyId) {
               skippedNoCompany++;
@@ -422,9 +462,14 @@ serve(async (req) => {
         const cfg = MODULE_CONFIG[moduleKey];
         if (!cfg) continue;
 
-        // Para global, sessão é resolvida por card. Para não-global, sessão fixa.
-        const fixedSession = isGlobal ? null : await resolveSession(supabase, tc.instance_id);
-        if (!isGlobal && !fixedSession) continue;
+        // Cobranças: round-robin entre instâncias sem empresa vinculada.
+        const isCobrancas = moduleKey === "cobrancas";
+        const fixedSession = (isGlobal || isCobrancas) ? null : await resolveSession(supabase, tc.instance_id);
+        if (!isGlobal && !isCobrancas && !fixedSession) continue;
+        if (isCobrancas && unboundSessions.length === 0) {
+          console.warn(`[trigger ${tc.id}] cobranças sem instâncias sem empresa vinculada — pulando`);
+          continue;
+        }
 
         const steps = ((tc as any).whatsapp_trigger_steps || []).sort((a: any, b: any) => a.position - b.position);
         if (steps.length === 0) continue;
@@ -474,6 +519,11 @@ serve(async (req) => {
         let triggerSentNow = 0;
         let triggerErrorsNow = 0;
         let aborted = false;
+        // Round-robin: começa a partir do número de envios já feitos (qualquer step)
+        let rrIndex = 0;
+        for (const s of (existingSends || []) as any[]) {
+          if (s.status === "sent") rrIndex++;
+        }
 
         for (const card of cards) {
           if (!isWithinDailyWindow(tc.start_time, tc.end_time)) {
@@ -486,9 +536,12 @@ serve(async (req) => {
           const { phone, name } = resolveCardFields(moduleKey, data, nameFields, phoneFields);
           if (!phone) continue;
 
-          // Resolve sessão por card quando global
+          // Resolve sessão por card
           let session = fixedSession;
-          if (isGlobal) {
+          if (isCobrancas) {
+            session = pickRoundRobinSession(rrIndex);
+            rrIndex++;
+          } else if (isGlobal) {
             const cardCompanyId = resolveCardCompanyId(card, userToCompany);
             if (!cardCompanyId) {
               skippedNoCompany++;
