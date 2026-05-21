@@ -194,6 +194,7 @@ serve(async (req) => {
                 });
                 // refletimos a mudança em memória para a checagem de avanço a seguir
                 Object.assign(data, newData);
+                triggeredLeadsByStatus.add(leadKey);
                 stats.gatilhos_enviados++;
               } else {
                 await supabase.from("crm_cobranca_flow_events").insert({
