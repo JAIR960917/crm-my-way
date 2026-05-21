@@ -446,7 +446,7 @@ serve(async (req) => {
         const statusLabel = statusRow?.label || statusKey;
 
         const { data: cards } = await supabase.from(cfg.dataTable)
-          .select("id, data, created_by, assigned_to").eq("status", statusKey);
+          .select("id, data, created_by, assigned_to, company_id, ssotica_company_id").eq("status", statusKey);
         if (!cards) continue;
 
         let scopedCards: any[];
