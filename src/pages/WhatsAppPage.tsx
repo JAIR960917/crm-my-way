@@ -205,6 +205,28 @@ export default function WhatsAppPage() {
     else toast.success(`Intervalo entre envios definido para ${secs}s`);
   };
 
+  const toggleCobrancasSession = (session: string) => {
+    setCobrancasSessions((prev) =>
+      prev.includes(session) ? prev.filter((s) => s !== session) : [...prev, session]
+    );
+  };
+
+  const handleSaveCobrancasSessions = async () => {
+    setSavingCobrancasSessions(true);
+    const { error } = await supabase
+      .from("system_settings")
+      .upsert(
+        { setting_key: "whatsapp_cobrancas_sessions", setting_value: JSON.stringify(cobrancasSessions) },
+        { onConflict: "setting_key" }
+      );
+    setSavingCobrancasSessions(false);
+    if (error) toast.error("Erro ao salvar instâncias: " + error.message);
+    else if (cobrancasSessions.length === 0) toast.success("Sem instâncias selecionadas — usando todas as não vinculadas a empresa.");
+    else toast.success(`${cobrancasSessions.length} instância(s) selecionada(s) para Cobranças.`);
+  };
+
+
+
   const callApiFull = async (action: string, session: string, extraBody: Record<string, any> = {}) => {
     const tag = `[apifull:${action}${session ? `:${session}` : ""}]`;
     console.groupCollapsed(`${tag} request`);
