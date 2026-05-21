@@ -2892,12 +2892,35 @@ Deno.serve(async (req) => {
           continue;
         }
 
+        if (forceFull && integ.full_sweep_status === "scheduled") {
+          const { data: log } = await supabase.from("ssotica_sync_logs").insert({
+            integration_id: integ.id,
+            sync_type: "full_sweep",
+            status: "running",
+          }).select("id").single();
+          logId = log?.id ?? null;
+
+          await supabase.from("ssotica_integrations").update({
+            sync_status: "running",
+            full_sweep_status: "running",
+            last_error: null,
+            updated_at: new Date().toISOString(),
+          }).eq("id", integ.id);
+        } else {
+          await supabase.from("ssotica_integrations").update({
+            sync_status: "running",
+            last_error: null,
+            updated_at: new Date().toISOString(),
+          }).eq("id", integ.id);
+        }
+
         const { data: log } = await supabase.from("ssotica_sync_logs").insert({
           integration_id: integ.id,
           sync_type: forceFull ? "full_force" : "incremental",
           status: "running",
         }).select("id").single();
-        logId = log?.id ?? null;
+        const incrementalLogId = log?.id ?? null;
+        if (!logId) logId = incrementalLogId;
 
         // ⏱️ Timeout interno por integração: 2 min (120s) — abaixo do idle timeout
         // do runtime hospedado. Isso garante que mesmo se
@@ -2920,7 +2943,14 @@ Deno.serve(async (req) => {
         const work = (async () => {
           // Checkpoint 1: Contas a Receber (para que Renovações saibam quem tem dívida)
           console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=contas_receber:start`);
-          const cr = await syncContasReceber(supabase, integ, undefined, { manualRecent: manualRecent && !!onlyIntegrationId });
+          const cr = await syncContasReceber(
+            supabase,
+            integ,
+            undefined,
+            forceFull && integ.full_sweep_status === "scheduled"
+              ? { fullSweep: true }
+              : { manualRecent: manualRecent && !!onlyIntegrationId },
+          );
           console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=contas_receber:done processed=${cr.processed} created=${cr.created} updated=${cr.updated}`);
 
           // Checkpoint 2: Consolidação cross-store de cobranças
@@ -2936,7 +2966,7 @@ Deno.serve(async (req) => {
 
           // Checkpoint 3: Vendas
           console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=vendas:start`);
-          const v = await syncVendas(supabase, integ, forceFull, cr.clientesQuitados);
+          const v = await syncVendas(supabase, integ, false, cr.clientesQuitados);
           console.log(`[ssotica-sync][checkpoint] empresa=${integ.company_id} step=vendas:done processed=${v.processed} created=${v.created} updated=${v.updated}`);
 
           // Checkpoint 4: Reconciliação Renovações × Cobranças
@@ -2953,6 +2983,7 @@ Deno.serve(async (req) => {
         const finishedAt = new Date().toISOString();
         await supabase.from("ssotica_integrations").update({
           sync_status: "idle",
+          full_sweep_status: forceFull && integ.full_sweep_status === "scheduled" ? "idle" : integ.full_sweep_status ?? null,
           last_sync_receber_at: finishedAt,
           last_sync_vendas_at: finishedAt,
           initial_sync_done: true,
@@ -2976,6 +3007,7 @@ Deno.serve(async (req) => {
         console.error(`[ssotica-sync] integration ${integ.id} failed:`, msg);
         await supabase.from("ssotica_integrations").update({
           sync_status: "error",
+          full_sweep_status: forceFull && integ.full_sweep_status === "scheduled" ? "idle" : integ.full_sweep_status ?? null,
           last_error: msg.slice(0, 1000),
         }).eq("id", integ.id);
         if (logId) {
