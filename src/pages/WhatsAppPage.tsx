@@ -314,28 +314,45 @@ export default function WhatsAppPage() {
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
 
-      // Normalize: API Full pode retornar array direto, { dados/data/instances/response/sessions: [...] }
-      // ou ainda objeto único. Vamos tentar várias formas e logar o que achamos.
-      let list: any[] = [];
-      if (Array.isArray(data)) list = data;
-      else if (data && typeof data === "object") {
-        const candidates = ["dados", "data", "instances", "result", "response", "sessions", "items", "list"];
-        for (const k of candidates) {
-          if (Array.isArray((data as any)[k])) { list = (data as any)[k]; break; }
-        }
-        // Caso a chave aninhe outro objeto com array
-        if (list.length === 0) {
-          for (const v of Object.values(data)) {
-            if (Array.isArray(v)) { list = v as any[]; break; }
-            if (v && typeof v === "object") {
-              for (const v2 of Object.values(v)) {
-                if (Array.isArray(v2)) { list = v2 as any[]; break; }
-              }
-              if (list.length > 0) break;
-            }
+      // Normalize: API Full pode retornar array direto, array aninhado, objeto único,
+      // ou estruturas como { data: {...} } / { instances: [...] }.
+      const normalizeApiFullInstances = (payload: any): any[] => {
+        if (!payload) return [];
+        if (Array.isArray(payload)) return payload;
+        if (typeof payload !== "object") return [];
+
+        const directCandidates = ["dados", "data", "instances", "result", "response", "sessions", "items", "list"];
+        for (const key of directCandidates) {
+          const value = (payload as any)[key];
+          if (Array.isArray(value)) return value;
+          if (value && typeof value === "object") {
+            const nested = normalizeApiFullInstances(value);
+            if (nested.length > 0) return nested;
           }
         }
-      }
+
+        const values = Object.values(payload);
+        for (const value of values) {
+          if (Array.isArray(value)) return value;
+        }
+
+        const looksLikeInstance = ["session", "name", "nome", "instance", "sessionName", "sessao", "id"].some(
+          (key) => key in payload,
+        );
+
+        if (looksLikeInstance) return [payload];
+
+        for (const value of values) {
+          if (value && typeof value === "object") {
+            const nested = normalizeApiFullInstances(value);
+            if (nested.length > 0) return nested;
+          }
+        }
+
+        return [];
+      };
+
+      const list = normalizeApiFullInstances(data);
       console.log("parsed list length:", list.length, list);
 
       if (!Array.isArray(list) || list.length === 0) {
