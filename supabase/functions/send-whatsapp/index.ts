@@ -519,6 +519,11 @@ serve(async (req) => {
         let triggerSentNow = 0;
         let triggerErrorsNow = 0;
         let aborted = false;
+        // Round-robin: começa a partir do número de envios já feitos (qualquer step)
+        let rrIndex = 0;
+        for (const s of (existingSends || []) as any[]) {
+          if (s.status === "sent") rrIndex++;
+        }
 
         for (const card of cards) {
           if (!isWithinDailyWindow(tc.start_time, tc.end_time)) {
