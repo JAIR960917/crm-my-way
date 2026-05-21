@@ -362,6 +362,8 @@ serve(async (req) => {
         let campaignSentNow = 0;
         let campaignErrorsNow = 0;
         let aborted = false;
+        // Round-robin index para cobrancas (persistente entre execuções via sentIds.size)
+        let rrIndex = sentIds.size;
 
         for (const card of pendingCards) {
           // Re-check window mid-batch (in case we cross end_time)
