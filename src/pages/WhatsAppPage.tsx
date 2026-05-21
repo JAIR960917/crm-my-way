@@ -648,6 +648,54 @@ export default function WhatsAppPage() {
                     </Button>
                   </div>
                 </div>
+
+                <div className="pt-3 border-t space-y-2">
+                  <Label className="text-xs font-semibold">Instâncias usadas para envios de Cobranças (round-robin)</Label>
+                  <p className="text-[10px] text-muted-foreground">
+                    Marque as instâncias que devem ser usadas para enviar mensagens da página "Cobranças". Os envios serão intercalados entre as selecionadas para reduzir o risco de banimento. Se nenhuma for marcada, o sistema usará todas as instâncias ativas sem empresa vinculada.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+                    {instances.filter((i) => i.is_active).length === 0 ? (
+                      <p className="text-xs text-muted-foreground col-span-full">Nenhuma instância ativa disponível.</p>
+                    ) : (
+                      instances.filter((i) => i.is_active).map((inst) => {
+                        const checked = cobrancasSessions.includes(inst.session);
+                        return (
+                          <label
+                            key={inst.id}
+                            className="flex items-center gap-2 rounded border p-2 cursor-pointer hover:bg-muted/40 text-sm"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleCobrancasSession(inst.session)}
+                              className="h-4 w-4"
+                            />
+                            <div className="flex flex-col">
+                              <span className="font-medium">{inst.name}</span>
+                              <span className="text-[10px] text-muted-foreground">{inst.session}</span>
+                            </div>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 pt-2">
+                    <Button
+                      size="sm"
+                      onClick={handleSaveCobrancasSessions}
+                      disabled={savingCobrancasSessions}
+                    >
+                      {savingCobrancasSessions ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+                      Salvar instâncias de Cobranças
+                    </Button>
+                    {cobrancasSessions.length > 0 && (
+                      <Button size="sm" variant="ghost" onClick={() => setCobrancasSessions([])}>
+                        Limpar seleção
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
             {/* Create New Instance */}
