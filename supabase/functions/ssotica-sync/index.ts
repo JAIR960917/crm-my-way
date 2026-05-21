@@ -2631,9 +2631,10 @@ Deno.serve(async (req) => {
 
     // ========== MODO: full_sweep — varredura de quitação 96 meses + reconciliação ==========
     // Caminho que rodou ao fim do backfill da Soledade e moveu corretamente os
-    // clientes que já quitaram. Disponibilizado como ação manual para que cada
-    // loja possa rodar a mesma limpeza sob demanda, sem precisar refazer o
-    // backfill inteiro. Síncrono (espera terminar) — pode levar alguns minutos.
+    // clientes que já quitaram. Em lojas antigas/grandes, rodar isso acoplado à
+    // requisição HTTP ainda podia morrer junto com o runtime. Portanto aqui a
+    // varredura é apenas ENFILEIRADA; a execução real acontece numa nova
+    // invocação interna (mode=run_full_sweep), igual ao fluxo robusto do backfill.
     if (mode === "full_sweep") {
       if (!onlyIntegrationId) {
         return new Response(JSON.stringify({
@@ -2659,10 +2660,101 @@ Deno.serve(async (req) => {
       await decryptIntegrations(supabase, integs as Integration[]);
       const integ = (integs as Integration[])[0];
 
+      const busy = await getOtherBusyIntegration(supabase, onlyIntegrationId);
+      if (busy) return busyResponse(busy);
+
+      try {
+        await pauseOtherIntegrations(
+          supabase,
+          onlyIntegrationId,
+          "Pausado automaticamente — outra loja iniciou uma varredura de quitações.",
+        );
+      } catch (pauseErr) {
+        console.error("[ssotica-sync][full_sweep] erro ao pausar outras lojas:", pauseErr);
+      }
+
       await supabase
         .from("ssotica_integrations")
-        .update({ sync_status: "running", last_error: null, updated_at: new Date().toISOString() })
+        .update({
+          sync_status: "idle",
+          last_error: null,
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", integ.id);
+
+      if (!dispatchConfig.url || !dispatchConfig.auth) {
+        throw new Error("Configuração de dispatch ausente para enfileirar a varredura de quitações");
+      }
+
+      const dispatchSweep = fetch(dispatchConfig.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: dispatchConfig.auth,
+        },
+        body: JSON.stringify({ mode: "run_full_sweep", integration_id: onlyIntegrationId }),
+      }).catch((dispatchErr) => {
+        console.error("[ssotica-sync][full_sweep] falha ao disparar execução dedicada:", dispatchErr);
+      });
+
+      // @ts-ignore EdgeRuntime existe no runtime do ambiente self-hosted
+      if (typeof EdgeRuntime !== "undefined" && (EdgeRuntime as any)?.waitUntil) {
+        // @ts-ignore
+        EdgeRuntime.waitUntil(dispatchSweep);
+      } else {
+        await dispatchSweep;
+      }
+
+      return new Response(JSON.stringify({
+        ok: true,
+        mode: "full_sweep",
+        integration_id: integ.id,
+        status: "scheduled",
+        message: "Varredura de quitações enfileirada. Ela vai rodar em uma execução dedicada e aparecer nos logs ao iniciar.",
+      }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (mode === "run_full_sweep") {
+      if (!onlyIntegrationId) {
+        return new Response(JSON.stringify({ ok: false, error: "integration_id obrigatório" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const busy = await getOtherBusyIntegration(supabase, onlyIntegrationId);
+      if (busy) return busyResponse(busy);
+
+      const { data: integrations, error: intErr } = await supabase
+        .from("ssotica_integrations")
+        .select("*")
+        .eq("is_active", true)
+        .eq("id", onlyIntegrationId);
+      if (intErr) throw intErr;
+      if (!integrations || integrations.length === 0) {
+        return new Response(JSON.stringify({ ok: false, error: "Integração não encontrada ou inativa" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      await decryptIntegrations(supabase, integrations as Integration[]);
+      const integ = (integrations as Integration[])[0];
+
+      const { data: claimedIntegration } = await supabase
+        .from("ssotica_integrations")
+        .update({ sync_status: "running", last_error: null, updated_at: new Date().toISOString() })
+        .eq("id", integ.id)
+        .neq("sync_status", "running")
+        .select("id")
+        .maybeSingle();
+
+      if (!claimedIntegration) {
+        return new Response(JSON.stringify({ ok: true, skipped: true, reason: "already_running" }), {
+          status: 202,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       const { data: log } = await supabase.from("ssotica_sync_logs").insert({
         integration_id: integ.id,
@@ -2671,72 +2763,62 @@ Deno.serve(async (req) => {
       }).select("id").single();
       const logId = log?.id ?? null;
 
-      // Roda em background — full_sweep pode levar minutos (96 meses × N páginas)
-      // e estoura o timeout HTTP se aguardarmos a resposta. Cliente acompanha
-      // pelos logs de sincronização (ssotica_sync_logs).
-      const runSweep = async () => {
-        try {
-          console.log(`[ssotica-sync][full_sweep] empresa=${integ.company_id} iniciando varredura 96 meses`);
-          const cr = await syncContasReceber(supabase, integ, undefined, { fullSweep: true });
-          console.log(`[ssotica-sync][full_sweep] empresa=${integ.company_id} contas_receber removed=${cr.removed} quitados=${cr.clientesQuitados.length}`);
+      try {
+        console.log(`[ssotica-sync][full_sweep] empresa=${integ.company_id} iniciando varredura 96 meses`);
+        const cr = await syncContasReceber(supabase, integ, undefined, { fullSweep: true });
+        console.log(`[ssotica-sync][full_sweep] empresa=${integ.company_id} contas_receber removed=${cr.removed} quitados=${cr.clientesQuitados.length}`);
 
-          const v = await syncVendas(supabase, integ, false, cr.clientesQuitados);
-          console.log(`[ssotica-sync][full_sweep] empresa=${integ.company_id} vendas processed=${v.processed} created=${v.created}`);
-
-          const reconciled = await reconcileRenovacoesVsCobrancas(supabase, integ.company_id);
-          console.log(`[ssotica-sync][full_sweep] empresa=${integ.company_id} reconciliação removeu ${reconciled} renovações`);
-
-          const finishedAt = new Date().toISOString();
-          await supabase.from("ssotica_integrations").update({
-            sync_status: "idle",
-            last_sync_receber_at: finishedAt,
-            last_sync_vendas_at: finishedAt,
-            last_error: null,
-          }).eq("id", integ.id);
-
-          if (logId) {
-            await supabase.from("ssotica_sync_logs").update({
-              finished_at: finishedAt,
-              status: "success",
-              items_processed: cr.processed + v.processed,
-              items_created: cr.created + v.created,
-              items_updated: cr.updated + v.updated,
-              details: { mode: "full_sweep", contas_receber: cr, vendas: v, reconciled },
-            }).eq("id", logId);
-          }
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          console.error(`[ssotica-sync][full_sweep] empresa=${integ.company_id} falhou:`, msg);
-          await supabase.from("ssotica_integrations").update({
-            sync_status: "error",
-            last_error: msg.slice(0, 1000),
-          }).eq("id", integ.id);
-          if (logId) {
-            await supabase.from("ssotica_sync_logs").update({
-              finished_at: new Date().toISOString(),
-              status: "error",
-              error_message: msg.slice(0, 2000),
-            }).eq("id", logId);
-          }
+        const shouldConsolidateAfterReceber = await shouldRunGlobalConsolidation(supabase, onlyIntegrationId);
+        let consolidationAfterReceber = { groups_merged: 0, cards_removed: 0 };
+        if (shouldConsolidateAfterReceber) {
+          consolidationAfterReceber = await consolidateCrossStoreCobrancas(supabase);
         }
-      };
 
-      // @ts-ignore EdgeRuntime existe no runtime do Supabase self-hosted
-      if (typeof EdgeRuntime !== "undefined" && (EdgeRuntime as any)?.waitUntil) {
-        // @ts-ignore
-        EdgeRuntime.waitUntil(runSweep());
-      } else {
-        runSweep();
+        const v = await syncVendas(supabase, integ, false, cr.clientesQuitados);
+        console.log(`[ssotica-sync][full_sweep] empresa=${integ.company_id} vendas processed=${v.processed} created=${v.created}`);
+
+        const reconciled = await reconcileRenovacoesVsCobrancas(supabase, integ.company_id);
+        console.log(`[ssotica-sync][full_sweep] empresa=${integ.company_id} reconciliação removeu ${reconciled} renovações`);
+
+        const finishedAt = new Date().toISOString();
+        await supabase.from("ssotica_integrations").update({
+          sync_status: "idle",
+          last_sync_receber_at: finishedAt,
+          last_sync_vendas_at: finishedAt,
+          initial_sync_done: true,
+          last_error: null,
+        }).eq("id", integ.id);
+
+        if (logId) {
+          await supabase.from("ssotica_sync_logs").update({
+            finished_at: finishedAt,
+            status: "success",
+            items_processed: cr.processed + v.processed,
+            items_created: cr.created + v.created,
+            items_updated: cr.updated + v.updated,
+            details: { mode: "full_sweep", contas_receber: cr, vendas: v, reconciled, consolidation_after_cobrancas: consolidationAfterReceber },
+          }).eq("id", logId);
+        }
+
+        return new Response(JSON.stringify({ ok: true, mode: "run_full_sweep", integration_id: integ.id, log_id: logId }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[ssotica-sync][full_sweep] empresa=${integ.company_id} falhou:`, msg);
+        await supabase.from("ssotica_integrations").update({
+          sync_status: "error",
+          last_error: msg.slice(0, 1000),
+        }).eq("id", integ.id);
+        if (logId) {
+          await supabase.from("ssotica_sync_logs").update({
+            finished_at: new Date().toISOString(),
+            status: "error",
+            error_message: msg.slice(0, 2000),
+          }).eq("id", logId);
+        }
+        throw e;
       }
-
-      return new Response(JSON.stringify({
-        ok: true,
-        mode: "full_sweep",
-        integration_id: integ.id,
-        log_id: logId,
-        status: "started",
-        message: "Varredura iniciada em segundo plano. Acompanhe pelos logs de sincronização (pode levar alguns minutos).",
-      }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ========== MODO 4 (default): sync incremental ==========
