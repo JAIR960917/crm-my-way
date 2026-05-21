@@ -194,6 +194,17 @@ export default function TransitionLogsPage() {
     load();
     loadCompletionLogs();
     loadFlowEvents();
+
+    // Realtime: novos eventos de cobrança (gatilhos) aparecem instantaneamente
+    const channel = (supabase as any)
+      .channel("crm_cobranca_flow_events_live")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "crm_cobranca_flow_events" },
+        () => { loadFlowEvents(); }
+      )
+      .subscribe();
+    return () => { (supabase as any).removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
