@@ -2309,17 +2309,29 @@ Deno.serve(async (req) => {
       // sobrecarregar a SSótica com requisições paralelas e estourar timeouts.
       // Marca como "idle" e zera o agendamento de backfill das demais. O backfill
       // pode ser retomado depois manualmente pelo botão Sincronizar.
-      await supabase
-        .from("ssotica_integrations")
-        .update({
+      // Obs: feito em duas chamadas separadas para evitar o problema do PostgREST
+      // que confunde vírgulas dentro de `in.()` quando usado em `.or()`.
+      try {
+        const pauseFields = {
           sync_status: "idle",
           backfill_status: "idle",
           backfill_next_run_at: null,
           last_error: "Pausado automaticamente — outra loja foi acionada manualmente.",
           updated_at: new Date().toISOString(),
-        })
-        .neq("id", onlyIntegrationId)
-        .or("sync_status.eq.running,backfill_status.in.(running,scheduled)");
+        };
+        await supabase
+          .from("ssotica_integrations")
+          .update(pauseFields)
+          .neq("id", onlyIntegrationId)
+          .eq("sync_status", "running");
+        await supabase
+          .from("ssotica_integrations")
+          .update(pauseFields)
+          .neq("id", onlyIntegrationId)
+          .in("backfill_status", ["running", "scheduled"]);
+      } catch (pauseErr) {
+        console.error("[ssotica-sync][start_backfill] erro ao pausar outras lojas:", pauseErr);
+      }
 
       // Reseta o progresso e marca pra rodar AGORA (próximo tick do cron pega)
       const { data: integ, error } = await supabase
