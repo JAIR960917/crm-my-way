@@ -462,9 +462,14 @@ serve(async (req) => {
         const cfg = MODULE_CONFIG[moduleKey];
         if (!cfg) continue;
 
-        // Para global, sessão é resolvida por card. Para não-global, sessão fixa.
-        const fixedSession = isGlobal ? null : await resolveSession(supabase, tc.instance_id);
-        if (!isGlobal && !fixedSession) continue;
+        // Cobranças: round-robin entre instâncias sem empresa vinculada.
+        const isCobrancas = moduleKey === "cobrancas";
+        const fixedSession = (isGlobal || isCobrancas) ? null : await resolveSession(supabase, tc.instance_id);
+        if (!isGlobal && !isCobrancas && !fixedSession) continue;
+        if (isCobrancas && unboundSessions.length === 0) {
+          console.warn(`[trigger ${tc.id}] cobranças sem instâncias sem empresa vinculada — pulando`);
+          continue;
+        }
 
         const steps = ((tc as any).whatsapp_trigger_steps || []).sort((a: any, b: any) => a.position - b.position);
         if (steps.length === 0) continue;
