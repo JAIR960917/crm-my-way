@@ -688,6 +688,12 @@ serve(async (req) => {
           const now = new Date();
           const daysSinceEntry = Math.floor((now.getTime() - enteredAt.getTime()) / (1000 * 60 * 60 * 24));
 
+          // Regra: 1 gatilho por entrada na coluna.
+          // Se já houve envio bem-sucedido APÓS o card entrar na coluna atual,
+          // não envia novamente até que o card saia e volte (updated_at muda).
+          const lastSentTs = lastSentAtByCard.get(card.id) || 0;
+          if (lastSentTs >= enteredAt.getTime()) continue;
+
           for (const step of steps) {
             if (sentStepIds.has(step.id)) continue;
             if (daysSinceEntry < step.delay_days) continue;
