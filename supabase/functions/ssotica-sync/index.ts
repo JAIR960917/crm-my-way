@@ -42,6 +42,63 @@ type DispatchConfig = {
   auth: string | null;
 };
 
+const MANUAL_BACKFILL_OWNER_KEY = "ssotica_manual_backfill_owner";
+
+async function getManualBackfillOwner(supabase: any): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("system_settings")
+    .select("setting_value")
+    .eq("setting_key", MANUAL_BACKFILL_OWNER_KEY)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(`[ssotica-sync][manual-owner] falha ao ler owner manual: ${error.message}`);
+    return null;
+  }
+
+  const value = typeof data?.setting_value === "string" ? data.setting_value.trim() : "";
+  return value || null;
+}
+
+async function setManualBackfillOwner(supabase: any, integrationId: string | null): Promise<void> {
+  const { error } = await supabase
+    .from("system_settings")
+    .upsert(
+      {
+        setting_key: MANUAL_BACKFILL_OWNER_KEY,
+        setting_value: integrationId,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "setting_key" },
+    );
+
+  if (error) {
+    console.warn(`[ssotica-sync][manual-owner] falha ao salvar owner manual: ${error.message}`);
+  }
+}
+
+async function pauseOtherIntegrations(supabase: any, integrationId: string, reason: string): Promise<void> {
+  const pauseFields = {
+    sync_status: "idle",
+    backfill_status: "idle",
+    backfill_next_run_at: null,
+    last_error: reason,
+    updated_at: new Date().toISOString(),
+  };
+
+  await supabase
+    .from("ssotica_integrations")
+    .update(pauseFields)
+    .neq("id", integrationId)
+    .eq("sync_status", "running");
+
+  await supabase
+    .from("ssotica_integrations")
+    .update(pauseFields)
+    .neq("id", integrationId)
+    .in("backfill_status", ["running", "scheduled"]);
+}
+
 function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
@@ -2261,6 +2318,22 @@ function busyResponse(busy: { id: string; company_id: string }): Response {
       busy_integration_id: busy.id,
       busy_company_id: busy.company_id,
       message: "Outra loja já está sincronizando. Aguarde concluir antes de iniciar uma nova sincronização (apenas 1 loja por vez).",
+    }),
+    { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+  );
+}
+
+function automaticSyncDisabledResponse(ownerIntegrationId: string | null): Response {
+  const message = ownerIntegrationId
+    ? "Sincronização automática entre lojas está desativada. Apenas a loja iniciada manualmente pode continuar em background."
+    : "Sincronização automática está desativada. Inicie a loja manualmente pela tela de integrações para continuar o backfill.";
+
+  return new Response(
+    JSON.stringify({
+      ok: false,
+      error: "automatic_sync_disabled",
+      manual_owner_integration_id: ownerIntegrationId,
+      message,
     }),
     { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );
