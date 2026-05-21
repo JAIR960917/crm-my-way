@@ -2460,6 +2460,11 @@ Deno.serve(async (req) => {
         });
       }
 
+      // 🔒 LOCK GLOBAL: rejeita se outra loja está ocupada.
+      const busy = await getOtherBusyIntegration(supabase, onlyIntegrationId);
+      if (busy) return busyResponse(busy);
+
+
       const nowIso = new Date().toISOString();
       const { data: current, error: currentError } = await supabase
         .from("ssotica_integrations")
