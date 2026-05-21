@@ -117,6 +117,22 @@ export default function ActiveClientsPage() {
   const [filterAssignedTo, setFilterAssignedTo] = useState("all");
   const [mobileTab, setMobileTab] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const confirmBulkDelete = async () => {
+    setBulkDeleting(true);
+    let q = supabase.from("crm_renovacoes").delete().not("id", "is", null);
+    if (filterCompanyId !== "all") q = q.eq("ssotica_company_id", filterCompanyId);
+    const { error } = await q;
+    setBulkDeleting(false);
+    setBulkDeleteOpen(false);
+    if (error) toast.error("Erro ao excluir todos");
+    else {
+      toast.success("Renovações excluídas");
+      setRefreshKey((k) => k + 1);
+    }
+  };
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [autoAssignConfirm, setAutoAssignConfirm] = useState(false);
   const [unassignedCount, setUnassignedCount] = useState(0);
