@@ -1,71 +1,58 @@
-## Objetivo
+## Visão geral
 
-No Kanban de Cobranças, quando o mesmo cliente (mesmo CPF) tiver dívidas em mais de uma loja, mostrar **um único card** com o **valor total somado** e a lista de todas as dívidas/lojas/produtos por trás. Mudança apenas visual — o banco continua com 1 registro por dívida.
+Adicionar à tela **Configurações** uma seção **Funções e Permissões** onde o admin pode:
+- Editar permissões de páginas das 4 funções existentes (admin, gerente, vendedor, financeiro)
+- Criar novas funções customizadas (ex: "Supervisor", "Atendente")
+- Marcar/desmarcar quais páginas cada função acessa
+- Renomear ou excluir funções customizadas
 
-## Regras acordadas
+A nova função aparece automaticamente no dropdown "Papel" da tela de Usuários.
 
-- **Identificador do cliente:** CPF (campos `data->>documento` ou `data->>cpf`, normalizado para só dígitos). Cobranças sem CPF continuam como cards individuais (sem agrupar).
-- **Card unificado:** 1 card por CPF, valor = soma das dívidas, exibe quantidade de lojas e mantém os indicadores existentes (atrasada/hoje/pendente, renegociou).
-- **Coluna do card unificado:** vai para o **status mais grave** entre as cobranças do cliente. Severidade definida pelo `position` da coluna no Kanban (mais à direita = mais grave).
-- **Escopo:** somente exibição no Kanban. Nada muda em banco, edge functions, automações, WhatsApp, etc.
+## Como funções customizadas funcionam
 
-## O que muda
+Toda função customizada **herda de uma função base** (admin/gerente/vendedor/financeiro). Isso preserva todas as regras de segurança (RLS) do banco que dependem do enum atual — a herança define apenas o nível de acesso aos dados; a função customizada apenas filtra ainda mais quais **páginas** ficam visíveis.
 
-### 1. Lógica de agrupamento (`CobrancasPage.tsx`)
-- Função `groupByCpf(items, statuses)` que recebe a lista bruta de `Cobranca[]` e devolve `CobrancaGroup[]`:
-  - `cpfKey` (string normalizada) ou `null` para itens sem CPF
-  - `items: Cobranca[]` (todas as cobranças do cliente)
-  - `valorTotal`: soma de `valor`
-  - `representativeStatus`: status mais grave (maior `position` em `statuses`)
-  - `representative: Cobranca`: a cobrança usada como "cara" do card (a do status mais grave; se empatar, a com maior `valor`)
-  - `companies: string[]` (nomes únicos das lojas)
-- Aplicar agrupamento **depois** do filtro/busca, antes de renderizar.
-- `getByStatus(key)`: passa a devolver grupos cujo `representativeStatus === key`.
-- Total exibido no header: contar grupos (não cobranças).
+Exemplo: "Supervisor" herda de gerente + só acessa /cobrancas e /dashboard.
 
-### 2. Renderização do card (`renderCard`)
-- Recebe `CobrancaGroup` em vez de `Cobranca`.
-- Quando `items.length > 1`:
-  - Badge "X lojas" ao lado do valor
-  - Lista compacta das lojas (chips) abaixo do nome
-  - Valor = `valorTotal`
-  - Indicadores (atrasada/hoje/renegociou) consideram **qualquer** item do grupo
-- Quando `items.length === 1`: comportamento atual, sem alterações visuais.
-- `draggableId`: usar `group.representative.id` (mantém DnD funcional para o caso de 1 item; ver limitações).
+## Mudanças no banco
 
-### 3. Edição
-- Clicar em editar num grupo unificado abre um **seletor** simples: "Esse cliente tem N dívidas — qual deseja editar?" listando cada cobrança (loja + valor + status). Selecionada uma, abre o `CobrancaEditSheet` atual.
-- Cards de 1 só item: edição direta como hoje.
+1. **`role_definitions`** — catálogo de funções:
+   - `key` (texto, ex: "admin", "supervisor_loja")
+   - `label` (texto exibido, ex: "Supervisor de Loja")
+   - `is_system` (bool — true para as 4 nativas, não podem ser excluídas)
+   - `base_role` (admin/gerente/vendedor/financeiro — usado pelo RLS)
 
-### 4. Exclusão
-- No grupo unificado, botão de excluir é **escondido** (evita confusão de "apagar tudo"). Para excluir, o usuário abre via editar e exclui pela tela individual ou pode usar o seletor com botão lixeira por linha.
+2. **`role_page_permissions`** — quais páginas cada função vê:
+   - `role_key` + `page_key` + `allowed` (bool)
 
-## Limitações (intencionais)
+3. **`user_roles`** ganha coluna opcional `role_key`. Quando preenchida, indica a função customizada. A coluna `role` (enum) recebe o `base_role` para o RLS continuar funcionando.
 
-- **Drag-and-drop em grupos com 2+ dívidas:** desativado — arrastar um card unificado moveria várias cobranças com status diferentes. O grupo só pode ser movido se tiver 1 item. Mostraremos um toast explicativo se o usuário tentar arrastar um grupo com várias.
-- **Paginação:** o `usePaginatedColumns` continua paginando por status no banco. O agrupamento é feito sobre os itens já carregados. Se um cliente tem dívidas em colunas ainda não carregadas, ele aparecerá em mais de uma coluna até a paginação puxar o resto. Vou documentar mas **não** mudar o hook agora.
-- Sem alteração de schema, RLS, edge functions ou automações.
+Seed: insere as 4 funções nativas com todas as páginas liberadas (admin vê tudo; outros mantêm o comportamento atual).
+
+## Mudanças no frontend
+
+- **SettingsPage**: nova seção "Funções e Permissões" com lista de funções, edição inline de permissões (checkboxes por página), botão "+ Nova função" (escolhe nome + função base), e botão excluir para customizadas.
+- **AuthContext**: passa a ler `role_key` (cai para `role` se vazio) e carrega o array de páginas permitidas dessa função.
+- **RoleGate**: bloqueia acesso a rota se a página não estiver permitida para a função do usuário.
+- **AppSidebar**: oculta itens de menu que não estiverem permitidos.
+- **UsersPage**: dropdown "Papel" passa a listar TODAS as funções (nativas + customizadas).
+- **Edge functions** `create-user` e `manage-user`: validam contra a tabela `role_definitions` em vez da lista fixa, e gravam `role_key` + `role` (base).
+
+## Catálogo de páginas
+
+Definido em código (`src/lib/pagePermissions.ts`) com label amigável e path. Cobre todas as ~22 rotas existentes do sistema.
 
 ## Detalhes técnicos
 
-```text
-Cobranca[]  →  filter/search  →  groupByCpf  →  CobrancaGroup[]
-                                                      │
-                                                      ├── representativeStatus → coluna
-                                                      └── render(group)
+- `role_key` em `user_roles` é `text` nullable; quando NULL o sistema usa o nome do enum como key (admin/gerente/vendedor/financeiro).
+- RLS continua usando `has_role(uid, 'admin'::app_role)` — funciona porque o `role` enum sempre é gravado.
+- /perfil, /notificacoes e /instalar ficam sempre liberados (não bloqueáveis).
+- Admin nativo (`is_system=true` + key='admin') sempre tem acesso a tudo, independente do que estiver na tabela de permissões.
+
+## Deploy
+
+Após aprovação:
+```bash
+cd /opt/crm && ./deploy.sh
 ```
-
-Normalização do CPF:
-```ts
-const normalizeCpf = (raw: unknown) =>
-  String(raw ?? "").replace(/\D+/g, "") || null;
-```
-
-Severidade (status mais grave) usando `position` do array `statuses` (mantém a ordem do Kanban como fonte da verdade — admin pode reordenar e a regra acompanha).
-
-## Fora de escopo
-
-- Mesclar registros no banco
-- Criar entidade "cliente"
-- Mudanças no fluxo de WhatsApp, automações, edge functions
-- Outras telas (Dashboard, WhatsApp, etc.) — pedem agrupamento próprio depois se quiser
+(roda migrations + functions + frontend)
