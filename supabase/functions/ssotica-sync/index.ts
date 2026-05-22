@@ -2551,7 +2551,7 @@ Deno.serve(async (req) => {
         .from("ssotica_integrations")
         .update({
           backfill_chunk_index: 0,
-          backfill_total_chunks: 32,
+          backfill_total_chunks: BACKFILL_TOTAL_CHUNKS,
           backfill_phase: initialPhase,
           backfill_scope: scope,
           backfill_status: "scheduled",
@@ -2576,7 +2576,7 @@ Deno.serve(async (req) => {
         ok: true,
         mode: "start_backfill",
         scope,
-        message: `Backfill de 96 meses (${scopeLabel}) agendado em background. Demais lojas foram pausadas para evitar sobrecarga.`,
+        message: `Backfill de 96 meses (${scopeLabel}) agendado em background em ${BACKFILL_TOTAL_CHUNKS} lotes. Demais lojas foram pausadas para evitar sobrecarga.`,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -2622,8 +2622,8 @@ Deno.serve(async (req) => {
           mode: "resume_backfill",
           already_running: true,
           chunk_index: current.backfill_chunk_index || 0,
-          total_chunks: current.backfill_total_chunks || 32,
-          message: `O chunk ${(current.backfill_chunk_index || 0) + 1}/${current.backfill_total_chunks || 32} já está em execução.`,
+          total_chunks: current.backfill_total_chunks || BACKFILL_TOTAL_CHUNKS,
+          message: `O chunk ${(current.backfill_chunk_index || 0) + 1}/${current.backfill_total_chunks || BACKFILL_TOTAL_CHUNKS} já está em execução.`,
         }), {
           status: 202,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2663,8 +2663,8 @@ Deno.serve(async (req) => {
         ok: true,
         mode: "resume_backfill",
         chunk_index: integ.backfill_chunk_index || 0,
-        total_chunks: integ.backfill_total_chunks || 32,
-        message: `Backfill retomado em background a partir do chunk ${(integ.backfill_chunk_index || 0) + 1}/${integ.backfill_total_chunks || 32}.`,
+        total_chunks: integ.backfill_total_chunks || BACKFILL_TOTAL_CHUNKS,
+        message: `Backfill retomado em background a partir do chunk ${(integ.backfill_chunk_index || 0) + 1}/${integ.backfill_total_chunks || BACKFILL_TOTAL_CHUNKS}.`,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
