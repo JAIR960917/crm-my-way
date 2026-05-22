@@ -38,7 +38,6 @@ type ProfileFull = { user_id: string; full_name: string; company_id: string | nu
 
 export default function OrcamentosPage() {
   const { isAdmin } = useAuth();
-  const navigate = useNavigate();
   const [items, setItems] = useState<Orcamento[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profilesFull, setProfilesFull] = useState<ProfileFull[]>([]);
@@ -46,6 +45,8 @@ export default function OrcamentosPage() {
   const [loading, setLoading] = useState(true);
   const [filterDate, setFilterDate] = useState<Date | undefined>();
   const [filterCompanyId, setFilterCompanyId] = useState<string>("all");
+  const [editOpen, setEditOpen] = useState(false);
+  const [editing, setEditing] = useState<Orcamento | null>(null);
 
   const fetchAll = async () => {
     setLoading(true);
@@ -77,31 +78,9 @@ export default function OrcamentosPage() {
 
   const getName = (uid: string) => profiles.find(p => p.user_id === uid)?.full_name || "—";
 
-  const handleEdit = async (o: Orcamento) => {
-    if (o.lead_id) {
-      navigate(`/?edit=${o.lead_id}`);
-      return;
-    }
-    const phone = (o.telefone || "").replace(/\D/g, "");
-    if (phone) {
-      const { data } = await supabase.from("crm_leads").select("id, data").limit(500);
-      const tail = phone.slice(-8);
-      const match = (data || []).find((l: any) => {
-        const d = l.data || {};
-        const phones: string[] = [];
-        const walk = (v: any) => {
-          if (typeof v === "string") phones.push(v);
-          else if (v && typeof v === "object") Object.values(v).forEach(walk);
-        };
-        walk(d);
-        return phones.some((p) => p.replace(/\D/g, "").endsWith(tail));
-      });
-      if (match) {
-        navigate(`/?edit=${match.id}`);
-        return;
-      }
-    }
-    toast.info("Lead não localizado. Cadastre o cliente na tela de Leads para continuar a tratativa.");
+  const handleEdit = (o: Orcamento) => {
+    setEditing(o);
+    setEditOpen(true);
   };
 
   const renderProdutos = (o: Orcamento) => {
