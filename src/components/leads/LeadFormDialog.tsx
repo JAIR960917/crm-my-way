@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { resolveLeadIdentity } from "@/lib/leadIdentity";
 import ContactAttemptForm from "./ContactAttemptForm";
 import { recordCardOpen } from "@/lib/cardOpens";
+import { resolveLeadStatusFromData } from "@/lib/resolveLeadStatus";
 
 type Profile = { user_id: string; full_name: string; email?: string; avatar_url?: string | null; company_id?: string | null };
 type Company = { id: string; name: string };
