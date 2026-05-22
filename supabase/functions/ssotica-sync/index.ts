@@ -227,6 +227,55 @@ function getDispatchConfig(req: Request): DispatchConfig {
   };
 }
 
+async function enqueueSsoticaSyncDispatch(
+  supabase: any,
+  dispatchConfig: DispatchConfig,
+  payload: Record<string, unknown>,
+  context: string,
+): Promise<"fetch" | "rpc"> {
+  if (dispatchConfig.url && dispatchConfig.auth) {
+    const dispatchPromise = fetch(dispatchConfig.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: dispatchConfig.auth,
+      },
+      body: JSON.stringify(payload),
+    }).then(async (response) => {
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        throw new Error(`HTTP ${response.status}${body ? ` · ${body.slice(0, 300)}` : ""}`);
+      }
+    });
+
+    // @ts-ignore EdgeRuntime existe no runtime do ambiente self-hosted
+    if (typeof EdgeRuntime !== "undefined" && (EdgeRuntime as any)?.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(dispatchPromise.catch((error) => {
+        console.error(`[ssotica-sync][dispatch][${context}] falha no fetch assíncrono:`, error);
+      }));
+      return "fetch";
+    }
+
+    await dispatchPromise;
+    return "fetch";
+  }
+
+  const integrationId = typeof payload.integration_id === "string" ? payload.integration_id : null;
+  if (!integrationId) {
+    throw new Error(`Configuração de dispatch ausente para ${context}`);
+  }
+
+  const { error: dispatchErr } = await supabase.rpc("ssotica_enqueue_sync", {
+    _url: dispatchConfig.url,
+    _auth: dispatchConfig.auth,
+    _integration_id: integrationId,
+    _force_full: payload.force_full === true,
+  });
+  if (dispatchErr) throw dispatchErr;
+  return "rpc";
+}
+
 // Quebra um intervalo em janelas de até 30 dias (limite SSótica)
 function buildWindows(start: Date, end: Date): Array<{ start: string; end: string }> {
   const windows: Array<{ start: string; end: string }> = [];
