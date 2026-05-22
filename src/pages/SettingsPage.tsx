@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Save, Upload, Trash2, Clock } from "lucide-react";
+import RolePermissionsManager from "@/components/settings/RolePermissionsManager";
 
 type SettingField = {
   key: string;
