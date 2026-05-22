@@ -427,7 +427,8 @@ export default function AppointmentsPage() {
                 <th className="text-left px-3 py-2.5 font-medium">Agendado por</th>
                 <th className="text-left px-3 py-2.5 font-medium">Valor</th>
                 <th className="text-left px-3 py-2.5 font-medium">Forma de pagamento da consulta</th>
-                <th className="text-left px-3 py-2.5 font-medium">Consulta a receber</th>
+                <th className="text-left px-3 py-2.5 font-medium">Recebimento da consulta</th>
+                <th className="text-left px-3 py-2.5 font-medium">Consulta paga</th>
                 <th className="text-left px-3 py-2.5 font-medium">Canal de Agendamento</th>
                 <th className="text-left px-3 py-2.5 font-medium">Confirmação</th>
                 <th className="text-left px-3 py-2.5 font-medium">Comparecimento</th>
@@ -442,11 +443,13 @@ export default function AppointmentsPage() {
                 try { dtFormatted = format(new Date(appt.scheduled_datetime), "dd/MM/yyyy HH:mm", { locale: ptBR }); } catch {}
                 const fpc = appt.forma_pagamento_consulta;
                 const car = appt.consulta_a_receber;
+                const cpaga = appt.consulta_paga;
                 const carChangedSameDay = isSameDay(appt.consulta_a_receber_updated_at, appt.scheduled_datetime);
                 let rowColor = "";
-                if (car === "consulta_paga" && carChangedSameDay) rowColor = "bg-green-500/15 hover:bg-green-500/25";
-                else if (fpc === "consulta_paga") rowColor = "bg-green-700/25 hover:bg-green-700/35";
-                else if (fpc === "pagamento_no_dia") rowColor = "bg-orange-500/20 hover:bg-orange-500/30";
+                if (cpaga === true) rowColor = "bg-green-700/25 hover:bg-green-700/35";
+                else if (car === "consulta_paga" && carChangedSameDay) rowColor = "bg-green-500/15 hover:bg-green-500/25";
+                else if (car === "consulta_paga") rowColor = "bg-green-700/25 hover:bg-green-700/35";
+                else if (car === "pagamento_no_dia") rowColor = "bg-orange-500/20 hover:bg-orange-500/30";
                 return (
                   <tr key={appt.id} className={cn("transition-colors", rowColor || "hover:bg-muted/30")}>
                     <td className="px-3 py-2 font-medium">{appt.nome || "—"}</td>
@@ -457,14 +460,23 @@ export default function AppointmentsPage() {
                     <td className="px-3 py-2">R$ {Number(appt.valor).toFixed(2)}</td>
                     <td className="px-3 py-2">
                       <Select value={fpc || ""} onValueChange={(v) => updateField(appt.id, "forma_pagamento_consulta", v)}>
-                        <SelectTrigger className="h-8 text-xs w-[170px]"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                        <SelectContent>{CONSULTA_PAGAMENTO_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+                        <SelectTrigger className="h-8 text-xs w-[140px]"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                        <SelectContent>{FORMA_PAGAMENTO_CONSULTA_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
                       </Select>
                     </td>
                     <td className="px-3 py-2">
                       <Select value={car || ""} onValueChange={(v) => updateField(appt.id, "consulta_a_receber", v)}>
-                        <SelectTrigger className="h-8 text-xs w-[170px]"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                        <SelectContent>{CONSULTA_PAGAMENTO_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+                        <SelectTrigger className="h-8 text-xs w-[180px]"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                        <SelectContent>{RECEBIMENTO_CONSULTA_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Select value={cpaga === true ? "sim" : cpaga === false ? "nao" : ""} onValueChange={(v) => updateField(appt.id, "consulta_paga", v)}>
+                        <SelectTrigger className="h-8 text-xs w-[100px]"><SelectValue placeholder="—" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="sim">Sim</SelectItem>
+                          <SelectItem value="nao">Não</SelectItem>
+                        </SelectContent>
                       </Select>
                     </td>
                     <td className="px-3 py-2">{appt.canal_agendamento}</td>
