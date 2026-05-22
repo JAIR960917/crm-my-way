@@ -336,6 +336,7 @@ export default function UsersPage() {
             </form>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       {/* Desktop table */}
