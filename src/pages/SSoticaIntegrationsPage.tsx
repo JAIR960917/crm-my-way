@@ -716,12 +716,12 @@ export default function SSoticaIntegrationsPage() {
                             size="sm"
                             variant="secondary"
                             onClick={() => {
-                              if (confirm("Iniciar backfill de 96 meses (Cobranças)?\n\nIsso vai reimportar todas as contas a receber dos últimos 8 anos e também atualizar os cards de renovação (pois clientes que pagaram migram para renovação).\n\nO processamento roda em 32 lotes. Faça uma loja por vez para evitar sobrecarga.")) {
+                              if (confirm("Iniciar backfill de 96 meses (Cobranças)?\n\nIsso vai reimportar apenas as contas a receber dos últimos 8 anos para corrigir os cards da tela de cobrança.\n\nO processamento roda em lotes. Faça uma loja por vez para evitar sobrecarga.")) {
                                 handleSyncNow(integ, true, "cobrancas");
                               }
                             }}
                             disabled={syncingId === integ.id || !integ.is_active}
-                            title="Backfill de cobranças (também atualiza renovações)"
+                            title="Backfill apenas de cobranças"
                           >
                             <RefreshCw className="h-3 w-3 mr-1" />
                             Backfill Cobranças
@@ -730,7 +730,7 @@ export default function SSoticaIntegrationsPage() {
                             size="sm"
                             variant="secondary"
                             onClick={() => {
-                              if (confirm("Iniciar backfill de 96 meses (Renovações)?\n\nIsso vai reimportar apenas as vendas dos últimos 8 anos para atualizar os cards de renovação.\n\nO processamento roda em 32 lotes. Faça uma loja por vez para evitar sobrecarga.")) {
+                              if (confirm("Iniciar backfill de 96 meses (Renovações)?\n\nIsso vai reimportar apenas as vendas dos últimos 8 anos para atualizar os cards de renovação.\n\nO processamento roda em lotes. Faça uma loja por vez para evitar sobrecarga.")) {
                                 handleSyncNow(integ, true, "renovacoes");
                               }
                             }}
