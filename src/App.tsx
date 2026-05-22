@@ -126,6 +126,8 @@ const AppRoutes = () => {
       <Route path="/notificacoes" element={<RoleGate><NotificationSettingsPage /></RoleGate>} />
       <Route path="/whatsapp" element={<RoleGate><WhatsAppPage /></RoleGate>} />
       <Route path="/agendamentos" element={<RoleGate><AppointmentsPage /></RoleGate>} />
+      <Route path="/orcamentos" element={<RoleGate><OrcamentosPage /></RoleGate>} />
+
       <Route path="/clientes-ativos" element={<RoleGate><ActiveClientsPage /></RoleGate>} />
       <Route path="/importar" element={<RoleGate><ImportLeadsPage /></RoleGate>} />
       <Route path="/cobrancas" element={<RoleGate><CobrancasPage /></RoleGate>} />
