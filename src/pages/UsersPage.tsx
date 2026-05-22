@@ -27,6 +27,7 @@ export default function UsersPage() {
   const [userRoles, setUserRoles] = useState<UserRole[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [managerCompanies, setManagerCompanies] = useState<ManagerCompany[]>([]);
+  const [roleDefs, setRoleDefs] = useState<RoleDef[]>([]);
 
   // Create dialog
   const [openCreate, setOpenCreate] = useState(false);
