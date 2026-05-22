@@ -904,6 +904,11 @@ async function syncContasReceber(
   const allowMissingAsPaid = !!manualRecentWindow;
   let removedByDirectEvidence = 0;
   let removedByAbsence = 0;
+  if (isBackfillChunk && processed === 0) {
+    console.log(
+      `[ssotica-sync][cobrancas] empresa=${integ.company_id} chunk histórico vazio (${ymd(overallStart)}→${ymd(overallEnd)}); seguindo para o próximo lote sem erro.`,
+    );
+  }
   console.log(`[ssotica-sync][cobrancas] empresa=${integ.company_id} janela=${ymd(overallStart)}→${ymd(overallEnd)} processed=${processed} clientes_em_atraso=${parcelasPorCliente.size} backfill_chunk=${isBackfillChunk}${manualRecentWindow ? " manual_recent=true" : incrementalWindow ? ` slot=${incrementalWindow.slot + 1}/${INCREMENTAL_COBRANCAS_SLICES}` : ""}`);
 
   // Janela atual em formato YYYY-MM-DD para decidir quais parcelas existentes
