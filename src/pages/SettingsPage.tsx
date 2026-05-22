@@ -292,6 +292,29 @@ export default function SettingsPage() {
           </p>
         </div>
 
+        {/* WhatsApp Send Delay */}
+        <div className="space-y-2 border-t pt-4">
+          <Label className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Intervalo entre envios (anti-ban)
+          </Label>
+          <div className="flex gap-2 items-center">
+            <Input
+              type="number"
+              min={0}
+              max={3600}
+              value={values.whatsapp_send_delay_seconds || "30"}
+              onChange={(e) => setValues((prev) => ({ ...prev, whatsapp_send_delay_seconds: e.target.value }))}
+              placeholder="30"
+              className="w-24"
+            />
+            <span className="text-sm text-muted-foreground">segundos</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Tempo de espera entre uma mensagem e outra dentro do mesmo ciclo de envio. Valores baixos aceleram o disparo, mas aumentam o risco de bloqueio da instância.
+          </p>
+        </div>
+
         <Button onClick={handleSave} disabled={saving} className="w-full">
           <Save className="mr-2 h-4 w-4" />
           {saving ? "Salvando..." : "Salvar Configurações"}
