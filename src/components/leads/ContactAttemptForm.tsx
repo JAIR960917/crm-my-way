@@ -93,6 +93,11 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
       toast.error("Descreva a tratativa do contato");
       return;
     }
+    if (atendeu === "nao" && !tentativasObs.trim()) {
+      toast.error("Descreva como tentou contato com o cliente");
+      return;
+    }
+
     if (atendeu === "sim" && marcou === "sim") {
       if (!dateStr || !time || !formaPagamento || !canal) {
         toast.error("Preencha todos os campos do agendamento");
