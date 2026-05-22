@@ -77,12 +77,24 @@ export default function OrcamentosPage() {
 
   const getName = (uid: string) => profiles.find(p => p.user_id === uid)?.full_name || "—";
 
-  const handleEdit = (o: Orcamento) => {
+  const handleEdit = async (o: Orcamento) => {
     if (o.lead_id) {
       navigate(`/?edit=${o.lead_id}`);
-    } else {
-      toast.info("Este orçamento não está vinculado a um lead.");
+      return;
     }
+    const phone = (o.telefone || "").replace(/\D/g, "");
+    if (phone) {
+      const { data } = await supabase
+        .from("crm_leads")
+        .select("id, telefone")
+        .limit(50);
+      const match = (data || []).find((l: any) => (l.telefone || "").replace(/\D/g, "").endsWith(phone.slice(-8)));
+      if (match) {
+        navigate(`/?edit=${match.id}`);
+        return;
+      }
+    }
+    toast.info("Lead não localizado. Cadastre o cliente na tela de Leads para continuar a tratativa.");
   };
 
   const renderProdutos = (o: Orcamento) => {
