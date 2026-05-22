@@ -315,15 +315,18 @@ function buildCobrancaVars(
   }, 0);
   const totalEffective = totalParcelas > 0 ? totalParcelas : Number(data.total_atraso || 0);
 
-  // Lista formatada das parcelas vencidas, ordenadas por número
-  const vencidasParaLista = vencidas.slice().sort((a, b) =>
-    Number(a?.numero_parcela || 0) - Number(b?.numero_parcela || 0),
+  // Lista formatada das parcelas em atraso, ordenadas do vencimento mais antigo
+  // para o mais novo. Mostra Valor e Data de vencimento em cada linha.
+  // Fallback: se o filtro estrito de dias_atraso>0 não retornar nada (algumas
+  // integrações gravam dias_atraso=0 mesmo para vencidas), usamos todas as
+  // parcelas do array parcelas_atrasadas.
+  const baseListagem = vencidas.length > 0 ? vencidas : parcelas;
+  const vencidasParaLista = baseListagem.slice().sort((a, b) =>
+    String(a?.vencimento || "9999-12-31").localeCompare(String(b?.vencimento || "9999-12-31")),
   );
-  const listaParcelasVencidas = vencidasParaLista.map((p) => {
-    const num = p?.numero_parcela ?? "?";
-    const total = p?.ssotica_raw?.titulo?.qtd_parcelas ?? p?.qtd_parcelas ?? "?";
-    return `Parcela ${num}/${total} Valor ${formatBRL(p?.valor)}\n                        Data ${formatDateBR(p?.vencimento)}`;
-  }).join("\n");
+  const listaParcelasVencidas = vencidasParaLista
+    .map((p) => `• Valor: ${formatBRL(p?.valor)} | Vencimento: ${formatDateBR(p?.vencimento)}`)
+    .join("\n");
 
   // Boleto/parcela mais antigo entre as vencidas (maior dias_atraso ou menor vencimento)
   const maisAntigo = vencidas.slice().sort((a, b) =>
