@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { Phone, PhoneOff, Plus, Trash2, Check } from "lucide-react";
+import { Phone, PhoneOff, Plus, Trash2, Check, X, CalendarCheck, CalendarX } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type ProdutoItem = { nome: string; valor: string };
 
@@ -26,16 +28,24 @@ type Props = {
   onSaved?: () => void;
 };
 
+type Tab = "atividade" | "comentario" | "tarefa";
+
 export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onSaved }: Props) {
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
   const [motivo, setMotivo] = useState("");
   const [observacao, setObservacao] = useState("");
   const [itens, setItens] = useState<ProdutoItem[]>([{ nome: "", valor: "" }]);
+  const [saving, setSaving] = useState(false);
+
+  // Right column state
+  const [tab, setTab] = useState<Tab>("atividade");
   const [atendeu, setAtendeu] = useState<"sim" | "nao" | null>(null);
   const [tratativa, setTratativa] = useState("");
   const [tentativasObs, setTentativasObs] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [comentario, setComentario] = useState("");
+  const [tarefa, setTarefa] = useState("");
+  const [tarefaData, setTarefaData] = useState("");
 
   useEffect(() => {
     if (open && orcamento) {
@@ -48,6 +58,10 @@ export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onS
       setAtendeu(null);
       setTratativa("");
       setTentativasObs("");
+      setComentario("");
+      setTarefa("");
+      setTarefaData("");
+      setTab("atividade");
     }
   }, [open, orcamento]);
 
@@ -55,22 +69,38 @@ export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onS
 
   const valorTotal = itens.reduce((acc, p) => acc + (parseFloat(p.valor) || 0), 0);
 
+  const appendObservacao = (extra: string) => {
+    const stamp = new Date().toLocaleString("pt-BR");
+    return (observacao.trim() + `\n\n— ${stamp} —\n${extra}`).trim();
+  };
+
   const handleSave = async () => {
     setSaving(true);
     const itensValidos = itens.filter(p => p.nome.trim() && p.valor);
 
     let novaObs = observacao.trim();
     if (atendeu) {
-      const stamp = new Date().toLocaleString("pt-BR");
-      const lines: string[] = [`\n\n— Tentativa de contato (${stamp}) —`];
       if (atendeu === "sim") {
-        lines.push("Cliente atendeu.");
-        if (tratativa.trim()) lines.push(`Tratativa: ${tratativa.trim()}`);
+        const partes = ["📞 Cliente ATENDEU"];
+        if (tratativa.trim()) partes.push(`Tratativa: ${tratativa.trim()}`);
+        novaObs = appendObservacao(partes.join("\n"));
       } else {
-        lines.push("Cliente NÃO atendeu.");
-        if (tentativasObs.trim()) lines.push(`Tentativas: ${tentativasObs.trim()}`);
+        const partes = ["📞 Cliente NÃO ATENDEU"];
+        if (tentativasObs.trim()) partes.push(`Tentativas: ${tentativasObs.trim()}`);
+        novaObs = appendObservacao(partes.join("\n"));
       }
-      novaObs = (novaObs + lines.join("\n")).trim();
+    }
+    if (comentario.trim()) {
+      novaObs = (observacao !== novaObs ? novaObs : observacao.trim());
+      novaObs = appendObservacao(`💬 Comentário: ${comentario.trim()}`).replace(observacao.trim(), novaObs).trim();
+      // simpler:
+      const stamp = new Date().toLocaleString("pt-BR");
+      novaObs = (novaObs + `\n\n— ${stamp} —\n💬 Comentário: ${comentario.trim()}`).trim();
+    }
+    if (tarefa.trim()) {
+      const stamp = new Date().toLocaleString("pt-BR");
+      const dtStr = tarefaData ? ` (para ${tarefaData.split("-").reverse().join("/")})` : "";
+      novaObs = (novaObs + `\n\n— ${stamp} —\n📋 Tarefa${dtStr}: ${tarefa.trim()}`).trim();
     }
 
     const payload: any = {
@@ -93,102 +123,164 @@ export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onS
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Editar Orçamento</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Cliente</Label>
-              <Input value={nome} onChange={(e) => setNome(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Telefone</Label>
-              <Input value={telefone} onChange={(e) => setTelefone(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="space-y-2 rounded-md border p-3">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-semibold">Produtos do orçamento</Label>
-              <span className="text-xs text-muted-foreground">Total: R$ {valorTotal.toFixed(2)}</span>
-            </div>
-            {itens.map((p, i) => (
-              <div key={i} className="flex gap-2 items-center">
-                <Input
-                  placeholder="Nome do produto"
-                  value={p.nome}
-                  onChange={(e) => setItens(itens.map((x, idx) => idx === i ? { ...x, nome: e.target.value } : x))}
-                  className="flex-1 h-9 text-sm"
-                />
-                <Input
-                  placeholder="Valor"
-                  type="number"
-                  step="0.01"
-                  value={p.valor}
-                  onChange={(e) => setItens(itens.map((x, idx) => idx === i ? { ...x, valor: e.target.value } : x))}
-                  className="w-28 h-9 text-sm"
-                />
-                <Button type="button" variant="ghost" size="icon" className="h-9 w-9"
-                  onClick={() => setItens(itens.length > 1 ? itens.filter((_, idx) => idx !== i) : [{ nome: "", valor: "" }])}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ))}
-            <Button type="button" variant="outline" size="sm" onClick={() => setItens([...itens, { nome: "", valor: "" }])}>
-              <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar produto
-            </Button>
-          </div>
-
-          <div className="space-y-1">
-            <Label className="text-xs">Motivo da não compra</Label>
-            <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} />
-          </div>
-
-          <div className="space-y-1">
-            <Label className="text-xs">Observação</Label>
-            <Textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={4} className="text-sm" />
-          </div>
-
-          <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
-            <div className="flex items-center gap-2">
-              <Phone className="h-4 w-4 text-primary" />
-              <span className="text-sm font-semibold">Registrar tentativa de contato</span>
-            </div>
-            <div className="flex gap-2">
-              <Button type="button" size="sm" variant={atendeu === "sim" ? "default" : "outline"} className="flex-1"
-                onClick={() => setAtendeu("sim")}>
-                <Phone className="h-3.5 w-3.5 mr-1" /> Atendeu
-              </Button>
-              <Button type="button" size="sm" variant={atendeu === "nao" ? "destructive" : "outline"} className="flex-1"
-                onClick={() => setAtendeu("nao")}>
-                <PhoneOff className="h-3.5 w-3.5 mr-1" /> Não atendeu
-              </Button>
-            </div>
-            {atendeu === "sim" && (
-              <div className="space-y-1">
-                <Label className="text-xs">Tratativa</Label>
-                <Textarea value={tratativa} onChange={(e) => setTratativa(e.target.value)} rows={2} className="text-sm" placeholder="O que foi conversado..." />
-              </div>
-            )}
-            {atendeu === "nao" && (
-              <div className="space-y-1">
-                <Label className="text-xs">Como tentou contato?</Label>
-                <Textarea value={tentativasObs} onChange={(e) => setTentativasObs(e.target.value)} rows={2} className="text-sm" placeholder="Ligação, WhatsApp..." />
-              </div>
-            )}
-          </div>
+      <DialogContent className="max-w-5xl w-[95vw] max-h-[90vh] p-0 overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <h2 className="text-base font-semibold">Editar Orçamento</h2>
+          <button onClick={() => onOpenChange(false)} className="rounded-md p-1 hover:bg-muted">
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
-        <DialogFooter>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-0 max-h-[calc(90vh-110px)]">
+          {/* LEFT: form fields */}
+          <ScrollArea className="border-r max-h-[calc(90vh-110px)]">
+            <div className="p-5 space-y-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Cliente</Label>
+                <Input value={nome} onChange={(e) => setNome(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Telefone</Label>
+                <Input value={telefone} onChange={(e) => setTelefone(e.target.value)} />
+              </div>
+
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold">Produtos do orçamento</Label>
+                  <span className="text-xs text-muted-foreground">Total: R$ {valorTotal.toFixed(2)}</span>
+                </div>
+                {itens.map((p, i) => (
+                  <div key={i} className="flex gap-2 items-center">
+                    <Input
+                      placeholder="Nome do produto"
+                      value={p.nome}
+                      onChange={(e) => setItens(itens.map((x, idx) => idx === i ? { ...x, nome: e.target.value } : x))}
+                      className="flex-1 h-9 text-sm"
+                    />
+                    <Input
+                      placeholder="Valor"
+                      type="number"
+                      step="0.01"
+                      value={p.valor}
+                      onChange={(e) => setItens(itens.map((x, idx) => idx === i ? { ...x, valor: e.target.value } : x))}
+                      className="w-28 h-9 text-sm"
+                    />
+                    <Button type="button" variant="ghost" size="icon" className="h-9 w-9"
+                      onClick={() => setItens(itens.length > 1 ? itens.filter((_, idx) => idx !== i) : [{ nome: "", valor: "" }])}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" onClick={() => setItens([...itens, { nome: "", valor: "" }])}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar produto
+                </Button>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Motivo da não compra</Label>
+                <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Observação</Label>
+                <Textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={6} className="text-sm" />
+              </div>
+            </div>
+          </ScrollArea>
+
+          {/* RIGHT: tabs Atividade / Comentário / Tarefa */}
+          <ScrollArea className="max-h-[calc(90vh-110px)]">
+            <div className="p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                {(["atividade", "comentario", "tarefa"] as Tab[]).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setTab(t)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
+                      tab === t ? "bg-destructive text-destructive-foreground" : "text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    {t === "atividade" ? "Atividade" : t === "comentario" ? "Comentário" : "Tarefa"}
+                  </button>
+                ))}
+              </div>
+
+              {tab === "atividade" && (
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Phone className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-semibold">Tentativa de contato</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">O cliente atendeu?</Label>
+                    <div className="flex gap-2">
+                      <Button type="button" size="sm" variant={atendeu === "sim" ? "default" : "outline"} className="flex-1"
+                        onClick={() => setAtendeu("sim")}>
+                        <Phone className="h-3.5 w-3.5 mr-1" /> Sim, atendeu
+                      </Button>
+                      <Button type="button" size="sm" variant={atendeu === "nao" ? "destructive" : "outline"} className="flex-1"
+                        onClick={() => setAtendeu("nao")}>
+                        <PhoneOff className="h-3.5 w-3.5 mr-1" /> Não atendeu
+                      </Button>
+                    </div>
+                  </div>
+                  {atendeu === "sim" && (
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Tratativa do contato</Label>
+                      <Textarea value={tratativa} onChange={(e) => setTratativa(e.target.value)} rows={3} className="text-sm" placeholder="Descreva o que foi conversado..." />
+                    </div>
+                  )}
+                  {atendeu === "nao" && (
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Como tentou contato?</Label>
+                      <Textarea value={tentativasObs} onChange={(e) => setTentativasObs(e.target.value)} rows={3} className="text-sm" placeholder="Ligação, WhatsApp..." />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {tab === "comentario" && (
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                  <Label className="text-xs">Adicionar comentário</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={comentario}
+                      onChange={(e) => setComentario(e.target.value)}
+                      placeholder="Adicionar comentário..."
+                      className="flex-1"
+                    />
+                    <Button type="button" variant="destructive" size="sm" onClick={() => toast.success("Comentário será salvo ao salvar o orçamento")}>
+                      Enviar
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => setTab("tarefa")}>
+                      <Plus className="h-3.5 w-3.5 mr-1" /> Tarefa
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {tab === "tarefa" && (
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                  <Label className="text-xs">Nova tarefa</Label>
+                  <Textarea value={tarefa} onChange={(e) => setTarefa(e.target.value)} rows={3} placeholder="Descreva a tarefa..." className="text-sm" />
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Data prevista</Label>
+                    <Input type="date" value={tarefaData} onChange={(e) => setTarefaData(e.target.value)} className="h-9 text-sm" />
+                  </div>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </div>
+
+        <div className="flex justify-end gap-2 px-5 py-3 border-t bg-background">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button onClick={handleSave} disabled={saving}>
             <Check className="h-3.5 w-3.5 mr-1" />
             {saving ? "Salvando..." : "Salvar"}
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
