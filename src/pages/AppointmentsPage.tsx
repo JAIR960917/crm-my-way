@@ -211,6 +211,9 @@ export default function AppointmentsPage() {
     if (field === "consulta_a_receber") {
       payload.consulta_a_receber_updated_at = new Date().toISOString();
     }
+    if (field === "consulta_paga") {
+      payload.consulta_paga = value === "sim" ? true : value === "nao" ? false : null;
+    }
     const { error } = await supabase.from("crm_appointments").update(payload).eq("id", id);
     if (error) toast.error("Erro ao atualizar");
     setAppointments(prev => prev.map(a => a.id === id ? { ...a, ...payload } : a));
