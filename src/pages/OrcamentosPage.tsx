@@ -171,7 +171,7 @@ export default function OrcamentosPage() {
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7"
-                        title={o.lead_id ? "Editar lead e registrar tentativa de contato" : "Sem lead vinculado"}
+                        title="Editar orçamento"
                         onClick={() => handleEdit(o)}
                       >
                         <Pencil className="h-3.5 w-3.5" />
@@ -184,6 +184,13 @@ export default function OrcamentosPage() {
           </table>
         </div>
       )}
+
+      <OrcamentoEditDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        orcamento={editing}
+        onSaved={fetchAll}
+      />
     </AppLayout>
   );
 }
