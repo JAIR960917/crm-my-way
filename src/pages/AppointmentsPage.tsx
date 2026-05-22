@@ -437,17 +437,34 @@ export default function AppointmentsPage() {
               {filteredAppointments.map((appt) => {
                 let dtFormatted = "—";
                 try { dtFormatted = format(new Date(appt.scheduled_datetime), "dd/MM/yyyy HH:mm", { locale: ptBR }); } catch {}
+                const fpc = appt.forma_pagamento_consulta;
+                const car = appt.consulta_a_receber;
+                const carChangedSameDay = isSameDay(appt.consulta_a_receber_updated_at, appt.scheduled_datetime);
+                let rowColor = "";
+                if (car === "consulta_paga" && carChangedSameDay) rowColor = "bg-green-500/15 hover:bg-green-500/25";
+                else if (fpc === "consulta_paga") rowColor = "bg-green-700/25 hover:bg-green-700/35";
+                else if (fpc === "pagamento_no_dia") rowColor = "bg-orange-500/20 hover:bg-orange-500/30";
                 return (
-                  <tr key={appt.id} className="hover:bg-muted/30">
+                  <tr key={appt.id} className={cn("transition-colors", rowColor || "hover:bg-muted/30")}>
                     <td className="px-3 py-2 font-medium">{appt.nome || "—"}</td>
                     <td className="px-3 py-2">{appt.telefone || "—"}</td>
                     <td className="px-3 py-2">{appt.idade || "—"}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{dtFormatted}</td>
                     <td className="px-3 py-2">{getProfileName(appt.scheduled_by)}</td>
                     <td className="px-3 py-2">R$ {Number(appt.valor).toFixed(2)}</td>
-                    <td className="px-3 py-2">{appt.forma_pagamento}</td>
-                    <td className="px-3 py-2">{appt.canal_agendamento}</td>
                     <td className="px-3 py-2">
+                      <Select value={fpc || ""} onValueChange={(v) => updateField(appt.id, "forma_pagamento_consulta", v)}>
+                        <SelectTrigger className="h-8 text-xs w-[170px]"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                        <SelectContent>{CONSULTA_PAGAMENTO_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Select value={car || ""} onValueChange={(v) => updateField(appt.id, "consulta_a_receber", v)}>
+                        <SelectTrigger className="h-8 text-xs w-[170px]"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                        <SelectContent>{CONSULTA_PAGAMENTO_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2">{appt.canal_agendamento}</td>
                       <Select value={appt.confirmacao} onValueChange={(v) => updateField(appt.id, "confirmacao", v)}>
                         <SelectTrigger className="h-8 text-xs w-[120px]"><SelectValue /></SelectTrigger>
                         <SelectContent>{CONFIRMACAO_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
