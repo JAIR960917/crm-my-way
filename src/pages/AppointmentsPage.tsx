@@ -20,6 +20,8 @@ import { CalendarCheck, Plus, Pencil, Trash2, CalendarIcon, Undo2 } from "lucide
 import { cn } from "@/lib/utils";
 import { isRealtimeEnabled } from "@/lib/runtime-config";
 
+type ProdutoItem = { nome: string; valor: string };
+
 type Appointment = {
   id: string;
   lead_id: string | null;
@@ -28,6 +30,9 @@ type Appointment = {
   scheduled_datetime: string;
   valor: number;
   forma_pagamento: string;
+  forma_pagamento_consulta: string | null;
+  consulta_a_receber: string | null;
+  consulta_a_receber_updated_at: string | null;
   canal_agendamento: string;
   confirmacao: string;
   comparecimento: string;
@@ -42,6 +47,7 @@ type Appointment = {
   fez_orcamento?: boolean | null;
   orcamento_valor?: number | null;
   orcamento_produtos?: string | null;
+  orcamento_produtos_itens?: ProdutoItem[] | null;
   orcamento_observacao?: string | null;
 };
 
@@ -51,6 +57,10 @@ const CONFIRMACAO_OPTIONS = ["Pendente", "Confirmado", "Cancelado"];
 const COMPARECIMENTO_OPTIONS = ["Pendente", "Compareceu", "Não Compareceu"];
 const VENDA_OPTIONS = ["Pendente", "Vendido", "Não Vendido", "Laudo", "Doença no Olho"];
 
+const CONSULTA_PAGAMENTO_OPTIONS: { value: string; label: string }[] = [
+  { value: "consulta_paga", label: "Consulta paga" },
+  { value: "pagamento_no_dia", label: "Pagamento no dia do exame" },
+];
 
 const CANAIS = [
   "Ligação Leads", "Ligação Renovação", "Loja", "Rede Social", "Ação Adam",
@@ -60,6 +70,18 @@ const CANAIS = [
 const FORMAS_PAGAMENTO = [
   "Dinheiro", "Cartão de Crédito", "Cartão de Débito", "PIX", "Convênio", "Boleto", "Cortesia",
 ];
+
+const isSameDay = (a: string | null | undefined, b: string | null | undefined) => {
+  if (!a || !b) return false;
+  try {
+    const da = new Date(a), db = new Date(b);
+    return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+  } catch { return false; }
+};
+
+const consultaLabel = (v: string | null | undefined) =>
+  CONSULTA_PAGAMENTO_OPTIONS.find(o => o.value === v)?.label || "—";
+
 
 type Company = { id: string; name: string };
 type ProfileFull = { user_id: string; full_name: string; company_id: string | null };
