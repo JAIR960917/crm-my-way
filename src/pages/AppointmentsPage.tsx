@@ -130,7 +130,7 @@ export default function AppointmentsPage() {
   const [nvMotivo, setNvMotivo] = useState("");
   const [nvFezOrcamento, setNvFezOrcamento] = useState<"sim" | "nao" | null>(null);
   const [nvValor, setNvValor] = useState("");
-  const [nvProdutos, setNvProdutos] = useState("");
+  const [nvProdutosItens, setNvProdutosItens] = useState<ProdutoItem[]>([{ nome: "", valor: "" }]);
   const [nvObservacao, setNvObservacao] = useState("");
   const [nvSaving, setNvSaving] = useState(false);
 
