@@ -20,6 +20,8 @@ import { CalendarCheck, Plus, Pencil, Trash2, CalendarIcon, Undo2 } from "lucide
 import { cn } from "@/lib/utils";
 import { isRealtimeEnabled } from "@/lib/runtime-config";
 
+type ProdutoItem = { nome: string; valor: string };
+
 type Appointment = {
   id: string;
   lead_id: string | null;
@@ -28,6 +30,9 @@ type Appointment = {
   scheduled_datetime: string;
   valor: number;
   forma_pagamento: string;
+  forma_pagamento_consulta: string | null;
+  consulta_a_receber: string | null;
+  consulta_a_receber_updated_at: string | null;
   canal_agendamento: string;
   confirmacao: string;
   comparecimento: string;
@@ -42,6 +47,7 @@ type Appointment = {
   fez_orcamento?: boolean | null;
   orcamento_valor?: number | null;
   orcamento_produtos?: string | null;
+  orcamento_produtos_itens?: ProdutoItem[] | null;
   orcamento_observacao?: string | null;
 };
 
@@ -51,6 +57,10 @@ const CONFIRMACAO_OPTIONS = ["Pendente", "Confirmado", "Cancelado"];
 const COMPARECIMENTO_OPTIONS = ["Pendente", "Compareceu", "Não Compareceu"];
 const VENDA_OPTIONS = ["Pendente", "Vendido", "Não Vendido", "Laudo", "Doença no Olho"];
 
+const CONSULTA_PAGAMENTO_OPTIONS: { value: string; label: string }[] = [
+  { value: "consulta_paga", label: "Consulta paga" },
+  { value: "pagamento_no_dia", label: "Pagamento no dia do exame" },
+];
 
 const CANAIS = [
   "Ligação Leads", "Ligação Renovação", "Loja", "Rede Social", "Ação Adam",
@@ -60,6 +70,18 @@ const CANAIS = [
 const FORMAS_PAGAMENTO = [
   "Dinheiro", "Cartão de Crédito", "Cartão de Débito", "PIX", "Convênio", "Boleto", "Cortesia",
 ];
+
+const isSameDay = (a: string | null | undefined, b: string | null | undefined) => {
+  if (!a || !b) return false;
+  try {
+    const da = new Date(a), db = new Date(b);
+    return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+  } catch { return false; }
+};
+
+const consultaLabel = (v: string | null | undefined) =>
+  CONSULTA_PAGAMENTO_OPTIONS.find(o => o.value === v)?.label || "—";
+
 
 type Company = { id: string; name: string };
 type ProfileFull = { user_id: string; full_name: string; company_id: string | null };
@@ -84,7 +106,7 @@ export default function AppointmentsPage() {
   const [formDate, setFormDate] = useState<Date | undefined>();
   const [formTime, setFormTime] = useState("09:00");
   const [formValor, setFormValor] = useState("");
-  const [formPagamento, setFormPagamento] = useState("");
+  const [formPagamentoConsulta, setFormPagamentoConsulta] = useState("");
   const [formCanal, setFormCanal] = useState("");
 
   // Delete
@@ -108,7 +130,7 @@ export default function AppointmentsPage() {
   const [nvMotivo, setNvMotivo] = useState("");
   const [nvFezOrcamento, setNvFezOrcamento] = useState<"sim" | "nao" | null>(null);
   const [nvValor, setNvValor] = useState("");
-  const [nvProdutos, setNvProdutos] = useState("");
+  const [nvProdutosItens, setNvProdutosItens] = useState<ProdutoItem[]>([{ nome: "", valor: "" }]);
   const [nvObservacao, setNvObservacao] = useState("");
   const [nvSaving, setNvSaving] = useState(false);
 
@@ -176,14 +198,19 @@ export default function AppointmentsPage() {
       setNvMotivo(appt?.nao_vendido_motivo || "");
       setNvFezOrcamento(appt?.fez_orcamento ? "sim" : appt?.fez_orcamento === false && appt?.nao_vendido_motivo ? "nao" : null);
       setNvValor(appt?.orcamento_valor != null ? String(appt.orcamento_valor) : "");
-      setNvProdutos(appt?.orcamento_produtos || "");
+      const existing = (appt?.orcamento_produtos_itens as ProdutoItem[] | null | undefined);
+      setNvProdutosItens(existing && existing.length > 0 ? existing.map(p => ({ nome: p.nome || "", valor: p.valor || "" })) : [{ nome: "", valor: "" }]);
       setNvObservacao(appt?.orcamento_observacao || "");
       setNvDialogOpen(true);
       return;
     }
-    const { error } = await supabase.from("crm_appointments").update({ [field]: value } as any).eq("id", id);
+    const payload: any = { [field]: value };
+    if (field === "consulta_a_receber") {
+      payload.consulta_a_receber_updated_at = new Date().toISOString();
+    }
+    const { error } = await supabase.from("crm_appointments").update(payload).eq("id", id);
     if (error) toast.error("Erro ao atualizar");
-    setAppointments(prev => prev.map(a => a.id === id ? { ...a, [field]: value } : a));
+    setAppointments(prev => prev.map(a => a.id === id ? { ...a, ...payload } : a));
     if (field === "venda" && value === "Vendido") {
       const appt = appointments.find(a => a.id === id);
       if (appt?.lead_id) {
@@ -196,8 +223,9 @@ export default function AppointmentsPage() {
     if (!nvApptId) return;
     if (!nvMotivo.trim()) { toast.error("Informe o motivo da não compra"); return; }
     if (!nvFezOrcamento) { toast.error("Informe se foi feito orçamento"); return; }
-    if (nvFezOrcamento === "sim" && (!nvValor || !nvProdutos.trim())) {
-      toast.error("Preencha valor e produtos do orçamento");
+    const itensValidos = nvProdutosItens.filter(p => p.nome.trim() && p.valor);
+    if (nvFezOrcamento === "sim" && (!nvValor || itensValidos.length === 0)) {
+      toast.error("Preencha valor e ao menos um produto com nome e valor");
       return;
     }
     setNvSaving(true);
@@ -206,7 +234,8 @@ export default function AppointmentsPage() {
       nao_vendido_motivo: nvMotivo.trim(),
       fez_orcamento: nvFezOrcamento === "sim",
       orcamento_valor: nvFezOrcamento === "sim" ? (parseFloat(nvValor) || 0) : null,
-      orcamento_produtos: nvFezOrcamento === "sim" ? nvProdutos.trim() : null,
+      orcamento_produtos: nvFezOrcamento === "sim" ? itensValidos.map(p => `${p.nome} - R$ ${p.valor}`).join("; ") : null,
+      orcamento_produtos_itens: nvFezOrcamento === "sim" ? itensValidos : [],
       orcamento_observacao: nvObservacao.trim() || null,
     };
     const { error } = await supabase.from("crm_appointments").update(payload).eq("id", nvApptId);
@@ -216,6 +245,7 @@ export default function AppointmentsPage() {
     setNvDialogOpen(false);
     setNvApptId(null);
     fetchAll();
+
   };
 
 
@@ -262,7 +292,7 @@ export default function AppointmentsPage() {
     setEditingAppt(null);
     setFormNome(""); setFormTelefone(""); setFormIdade("");
     setFormDate(undefined); setFormTime("09:00");
-    setFormValor(""); setFormPagamento(""); setFormCanal("");
+    setFormValor(""); setFormPagamentoConsulta(""); setFormCanal("");
     setDialogOpen(true);
   };
 
@@ -274,13 +304,15 @@ export default function AppointmentsPage() {
       setFormDate(dt);
       setFormTime(format(dt, "HH:mm"));
     } catch { setFormDate(undefined); setFormTime("09:00"); }
-    setFormValor(String(appt.valor)); setFormPagamento(appt.forma_pagamento); setFormCanal(appt.canal_agendamento);
+    setFormValor(String(appt.valor));
+    setFormPagamentoConsulta(appt.forma_pagamento_consulta || "");
+    setFormCanal(appt.canal_agendamento);
     setDialogOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formDate || !formPagamento || !formCanal || !user) return;
+    if (!formDate || !formPagamentoConsulta || !formCanal || !user) return;
     setSaving(true);
     const [h, m] = formTime.split(":").map(Number);
     const dt = new Date(formDate);
@@ -291,7 +323,7 @@ export default function AppointmentsPage() {
         nome: formNome, telefone: formTelefone, idade: formIdade,
         scheduled_datetime: dt.toISOString(),
         valor: parseFloat(formValor) || 0,
-        forma_pagamento: formPagamento,
+        forma_pagamento_consulta: formPagamentoConsulta,
         canal_agendamento: formCanal,
       } as any).eq("id", editingAppt.id);
       if (error) toast.error("Erro ao atualizar");
@@ -302,12 +334,13 @@ export default function AppointmentsPage() {
         scheduled_by: user.id,
         scheduled_datetime: dt.toISOString(),
         valor: parseFloat(formValor) || 0,
-        forma_pagamento: formPagamento,
+        forma_pagamento_consulta: formPagamentoConsulta,
         canal_agendamento: formCanal,
         nome: formNome, telefone: formTelefone, idade: formIdade,
         previous_status: "manual",
       } as any);
       if (error) toast.error("Erro ao criar agendamento");
+
       else toast.success("Agendamento criado");
     }
     setSaving(false);
@@ -390,7 +423,8 @@ export default function AppointmentsPage() {
                 <th className="text-left px-3 py-2.5 font-medium">Horário</th>
                 <th className="text-left px-3 py-2.5 font-medium">Agendado por</th>
                 <th className="text-left px-3 py-2.5 font-medium">Valor</th>
-                <th className="text-left px-3 py-2.5 font-medium">Forma de Pagamento</th>
+                <th className="text-left px-3 py-2.5 font-medium">Forma de pagamento da consulta</th>
+                <th className="text-left px-3 py-2.5 font-medium">Consulta a receber</th>
                 <th className="text-left px-3 py-2.5 font-medium">Canal de Agendamento</th>
                 <th className="text-left px-3 py-2.5 font-medium">Confirmação</th>
                 <th className="text-left px-3 py-2.5 font-medium">Comparecimento</th>
@@ -403,15 +437,33 @@ export default function AppointmentsPage() {
               {filteredAppointments.map((appt) => {
                 let dtFormatted = "—";
                 try { dtFormatted = format(new Date(appt.scheduled_datetime), "dd/MM/yyyy HH:mm", { locale: ptBR }); } catch {}
+                const fpc = appt.forma_pagamento_consulta;
+                const car = appt.consulta_a_receber;
+                const carChangedSameDay = isSameDay(appt.consulta_a_receber_updated_at, appt.scheduled_datetime);
+                let rowColor = "";
+                if (car === "consulta_paga" && carChangedSameDay) rowColor = "bg-green-500/15 hover:bg-green-500/25";
+                else if (fpc === "consulta_paga") rowColor = "bg-green-700/25 hover:bg-green-700/35";
+                else if (fpc === "pagamento_no_dia") rowColor = "bg-orange-500/20 hover:bg-orange-500/30";
                 return (
-                  <tr key={appt.id} className="hover:bg-muted/30">
+                  <tr key={appt.id} className={cn("transition-colors", rowColor || "hover:bg-muted/30")}>
                     <td className="px-3 py-2 font-medium">{appt.nome || "—"}</td>
                     <td className="px-3 py-2">{appt.telefone || "—"}</td>
                     <td className="px-3 py-2">{appt.idade || "—"}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{dtFormatted}</td>
                     <td className="px-3 py-2">{getProfileName(appt.scheduled_by)}</td>
                     <td className="px-3 py-2">R$ {Number(appt.valor).toFixed(2)}</td>
-                    <td className="px-3 py-2">{appt.forma_pagamento}</td>
+                    <td className="px-3 py-2">
+                      <Select value={fpc || ""} onValueChange={(v) => updateField(appt.id, "forma_pagamento_consulta", v)}>
+                        <SelectTrigger className="h-8 text-xs w-[170px]"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                        <SelectContent>{CONSULTA_PAGAMENTO_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Select value={car || ""} onValueChange={(v) => updateField(appt.id, "consulta_a_receber", v)}>
+                        <SelectTrigger className="h-8 text-xs w-[170px]"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                        <SelectContent>{CONSULTA_PAGAMENTO_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </td>
                     <td className="px-3 py-2">{appt.canal_agendamento}</td>
                     <td className="px-3 py-2">
                       <Select value={appt.confirmacao} onValueChange={(v) => updateField(appt.id, "confirmacao", v)}>
@@ -515,10 +567,10 @@ export default function AppointmentsPage() {
               <Input type="number" step="0.01" min="0" value={formValor} onChange={e => setFormValor(e.target.value)} required />
             </div>
             <div className="space-y-1.5">
-              <Label>Forma de Pagamento <span className="text-destructive">*</span></Label>
-              <Select value={formPagamento} onValueChange={setFormPagamento}>
+              <Label>Forma de pagamento da consulta <span className="text-destructive">*</span></Label>
+              <Select value={formPagamentoConsulta} onValueChange={setFormPagamentoConsulta}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{FORMAS_PAGAMENTO.map(fp => <SelectItem key={fp} value={fp}>{fp}</SelectItem>)}</SelectContent>
+                <SelectContent>{CONSULTA_PAGAMENTO_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
@@ -528,9 +580,10 @@ export default function AppointmentsPage() {
                 <SelectContent>{CANAIS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <Button type="submit" className="w-full" disabled={saving || !formDate || !formPagamento || !formCanal || !formNome}>
+            <Button type="submit" className="w-full" disabled={saving || !formDate || !formPagamentoConsulta || !formCanal || !formNome}>
               {saving ? "Salvando..." : editingAppt ? "Atualizar" : "Criar Agendamento"}
             </Button>
+
           </form>
         </DialogContent>
       </Dialog>
@@ -634,8 +687,37 @@ export default function AppointmentsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Produtos passados <span className="text-destructive">*</span></Label>
-                  <Textarea value={nvProdutos} onChange={(e) => setNvProdutos(e.target.value)} rows={3} maxLength={1000} placeholder="Liste os produtos do orçamento..." />
+                  <div className="space-y-2">
+                    {nvProdutosItens.map((item, idx) => (
+                      <div key={idx} className="flex gap-2 items-start">
+                        <Input
+                          placeholder="Nome do produto"
+                          value={item.nome}
+                          onChange={(e) => setNvProdutosItens(prev => prev.map((p, i) => i === idx ? { ...p, nome: e.target.value } : p))}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="Valor"
+                          value={item.valor}
+                          onChange={(e) => setNvProdutosItens(prev => prev.map((p, i) => i === idx ? { ...p, valor: e.target.value } : p))}
+                          className="w-28"
+                        />
+                        {nvProdutosItens.length > 1 && (
+                          <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => setNvProdutosItens(prev => prev.filter((_, i) => i !== idx))}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                    <Button type="button" variant="outline" size="sm" onClick={() => setNvProdutosItens(prev => [...prev, { nome: "", valor: "" }])}>
+                      <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar produto
+                    </Button>
+                  </div>
                 </div>
+
               </>
             )}
             <div className="space-y-1.5">
