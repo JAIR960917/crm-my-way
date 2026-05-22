@@ -84,11 +84,18 @@ export default function OrcamentosPage() {
     }
     const phone = (o.telefone || "").replace(/\D/g, "");
     if (phone) {
-      const { data } = await supabase
-        .from("crm_leads")
-        .select("id, telefone")
-        .limit(50);
-      const match = (data || []).find((l: any) => (l.telefone || "").replace(/\D/g, "").endsWith(phone.slice(-8)));
+      const { data } = await supabase.from("crm_leads").select("id, data").limit(500);
+      const tail = phone.slice(-8);
+      const match = (data || []).find((l: any) => {
+        const d = l.data || {};
+        const phones: string[] = [];
+        const walk = (v: any) => {
+          if (typeof v === "string") phones.push(v);
+          else if (v && typeof v === "object") Object.values(v).forEach(walk);
+        };
+        walk(d);
+        return phones.some((p) => p.replace(/\D/g, "").endsWith(tail));
+      });
       if (match) {
         navigate(`/?edit=${match.id}`);
         return;
