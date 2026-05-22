@@ -226,15 +226,35 @@ export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onS
                     </div>
                   </div>
                   {atendeu === "sim" && (
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       <Label className="text-xs text-muted-foreground">Tratativa do contato</Label>
                       <Textarea value={tratativa} onChange={(e) => setTratativa(e.target.value)} rows={3} className="text-sm" placeholder="Descreva o que foi conversado..." />
+                      <Button type="button" size="sm" variant="destructive" className="w-full"
+                        onClick={() => {
+                          if (!tratativa.trim()) { toast.error("Descreva a tratativa"); return; }
+                          setObservacao(appendObservacao(`📞 Cliente ATENDEU\nTratativa: ${tratativa.trim()}`));
+                          setTratativa("");
+                          setAtendeu(null);
+                          toast.success("Tratativa registrada");
+                        }}>
+                        <Check className="h-3.5 w-3.5 mr-1" /> Salvar tratativa
+                      </Button>
                     </div>
                   )}
                   {atendeu === "nao" && (
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       <Label className="text-xs text-muted-foreground">Como tentou contato?</Label>
                       <Textarea value={tentativasObs} onChange={(e) => setTentativasObs(e.target.value)} rows={3} className="text-sm" placeholder="Ligação, WhatsApp..." />
+                      <Button type="button" size="sm" variant="destructive" className="w-full"
+                        onClick={() => {
+                          if (!tentativasObs.trim()) { toast.error("Descreva as tentativas"); return; }
+                          setObservacao(appendObservacao(`📞 Cliente NÃO ATENDEU\nTentativas: ${tentativasObs.trim()}`));
+                          setTentativasObs("");
+                          setAtendeu(null);
+                          toast.success("Tentativa registrada");
+                        }}>
+                        <Check className="h-3.5 w-3.5 mr-1" /> Salvar tentativa
+                      </Button>
                     </div>
                   )}
                 </div>
