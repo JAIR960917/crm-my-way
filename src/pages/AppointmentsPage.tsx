@@ -167,6 +167,17 @@ export default function AppointmentsPage() {
   const getProfileName = (userId: string) => profiles.find(p => p.user_id === userId)?.full_name || "—";
 
   const updateField = async (id: string, field: string, value: string) => {
+    if (field === "venda" && value === "Não Vendido") {
+      const appt = appointments.find(a => a.id === id);
+      setNvApptId(id);
+      setNvMotivo(appt?.nao_vendido_motivo || "");
+      setNvFezOrcamento(appt?.fez_orcamento ? "sim" : appt?.fez_orcamento === false && appt?.nao_vendido_motivo ? "nao" : null);
+      setNvValor(appt?.orcamento_valor != null ? String(appt.orcamento_valor) : "");
+      setNvProdutos(appt?.orcamento_produtos || "");
+      setNvObservacao(appt?.orcamento_observacao || "");
+      setNvDialogOpen(true);
+      return;
+    }
     const { error } = await supabase.from("crm_appointments").update({ [field]: value } as any).eq("id", id);
     if (error) toast.error("Erro ao atualizar");
     setAppointments(prev => prev.map(a => a.id === id ? { ...a, [field]: value } : a));
@@ -177,6 +188,33 @@ export default function AppointmentsPage() {
       }
     }
   };
+
+  const handleNvSubmit = async () => {
+    if (!nvApptId) return;
+    if (!nvMotivo.trim()) { toast.error("Informe o motivo da não compra"); return; }
+    if (!nvFezOrcamento) { toast.error("Informe se foi feito orçamento"); return; }
+    if (nvFezOrcamento === "sim" && (!nvValor || !nvProdutos.trim())) {
+      toast.error("Preencha valor e produtos do orçamento");
+      return;
+    }
+    setNvSaving(true);
+    const payload: any = {
+      venda: "Não Vendido",
+      nao_vendido_motivo: nvMotivo.trim(),
+      fez_orcamento: nvFezOrcamento === "sim",
+      orcamento_valor: nvFezOrcamento === "sim" ? (parseFloat(nvValor) || 0) : null,
+      orcamento_produtos: nvFezOrcamento === "sim" ? nvProdutos.trim() : null,
+      orcamento_observacao: nvObservacao.trim() || null,
+    };
+    const { error } = await supabase.from("crm_appointments").update(payload).eq("id", nvApptId);
+    if (error) toast.error("Erro ao salvar");
+    else toast.success("Registrado!");
+    setNvSaving(false);
+    setNvDialogOpen(false);
+    setNvApptId(null);
+    fetchAll();
+  };
+
 
   const returnAppt = appointments.find(a => a.id === returnId);
   const isFromRenovacao = !!returnAppt?.renovacao_id;
