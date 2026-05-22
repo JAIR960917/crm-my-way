@@ -61,8 +61,8 @@ const VENDA_OPTIONS = ["Pendente", "Vendido", "Não Vendido", "Laudo", "Doença 
 const FORMA_PAGAMENTO_CONSULTA_OPTIONS = ["PIX", "Cartão", "Dinheiro"];
 
 const RECEBIMENTO_CONSULTA_OPTIONS: { value: string; label: string }[] = [
-  { value: "consulta_paga", label: "Consulta paga" },
-  { value: "pagamento_no_dia", label: "Pagamento no dia do exame" },
+  { value: "consulta_paga", label: "Consulta paga no dia do agendamento" },
+  { value: "pagamento_no_dia", label: "Consulta paga no dia do exame" },
 ];
 
 const CANAIS = [
