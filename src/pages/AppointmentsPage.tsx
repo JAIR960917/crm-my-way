@@ -465,6 +465,7 @@ export default function AppointmentsPage() {
                       </Select>
                     </td>
                     <td className="px-3 py-2">{appt.canal_agendamento}</td>
+                    <td className="px-3 py-2">
                       <Select value={appt.confirmacao} onValueChange={(v) => updateField(appt.id, "confirmacao", v)}>
                         <SelectTrigger className="h-8 text-xs w-[120px]"><SelectValue /></SelectTrigger>
                         <SelectContent>{CONFIRMACAO_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
