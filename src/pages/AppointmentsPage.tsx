@@ -292,7 +292,7 @@ export default function AppointmentsPage() {
     setEditingAppt(null);
     setFormNome(""); setFormTelefone(""); setFormIdade("");
     setFormDate(undefined); setFormTime("09:00");
-    setFormValor(""); setFormPagamento(""); setFormCanal("");
+    setFormValor(""); setFormPagamentoConsulta(""); setFormCanal("");
     setDialogOpen(true);
   };
 
@@ -304,13 +304,15 @@ export default function AppointmentsPage() {
       setFormDate(dt);
       setFormTime(format(dt, "HH:mm"));
     } catch { setFormDate(undefined); setFormTime("09:00"); }
-    setFormValor(String(appt.valor)); setFormPagamento(appt.forma_pagamento); setFormCanal(appt.canal_agendamento);
+    setFormValor(String(appt.valor));
+    setFormPagamentoConsulta(appt.forma_pagamento_consulta || "");
+    setFormCanal(appt.canal_agendamento);
     setDialogOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formDate || !formPagamento || !formCanal || !user) return;
+    if (!formDate || !formPagamentoConsulta || !formCanal || !user) return;
     setSaving(true);
     const [h, m] = formTime.split(":").map(Number);
     const dt = new Date(formDate);
@@ -321,7 +323,7 @@ export default function AppointmentsPage() {
         nome: formNome, telefone: formTelefone, idade: formIdade,
         scheduled_datetime: dt.toISOString(),
         valor: parseFloat(formValor) || 0,
-        forma_pagamento: formPagamento,
+        forma_pagamento_consulta: formPagamentoConsulta,
         canal_agendamento: formCanal,
       } as any).eq("id", editingAppt.id);
       if (error) toast.error("Erro ao atualizar");
@@ -332,12 +334,13 @@ export default function AppointmentsPage() {
         scheduled_by: user.id,
         scheduled_datetime: dt.toISOString(),
         valor: parseFloat(formValor) || 0,
-        forma_pagamento: formPagamento,
+        forma_pagamento_consulta: formPagamentoConsulta,
         canal_agendamento: formCanal,
         nome: formNome, telefone: formTelefone, idade: formIdade,
         previous_status: "manual",
       } as any);
       if (error) toast.error("Erro ao criar agendamento");
+
       else toast.success("Agendamento criado");
     }
     setSaving(false);
