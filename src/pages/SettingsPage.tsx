@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Save, Upload, Trash2, Clock } from "lucide-react";
+import RolePermissionsManager from "@/components/settings/RolePermissionsManager";
 
 type SettingField = {
   key: string;
@@ -296,6 +297,10 @@ export default function SettingsPage() {
           <Save className="mr-2 h-4 w-4" />
           {saving ? "Salvando..." : "Salvar Configurações"}
         </Button>
+      </div>
+
+      <div className="mt-10 border-t pt-8">
+        <RolePermissionsManager />
       </div>
     </AppLayout>
   );

@@ -126,17 +126,20 @@ Deno.serve(async (req) => {
       if (error) return jsonResponse({ error: "Falha ao atualizar email de autenticação" }, 400);
     }
 
-    // Update role if provided (admin only, or gerente for vendedor)
+    // Update role if provided (admin only, or gerente for non-admin/non-financeiro)
     if (role) {
-      const validRoles = ["admin", "vendedor", "gerente", "financeiro"];
-      if (!validRoles.includes(role)) return jsonResponse({ error: "Papel inválido" }, 400);
-      if (isGerente && !isAdmin && (role === "admin" || role === "financeiro")) {
+      const { data: roleDef } = await supabaseAdmin
+        .from("role_definitions")
+        .select("key, base_role")
+        .eq("key", role)
+        .maybeSingle();
+      if (!roleDef) return jsonResponse({ error: "Papel inválido" }, 400);
+      const baseRole = roleDef.base_role as string;
+      if (isGerente && !isAdmin && (baseRole === "admin" || baseRole === "financeiro")) {
         return jsonResponse({ error: "Gerentes não podem atribuir papel de admin ou financeiro" }, 403);
       }
-
-      // Upsert: delete old roles and insert new
       await supabaseAdmin.from("user_roles").delete().eq("user_id", target_user_id);
-      await supabaseAdmin.from("user_roles").insert({ user_id: target_user_id, role });
+      await supabaseAdmin.from("user_roles").insert({ user_id: target_user_id, role: baseRole, role_key: roleDef.key });
     }
 
     // Update company if provided (admin only)

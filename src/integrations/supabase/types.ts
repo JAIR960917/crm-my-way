@@ -1235,6 +1235,59 @@ export type Database = {
           },
         ]
       }
+      role_definitions: {
+        Row: {
+          base_role: Database["public"]["Enums"]["app_role"]
+          created_at: string
+          is_system: boolean
+          key: string
+          label: string
+          updated_at: string
+        }
+        Insert: {
+          base_role: Database["public"]["Enums"]["app_role"]
+          created_at?: string
+          is_system?: boolean
+          key: string
+          label: string
+          updated_at?: string
+        }
+        Update: {
+          base_role?: Database["public"]["Enums"]["app_role"]
+          created_at?: string
+          is_system?: boolean
+          key?: string
+          label?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      role_page_permissions: {
+        Row: {
+          allowed: boolean
+          page_key: string
+          role_key: string
+        }
+        Insert: {
+          allowed?: boolean
+          page_key: string
+          role_key: string
+        }
+        Update: {
+          allowed?: boolean
+          page_key?: string
+          role_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "role_page_permissions_role_key_fkey"
+            columns: ["role_key"]
+            isOneToOne: false
+            referencedRelation: "role_definitions"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
       scheduled_whatsapp_messages: {
         Row: {
           created_at: string
@@ -1513,19 +1566,30 @@ export type Database = {
         Row: {
           id: string
           role: Database["public"]["Enums"]["app_role"]
+          role_key: string | null
           user_id: string
         }
         Insert: {
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
+          role_key?: string | null
           user_id: string
         }
         Update: {
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
+          role_key?: string | null
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "user_roles_role_key_fkey"
+            columns: ["role_key"]
+            isOneToOne: false
+            referencedRelation: "role_definitions"
+            referencedColumns: ["key"]
+          },
+        ]
       }
       whatsapp_campaign_sends: {
         Row: {

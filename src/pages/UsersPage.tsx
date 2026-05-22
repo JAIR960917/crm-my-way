@@ -15,8 +15,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 
 type Company = { id: string; name: string };
 type Profile = { id: string; user_id: string; full_name: string; email: string; company_id: string | null };
-type UserRole = { user_id: string; role: string };
+type UserRole = { user_id: string; role: string; role_key: string | null };
 type ManagerCompany = { user_id: string; company_id: string };
+type RoleDef = { key: string; label: string; is_system: boolean; base_role: string };
 
 export default function UsersPage() {
   const { isAdmin, isGerente, user } = useAuth();
@@ -26,6 +27,7 @@ export default function UsersPage() {
   const [userRoles, setUserRoles] = useState<UserRole[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [managerCompanies, setManagerCompanies] = useState<ManagerCompany[]>([]);
+  const [roleDefs, setRoleDefs] = useState<RoleDef[]>([]);
 
   // Create dialog
   const [openCreate, setOpenCreate] = useState(false);
@@ -58,22 +60,24 @@ export default function UsersPage() {
   const [deleting, setDeleting] = useState(false);
 
   const fetchData = async () => {
-    const [{ data: p }, { data: r }, { data: c }, { data: mc }] = await Promise.all([
+    const [{ data: p }, { data: r }, { data: c }, { data: mc }, { data: rd }] = await Promise.all([
       supabase.from("profiles").select("*").order("created_at"),
-      supabase.from("user_roles").select("*"),
+      supabase.from("user_roles").select("user_id, role, role_key"),
       supabase.from("companies").select("id, name").order("name"),
       supabase.from("manager_companies").select("user_id, company_id"),
+      supabase.from("role_definitions").select("*").order("is_system", { ascending: false }).order("label"),
     ]);
     setProfiles(p || []);
-    setUserRoles(r || []);
+    setUserRoles((r || []) as UserRole[]);
     setCompanies(c || []);
     setManagerCompanies(mc || []);
+    setRoleDefs((rd || []) as RoleDef[]);
   };
 
   useEffect(() => { fetchData(); }, []);
 
   const getRoles = (userId: string) =>
-    userRoles.filter((r) => r.user_id === userId).map((r) => r.role);
+    userRoles.filter((r) => r.user_id === userId).map((r) => r.role_key || r.role);
 
   const getExtraCompanies = (userId: string) =>
     managerCompanies.filter((mc) => mc.user_id === userId).map((mc) => mc.company_id);
@@ -88,13 +92,10 @@ export default function UsersPage() {
   };
 
   const roleOptions = isAdmin
-    ? [
-        { value: "admin", label: "Admin" },
-        { value: "gerente", label: "Gerente" },
-        { value: "financeiro", label: "Financeiro" },
-        { value: "vendedor", label: "Vendedor" },
-      ]
-    : [{ value: "gerente", label: "Gerente" }, { value: "vendedor", label: "Vendedor" }];
+    ? roleDefs.map((r) => ({ value: r.key, label: r.label }))
+    : roleDefs
+        .filter((r) => r.base_role === "gerente" || r.base_role === "vendedor")
+        .map((r) => ({ value: r.key, label: r.label }));
 
   const toggleCompanyInList = (list: string[], setList: (v: string[]) => void, companyId: string) => {
     setList(list.includes(companyId) ? list.filter((id) => id !== companyId) : [...list, companyId]);

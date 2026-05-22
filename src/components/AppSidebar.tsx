@@ -27,43 +27,36 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-/** Papéis suportados pelo sistema. */
-type Role = "admin" | "gerente" | "financeiro" | "vendedor";
+import { pageKeyForPath } from "@/lib/pagePermissions";
 
 /** Estrutura de um item do menu. */
 type NavItem = {
   path: string;
   label: string;
   icon: any;
-  /**
-   * Lista de papéis que veem este item.
-   * - Se definido: só esses papéis veem.
-   * - Se omitido: todos veem (exceto financeiro puro).
-   */
-  roles?: Role[];
 };
 
 /** Itens do menu principal — ORDEM IMPORTA (é a ordem visual). */
 const navItems: NavItem[] = [
-  { path: "/dashboard",            label: "Dashboard",              icon: BarChart3,    roles: ["admin"] },
-  { path: "/relatorio-vendas",     label: "Relatório de Vendas",    icon: FileBarChart, roles: ["admin"] },
+  { path: "/dashboard",            label: "Dashboard",              icon: BarChart3 },
+  { path: "/relatorio-vendas",     label: "Relatório de Vendas",    icon: FileBarChart },
   { path: "/",                     label: "Leads",                  icon: LayoutDashboard },
-  { path: "/cobrancas",            label: "Cobranças",              icon: Receipt,      roles: ["admin", "financeiro"] },
-  { path: "/cobrancas/fluxo",      label: "Fluxo Cobrança",         icon: Workflow,     roles: ["admin"] },
+  { path: "/cobrancas",            label: "Cobranças",              icon: Receipt },
+  { path: "/cobrancas/fluxo",      label: "Fluxo Cobrança",         icon: Workflow },
   { path: "/agendamentos",         label: "Agendamentos",           icon: CalendarCheck },
   { path: "/clientes-ativos",      label: "Renovação",              icon: UserCheck },
-  { path: "/usuarios",             label: "Usuários",               icon: Users,        roles: ["admin", "gerente"] },
-  { path: "/empresas",             label: "Empresas",               icon: Building2,    roles: ["admin"] },
-  { path: "/colunas",              label: "Colunas CRM",            icon: Columns3,     roles: ["admin"] },
-  { path: "/formulario",           label: "Formulário Lead",        icon: FileText,     roles: ["admin"] },
-  { path: "/formulario-renovacao", label: "Formulário Renovação",   icon: CalendarHeart, roles: ["admin"] },
-  { path: "/configuracoes",        label: "Configurações",          icon: Settings,     roles: ["admin"] },
+  { path: "/usuarios",             label: "Usuários",               icon: Users },
+  { path: "/empresas",             label: "Empresas",               icon: Building2 },
+  { path: "/colunas",              label: "Colunas CRM",            icon: Columns3 },
+  { path: "/formulario",           label: "Formulário Lead",        icon: FileText },
+  { path: "/formulario-renovacao", label: "Formulário Renovação",   icon: CalendarHeart },
+  { path: "/configuracoes",        label: "Configurações",          icon: Settings },
   { path: "/notificacoes",         label: "Notificações",           icon: Bell },
-  { path: "/whatsapp",             label: "WhatsApp",               icon: MessageSquare, roles: ["admin", "gerente"] },
-  { path: "/importar",             label: "Importar Leads",         icon: Upload,       roles: ["admin"] },
-  { path: "/integracoes-ssotica",  label: "Integrações SSótica",    icon: Plug,         roles: ["admin"] },
-  { path: "/status-ssotica",       label: "Status SSótica",         icon: Activity,     roles: ["admin"] },
-  { path: "/logs-movimentacao",    label: "Logs Movimentação",      icon: History,      roles: ["admin"] },
+  { path: "/whatsapp",             label: "WhatsApp",               icon: MessageSquare },
+  { path: "/importar",             label: "Importar Leads",         icon: Upload },
+  { path: "/integracoes-ssotica",  label: "Integrações SSótica",    icon: Plug },
+  { path: "/status-ssotica",       label: "Status SSótica",         icon: Activity },
+  { path: "/logs-movimentacao",    label: "Logs Movimentação",      icon: History },
 ];
 
 interface Props {
@@ -72,7 +65,7 @@ interface Props {
 }
 
 export default function AppSidebar({ onNavigate }: Props) {
-  const { user, isAdmin, isGerente, isFinanceiro, signOut } = useAuth();
+  const { user, canAccessPath, signOut } = useAuth();
   const { settings } = useSystemSettings();
 
   const [signingOut, setSigningOut] = useState(false);
@@ -80,20 +73,13 @@ export default function AppSidebar({ onNavigate }: Props) {
   const location = useLocation();
   const navigate = useNavigate();
 
-  /**
-   * Decide se o item de menu deve aparecer para o usuário atual.
-   * @param item Item do menu a avaliar
-   */
+  /** Decide se o item de menu deve aparecer (com base nas permissões da função). */
   const canSee = (item: NavItem) => {
-    if (item.roles) {
-      if (isAdmin && item.roles.includes("admin")) return true;
-      if (isGerente && item.roles.includes("gerente")) return true;
-      if (isFinanceiro && item.roles.includes("financeiro")) return true;
-      return false;
-    }
-    // Item público (sem roles): financeiro puro NÃO vê.
-    if (isFinanceiro && !isAdmin && !isGerente) return false;
-    return true;
+    // /notificacoes é sempre liberado pelo AuthContext
+    if (item.path === "/notificacoes") return true;
+    // Item sem chave catalogada → sempre exibe
+    if (!pageKeyForPath(item.path)) return true;
+    return canAccessPath(item.path);
   };
 
   /** Navega para a rota e (no mobile) fecha o drawer. */
