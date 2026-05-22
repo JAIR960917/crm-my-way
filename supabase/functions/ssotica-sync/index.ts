@@ -2237,22 +2237,13 @@ async function runBackfillChunk(
 
     if (!finished && !wasPausedByUser) {
       try {
-        if (!dispatchConfig.url || !dispatchConfig.auth) {
-          console.warn(`[ssotica-sync][backfill] empresa=${integ.company_id} continuação automática não disparada agora; runner agendado continuará pelo backfill_next_run_at`);
-        } else {
-          const { error: dispatchErr } = await supabase.rpc("ssotica_enqueue_sync", {
-            _url: dispatchConfig.url,
-            _auth: dispatchConfig.auth,
-            _integration_id: integ.id,
-            _force_full: false,
-          });
-
-          if (dispatchErr) {
-            console.error(`[ssotica-sync][backfill] empresa=${integ.company_id} erro ao enfileirar continuação automática:`, dispatchErr.message);
-          } else {
-            console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} próxima execução enfileirada via pg_net`);
-          }
-        }
+        const dispatchMethod = await enqueueSsoticaSyncDispatch(
+          supabase,
+          dispatchConfig,
+          { integration_id: integ.id, force_full: false },
+          `continuar backfill empresa=${integ.company_id}`,
+        );
+        console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} próxima execução enfileirada via ${dispatchMethod}`);
       } catch (dispatchError) {
         console.error(`[ssotica-sync][backfill] empresa=${integ.company_id} falha ao disparar continuação automática:`, dispatchError);
       }
