@@ -60,22 +60,24 @@ export default function UsersPage() {
   const [deleting, setDeleting] = useState(false);
 
   const fetchData = async () => {
-    const [{ data: p }, { data: r }, { data: c }, { data: mc }] = await Promise.all([
+    const [{ data: p }, { data: r }, { data: c }, { data: mc }, { data: rd }] = await Promise.all([
       supabase.from("profiles").select("*").order("created_at"),
-      supabase.from("user_roles").select("*"),
+      supabase.from("user_roles").select("user_id, role, role_key"),
       supabase.from("companies").select("id, name").order("name"),
       supabase.from("manager_companies").select("user_id, company_id"),
+      supabase.from("role_definitions").select("*").order("is_system", { ascending: false }).order("label"),
     ]);
     setProfiles(p || []);
-    setUserRoles(r || []);
+    setUserRoles((r || []) as UserRole[]);
     setCompanies(c || []);
     setManagerCompanies(mc || []);
+    setRoleDefs((rd || []) as RoleDef[]);
   };
 
   useEffect(() => { fetchData(); }, []);
 
   const getRoles = (userId: string) =>
-    userRoles.filter((r) => r.user_id === userId).map((r) => r.role);
+    userRoles.filter((r) => r.user_id === userId).map((r) => r.role_key || r.role);
 
   const getExtraCompanies = (userId: string) =>
     managerCompanies.filter((mc) => mc.user_id === userId).map((mc) => mc.company_id);
