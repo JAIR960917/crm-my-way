@@ -701,10 +701,6 @@ export default function AppointmentsPage() {
             {nvFezOrcamento === "sim" && (
               <>
                 <div className="space-y-1.5">
-                  <Label>Valor do orçamento (R$) <span className="text-destructive">*</span></Label>
-                  <Input type="number" step="0.01" min="0" value={nvValor} onChange={(e) => setNvValor(e.target.value)} placeholder="0.00" />
-                </div>
-                <div className="space-y-1.5">
                   <Label>Produtos passados <span className="text-destructive">*</span></Label>
                   <div className="space-y-2">
                     {nvProdutosItens.map((item, idx) => (
@@ -736,7 +732,12 @@ export default function AppointmentsPage() {
                     </Button>
                   </div>
                 </div>
-
+                <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                  <span className="font-medium">Valor total do orçamento</span>
+                  <span className="font-bold">
+                    R$ {nvProdutosItens.reduce((acc, p) => acc + (parseFloat(p.valor) || 0), 0).toFixed(2)}
+                  </span>
+                </div>
               </>
             )}
             <div className="space-y-1.5">
