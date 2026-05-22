@@ -35,13 +35,19 @@ type Appointment = {
   nome: string;
   telefone: string;
   idade: string;
+  nao_vendido_motivo?: string | null;
+  fez_orcamento?: boolean | null;
+  orcamento_valor?: number | null;
+  orcamento_produtos?: string | null;
+  orcamento_observacao?: string | null;
 };
 
 type Profile = { user_id: string; full_name: string };
 
 const CONFIRMACAO_OPTIONS = ["Pendente", "Confirmado", "Cancelado"];
 const COMPARECIMENTO_OPTIONS = ["Pendente", "Compareceu", "Não Compareceu"];
-const VENDA_OPTIONS = ["Pendente", "Vendido", "Não Vendido"];
+const VENDA_OPTIONS = ["Pendente", "Vendido", "Não Vendido", "Laudo", "Doença no Olho"];
+
 
 const CANAIS = [
   "Ligação Leads", "Ligação Renovação", "Loja", "Rede Social", "Ação Adam",
