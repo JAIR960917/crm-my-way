@@ -588,7 +588,7 @@ export default function AppointmentsPage() {
               <Label>Forma de pagamento da consulta <span className="text-destructive">*</span></Label>
               <Select value={formPagamentoConsulta} onValueChange={setFormPagamentoConsulta}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{CONSULTA_PAGAMENTO_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+                <SelectContent>{FORMA_PAGAMENTO_CONSULTA_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
