@@ -82,8 +82,8 @@ const isSameDay = (a: string | null | undefined, b: string | null | undefined) =
   } catch { return false; }
 };
 
-const consultaLabel = (v: string | null | undefined) =>
-  CONSULTA_PAGAMENTO_OPTIONS.find(o => o.value === v)?.label || "—";
+const recebimentoLabel = (v: string | null | undefined) =>
+  RECEBIMENTO_CONSULTA_OPTIONS.find(o => o.value === v)?.label || "—";
 
 
 type Company = { id: string; name: string };
