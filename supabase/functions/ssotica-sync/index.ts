@@ -2562,17 +2562,12 @@ Deno.serve(async (req) => {
         .select("*")
         .single();
       if (error || !integ) throw error ?? new Error("Integração não encontrada");
-      if (!dispatchConfig.url || !dispatchConfig.auth) {
-        throw new Error("Configuração de dispatch ausente para enfileirar o backfill");
-      }
-
-      const { error: dispatchErr } = await supabase.rpc("ssotica_enqueue_sync", {
-        _url: dispatchConfig.url,
-        _auth: dispatchConfig.auth,
-        _integration_id: onlyIntegrationId,
-        _force_full: false,
-      });
-      if (dispatchErr) throw dispatchErr;
+      await enqueueSsoticaSyncDispatch(
+        supabase,
+        dispatchConfig,
+        { integration_id: onlyIntegrationId, force_full: false },
+        "enfileirar o backfill",
+      );
 
       const scopeLabel = scope === "renovacoes" ? "renovações" : scope === "cobrancas" ? "cobranças" : "completo";
       return new Response(JSON.stringify({
@@ -2655,17 +2650,12 @@ Deno.serve(async (req) => {
         });
       }
 
-      if (!dispatchConfig.url || !dispatchConfig.auth) {
-        throw new Error("Configuração de dispatch ausente para retomar o backfill");
-      }
-
-      const { error: dispatchErr } = await supabase.rpc("ssotica_enqueue_sync", {
-        _url: dispatchConfig.url,
-        _auth: dispatchConfig.auth,
-        _integration_id: onlyIntegrationId,
-        _force_full: false,
-      });
-      if (dispatchErr) throw dispatchErr;
+      await enqueueSsoticaSyncDispatch(
+        supabase,
+        dispatchConfig,
+        { integration_id: onlyIntegrationId, force_full: false },
+        "retomar o backfill",
+      );
 
       return new Response(JSON.stringify({
         ok: true,
@@ -2731,28 +2721,12 @@ Deno.serve(async (req) => {
         })
         .eq("id", integ.id);
 
-      if (!dispatchConfig.url || !dispatchConfig.auth) {
-        throw new Error("Configuração de dispatch ausente para enfileirar a varredura de quitações");
-      }
-
-      const dispatchSweep = fetch(dispatchConfig.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: dispatchConfig.auth,
-        },
-        body: JSON.stringify({ mode: "run_full_sweep", integration_id: onlyIntegrationId }),
-      }).catch((dispatchErr) => {
-        console.error("[ssotica-sync][full_sweep] falha ao disparar execução dedicada:", dispatchErr);
-      });
-
-      // @ts-ignore EdgeRuntime existe no runtime do ambiente self-hosted
-      if (typeof EdgeRuntime !== "undefined" && (EdgeRuntime as any)?.waitUntil) {
-        // @ts-ignore
-        EdgeRuntime.waitUntil(dispatchSweep);
-      } else {
-        await dispatchSweep;
-      }
+      await enqueueSsoticaSyncDispatch(
+        supabase,
+        dispatchConfig,
+        { mode: "run_full_sweep", integration_id: onlyIntegrationId },
+        "enfileirar a varredura de quitações",
+      );
 
       return new Response(JSON.stringify({
         ok: true,
