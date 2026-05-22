@@ -15,6 +15,7 @@ const SSOTICA_FETCH_TIMEOUT_MS = 45000;
 // Antes: 6 meses × 16 chunks. Agora: 3 meses × 32 chunks (cada chunk ~50% mais rápido).
 const MAX_HISTORY_DAYS = 2880; // 96 meses
 const CHUNK_DAYS = 92;         // ~3 meses por chunk (usado pelo backfill histórico)
+const BACKFILL_TOTAL_CHUNKS = Math.ceil(MAX_HISTORY_DAYS / CHUNK_DAYS);
 const COBRANCAS_LOOKBACK_DAYS = 730; // faixa histórica total coberta pelo ciclo incremental
 const COBRANCAS_FUTURE_DAYS = 60; // pegar parcelas que vencem em breve
 // 350s — bem abaixo do hard-limit do edge runtime (~400s) mas alto o
@@ -2080,8 +2081,8 @@ async function runBackfillChunk(
   dispatchConfig: DispatchConfig,
 ): Promise<{ ok: true; chunk_index: number; finished: boolean; skipped?: boolean } | { ok: false; error: string }> {
   const nowIso = new Date().toISOString();
-  const configuredTotal = integ.backfill_total_chunks || 32;
-  const total = Math.max(configuredTotal, 32);
+  const configuredTotal = integ.backfill_total_chunks || BACKFILL_TOTAL_CHUNKS;
+  const total = Math.max(configuredTotal, BACKFILL_TOTAL_CHUNKS);
   const idx = integ.backfill_chunk_index || 0;
 
     if (configuredTotal !== total) {
@@ -2138,14 +2139,14 @@ async function runBackfillChunk(
   // Cada fase é uma invocação separada para respeitar o limite de CPU do edge runtime.
   // Escopo do backfill define quais fases rodam:
   //   - 'all'         → cr + vendas (cobranças e renovações)
-  //   - 'cobrancas'   → apenas cr  (mas também roda vendas para mover pagas → renovação)
+  //   - 'cobrancas'   → apenas cr
   //   - 'renovacoes'  → apenas vendas
   const scope: "all" | "cobrancas" | "renovacoes" =
     (integ.backfill_scope === "cobrancas" || integ.backfill_scope === "renovacoes")
       ? integ.backfill_scope
       : "all";
   const runsCr = scope === "all" || scope === "cobrancas";
-  const runsVendas = scope === "all" || scope === "cobrancas" || scope === "renovacoes";
+  const runsVendas = scope === "all" || scope === "renovacoes";
   // Decide a fase inicial respeitando o escopo
   let phase: "cr" | "vendas" = (integ.backfill_phase === "vendas") ? "vendas" : "cr";
   if (phase === "cr" && !runsCr) phase = "vendas";
@@ -2166,13 +2167,28 @@ async function runBackfillChunk(
   });
 
   try {
-    let cr: any = null;
-    let v: any = null;
-    if (phase === "cr") {
-      cr = await syncContasReceber(supabase, integ, range);
-    } else {
-      v = await syncVendas(supabase, integ, false, [], range);
-    }
+    const chunkStart = Date.now();
+    const chunkTimeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        const elapsed = Math.round((Date.now() - chunkStart) / 1000);
+        reject(new Error(
+          `Timeout interno do backfill (${elapsed}s) — empresa=${integ.company_id} chunk=${idx + 1}/${total} fase=${phase}.`,
+        ));
+      }, PER_INTEGRATION_TIMEOUT_MS);
+    });
+
+    const chunkWork = (async () => {
+      let cr: any = null;
+      let v: any = null;
+      if (phase === "cr") {
+        cr = await syncContasReceber(supabase, integ, range);
+      } else {
+        v = await syncVendas(supabase, integ, false, [], range);
+      }
+      return { cr, v };
+    })();
+
+    const { cr, v } = await Promise.race([chunkWork, chunkTimeoutPromise]);
 
     // Avanço de fase/chunk respeitando o escopo:
     // - Se acabou 'cr' e o escopo também roda 'vendas' → próxima fase do MESMO chunk = 'vendas'.
@@ -2254,13 +2270,11 @@ async function runBackfillChunk(
       }
     }
 
-    // RECONCILIAÇÃO: no chunk final, roda uma varredura COMPLETA (96 meses)
-    // de Contas a Receber com a lógica de deleção habilitada. Isso é crucial
-    // porque a SSótica costuma remover da resposta as parcelas já pagas;
-    // durante o backfill por chunks não deletamos cards por ausência, então
-    // essa passada final é a que limpa cobranças quitadas (de qualquer época)
-    // e devolve o cliente para Renovação.
-    if (finished) {
+    // Finalização por escopo:
+    //  - all: executa a limpeza final completa + reconciliação.
+    //  - renovacoes: apenas reconciliação defensiva entre renovação e cobrança.
+    //  - cobrancas: não toca em renovações; o botão deve afetar só cobranças.
+    if (finished && scope === "all") {
       try {
         const finalSweepCobrancas = await syncContasReceber(supabase, integ, undefined, { fullSweep: true });
         console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} full sweep final: removed=${finalSweepCobrancas.removed} quitados=${finalSweepCobrancas.clientesQuitados.length}`);
@@ -2268,6 +2282,13 @@ async function runBackfillChunk(
         console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} reconciliação final removeu ${reconciled} renovações com dívida aberta`);
       } catch (recErr) {
         console.error(`[ssotica-sync][backfill] reconciliação final falhou (não crítico):`, recErr);
+      }
+    } else if (finished && scope === "renovacoes") {
+      try {
+        const reconciled = await reconcileRenovacoesVsCobrancas(supabase, integ.company_id);
+        console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} reconciliação final (renovações) removeu ${reconciled} renovações com dívida aberta`);
+      } catch (recErr) {
+        console.error(`[ssotica-sync][backfill] reconciliação final de renovações falhou (não crítico):`, recErr);
       }
     }
 
@@ -2545,7 +2566,7 @@ Deno.serve(async (req) => {
         .from("ssotica_integrations")
         .update({
           backfill_chunk_index: 0,
-          backfill_total_chunks: 32,
+          backfill_total_chunks: BACKFILL_TOTAL_CHUNKS,
           backfill_phase: initialPhase,
           backfill_scope: scope,
           backfill_status: "scheduled",
@@ -2570,7 +2591,7 @@ Deno.serve(async (req) => {
         ok: true,
         mode: "start_backfill",
         scope,
-        message: `Backfill de 96 meses (${scopeLabel}) agendado em background. Demais lojas foram pausadas para evitar sobrecarga.`,
+        message: `Backfill de 96 meses (${scopeLabel}) agendado em background em ${BACKFILL_TOTAL_CHUNKS} lotes. Demais lojas foram pausadas para evitar sobrecarga.`,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -2616,8 +2637,8 @@ Deno.serve(async (req) => {
           mode: "resume_backfill",
           already_running: true,
           chunk_index: current.backfill_chunk_index || 0,
-          total_chunks: current.backfill_total_chunks || 32,
-          message: `O chunk ${(current.backfill_chunk_index || 0) + 1}/${current.backfill_total_chunks || 32} já está em execução.`,
+          total_chunks: current.backfill_total_chunks || BACKFILL_TOTAL_CHUNKS,
+          message: `O chunk ${(current.backfill_chunk_index || 0) + 1}/${current.backfill_total_chunks || BACKFILL_TOTAL_CHUNKS} já está em execução.`,
         }), {
           status: 202,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2657,8 +2678,8 @@ Deno.serve(async (req) => {
         ok: true,
         mode: "resume_backfill",
         chunk_index: integ.backfill_chunk_index || 0,
-        total_chunks: integ.backfill_total_chunks || 32,
-        message: `Backfill retomado em background a partir do chunk ${(integ.backfill_chunk_index || 0) + 1}/${integ.backfill_total_chunks || 32}.`,
+        total_chunks: integ.backfill_total_chunks || BACKFILL_TOTAL_CHUNKS,
+        message: `Backfill retomado em background a partir do chunk ${(integ.backfill_chunk_index || 0) + 1}/${integ.backfill_total_chunks || BACKFILL_TOTAL_CHUNKS}.`,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
