@@ -298,6 +298,10 @@ export default function SettingsPage() {
           {saving ? "Salvando..." : "Salvar Configurações"}
         </Button>
       </div>
+
+      <div className="mt-10 border-t pt-8">
+        <RolePermissionsManager />
+      </div>
     </AppLayout>
   );
 }
