@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import AppLayout from "@/components/AppLayout";
@@ -12,6 +11,7 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Receipt, CalendarIcon, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
+import OrcamentoEditDialog from "@/components/orcamentos/OrcamentoEditDialog";
 
 type ProdutoItem = { nome: string; valor: string };
 
