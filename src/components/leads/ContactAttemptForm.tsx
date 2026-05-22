@@ -47,6 +47,7 @@ type Marcou = "sim" | "nao" | null;
 export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSnapshot, onSaved }: Props) {
   const [atendeu, setAtendeu] = useState<Atendeu>(null);
   const [tratativa, setTratativa] = useState("");
+  const [tentativasObs, setTentativasObs] = useState("");
   const [marcou, setMarcou] = useState<Marcou>(null);
   const [dateStr, setDateStr] = useState("");
   const [time, setTime] = useState("09:00");
@@ -57,9 +58,14 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
   const reset = () => {
     setAtendeu(null);
     setTratativa("");
+    setTentativasObs("");
     setMarcou(null);
     setDateStr("");
     setTime("09:00");
+    setFormaPagamento("");
+    setCanal("Ligação Leads");
+  };
+
     setFormaPagamento("");
     setCanal("Ligação Leads");
   };
