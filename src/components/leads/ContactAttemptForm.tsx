@@ -66,10 +66,6 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
     setCanal("Ligação Leads");
   };
 
-    setFormaPagamento("");
-    setCanal("Ligação Leads");
-  };
-
   const buildNoteContent = () => {
     const lines: string[] = [];
     lines.push(`📞 Tentativa de contato — Cliente ${atendeu === "sim" ? "ATENDEU" : "NÃO ATENDEU"}`);
@@ -81,9 +77,12 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
       } else if (marcou === "nao") {
         lines.push("❌ Consulta NÃO marcada");
       }
+    } else if (atendeu === "nao") {
+      if (tentativasObs.trim()) lines.push(`Tentativas de contato: ${tentativasObs.trim()}`);
     }
     return lines.join("\n");
   };
+
 
   const handleSave = async () => {
     if (!atendeu) {
