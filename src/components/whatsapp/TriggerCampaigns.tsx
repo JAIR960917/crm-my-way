@@ -450,28 +450,45 @@ export default function TriggerCampaigns({ instances }: Props) {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Instância WhatsApp</Label>
+              <Label>Instância(s) WhatsApp</Label>
               {moduleKey === "cobrancas" ? (
                 <div className="flex items-center h-10 px-3 rounded-md border border-dashed border-primary/40 text-xs text-muted-foreground">
                   🔁 Cobranças intercala envios entre instâncias sem empresa vinculada
                 </div>
-              ) : companyId === "__GLOBAL__" ? (
-                <div className="flex items-center h-10 px-3 rounded-md border border-dashed border-border text-xs text-muted-foreground">
-                  🌐 Será usada a instância da empresa de cada lead
-                </div>
               ) : (
-                <Select value={instanceId} onValueChange={setInstanceId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableInstances.map((i) => (
-                      <SelectItem key={i.id} value={i.id}>
-                        {i.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <>
+                  <div className="rounded-md border bg-background p-2 max-h-40 overflow-y-auto space-y-1">
+                    {availableInstances.length === 0 ? (
+                      <p className="text-xs text-muted-foreground p-1">Nenhuma instância disponível</p>
+                    ) : (
+                      availableInstances.map((i) => {
+                        const checked = instanceIds.includes(i.id) || (instanceIds.length === 0 && instanceId === i.id);
+                        return (
+                          <label key={i.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                const next = new Set(instanceIds.length === 0 && instanceId ? [instanceId] : instanceIds);
+                                if (e.target.checked) next.add(i.id); else next.delete(i.id);
+                                const arr = Array.from(next);
+                                setInstanceIds(arr);
+                                setInstanceId(arr.length === 1 ? arr[0] : "");
+                              }}
+                            />
+                            <Smartphone className="h-3 w-3 text-muted-foreground" />
+                            <span>{i.name}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    {companyId === "__GLOBAL__"
+                      ? "🌐 Se nenhuma marcada, usa a instância da empresa de cada lead."
+                      : "Marque 2 ou mais para intercalar (alternar) os envios entre elas."}
+                  </p>
+                </>
               )}
             </div>
             <div className="space-y-2">
