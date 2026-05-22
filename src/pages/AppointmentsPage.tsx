@@ -423,7 +423,8 @@ export default function AppointmentsPage() {
                 <th className="text-left px-3 py-2.5 font-medium">Horário</th>
                 <th className="text-left px-3 py-2.5 font-medium">Agendado por</th>
                 <th className="text-left px-3 py-2.5 font-medium">Valor</th>
-                <th className="text-left px-3 py-2.5 font-medium">Forma de Pagamento</th>
+                <th className="text-left px-3 py-2.5 font-medium">Forma de pagamento da consulta</th>
+                <th className="text-left px-3 py-2.5 font-medium">Consulta a receber</th>
                 <th className="text-left px-3 py-2.5 font-medium">Canal de Agendamento</th>
                 <th className="text-left px-3 py-2.5 font-medium">Confirmação</th>
                 <th className="text-left px-3 py-2.5 font-medium">Comparecimento</th>
