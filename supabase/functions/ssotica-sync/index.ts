@@ -2167,13 +2167,28 @@ async function runBackfillChunk(
   });
 
   try {
-    let cr: any = null;
-    let v: any = null;
-    if (phase === "cr") {
-      cr = await syncContasReceber(supabase, integ, range);
-    } else {
-      v = await syncVendas(supabase, integ, false, [], range);
-    }
+    const chunkStart = Date.now();
+    const chunkTimeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        const elapsed = Math.round((Date.now() - chunkStart) / 1000);
+        reject(new Error(
+          `Timeout interno do backfill (${elapsed}s) — empresa=${integ.company_id} chunk=${idx + 1}/${total} fase=${phase}.`,
+        ));
+      }, PER_INTEGRATION_TIMEOUT_MS);
+    });
+
+    const chunkWork = (async () => {
+      let cr: any = null;
+      let v: any = null;
+      if (phase === "cr") {
+        cr = await syncContasReceber(supabase, integ, range);
+      } else {
+        v = await syncVendas(supabase, integ, false, [], range);
+      }
+      return { cr, v };
+    })();
+
+    const { cr, v } = await Promise.race([chunkWork, chunkTimeoutPromise]);
 
     // Avanço de fase/chunk respeitando o escopo:
     // - Se acabou 'cr' e o escopo também roda 'vendas' → próxima fase do MESMO chunk = 'vendas'.
