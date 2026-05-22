@@ -40,6 +40,8 @@ import InstallPage from "./pages/InstallPage";
 import NotificationSettingsPage from "./pages/NotificationSettingsPage";
 import WhatsAppPage from "./pages/WhatsAppPage";
 import AppointmentsPage from "./pages/AppointmentsPage";
+import OrcamentosPage from "./pages/OrcamentosPage";
+
 import ActiveClientsPage from "./pages/ActiveClientsPage";
 import ImportLeadsPage from "./pages/ImportLeadsPage";
 import CobrancasPage from "./pages/CobrancasPage";
