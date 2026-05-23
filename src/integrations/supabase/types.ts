@@ -2166,6 +2166,11 @@ export type Database = {
       manage_whatsapp_cron: { Args: never; Returns: undefined }
       reclassify_cobrancas_by_situacao: { Args: never; Returns: number }
       slugify_status_key: { Args: { _label: string }; Returns: string }
+      soft_delete_lead: { Args: { _lead_id: string }; Returns: undefined }
+      soft_delete_renovacao: {
+        Args: { _renovacao_id: string }
+        Returns: undefined
+      }
       ssotica_enqueue_sync: {
         Args: {
           _auth: string
