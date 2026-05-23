@@ -81,12 +81,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
  * com base nas permissões da função do usuário (tabela role_page_permissions).
  */
 function RoleGate({ children }: { children: React.ReactNode }) {
-  const { session, loading, canAccessPath, roleKey } = useAuth();
+  const { session, loading, canAccessPath, roleKey, permissionsLoaded } = useAuth();
   if (loading) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Carregando...</div>;
   if (!session) return <Navigate to="/login" replace />;
 
-  // Espera o roleKey carregar antes de decidir (evita redirect prematuro).
-  if (!roleKey) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Carregando...</div>;
+  // Espera o roleKey E as permissões carregarem antes de decidir (evita redirect prematuro).
+  if (!roleKey || !permissionsLoaded) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Carregando...</div>;
 
   const path = window.location.pathname;
   if (!canAccessPath(path)) {
