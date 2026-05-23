@@ -923,6 +923,7 @@ export default function LeadFormDialog({
                   })()}
                   onSaved={async () => {
                     setTratativaRegistrada(true);
+                    setContactDirty(false);
                     fetchNotes();
                     onActivityChange?.();
 
