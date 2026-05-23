@@ -1066,6 +1066,33 @@ export default function LeadsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={!!restoreLead} onOpenChange={(open) => !open && setRestoreLead(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restaurar lead excluído</AlertDialogTitle>
+            <AlertDialogDescription>
+              Atribua um responsável. O card voltará ao fluxo normal na coluna anterior à exclusão.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Select value={restoreAssignee} onValueChange={setRestoreAssignee}>
+              <SelectTrigger><SelectValue placeholder="Selecione o responsável" /></SelectTrigger>
+              <SelectContent>
+                {profiles.map((p) => (
+                  <SelectItem key={p.user_id} value={p.user_id}>{p.full_name || p.email}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restoring}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); confirmRestore(); }} disabled={restoring || !restoreAssignee}>
+              {restoring ? "Restaurando..." : "Restaurar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </AppLayout>
   );
 }
