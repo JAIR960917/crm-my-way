@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,8 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { Phone, PhoneOff, Plus, Trash2, Check, X, CalendarCheck, CalendarX } from "lucide-react";
+import { Phone, PhoneOff, Plus, Trash2, Check, X, CalendarCheck, CalendarX, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatPhoneBR, unformatPhone } from "@/lib/phoneFormat";
 
 type ProdutoItem = { nome: string; valor: string };
 
