@@ -17,6 +17,7 @@ import { ptBR } from "date-fns/locale";
 import RenovacaoEditSheet from "@/components/renovacoes/RenovacaoEditSheet";
 import ScheduleLeadDialog from "@/components/leads/ScheduleLeadDialog";
 import { usePaginatedColumns } from "@/hooks/use-paginated-columns";
+import { useVisibleStatusKeys } from "@/hooks/use-visible-status-keys";
 import { logTransition } from "@/lib/transitionLogs";
 
 type Renovacao = {
