@@ -964,8 +964,9 @@ export default function LeadFormDialog({
                       console.error("[tratativa] falha ao reavaliar status:", e);
                     }
                   }}
-
+                  onDirtyChange={setContactDirty}
                 />
+
               </div>
             )}
 
