@@ -178,7 +178,18 @@ services:
       SUPABASE_DB_URL: postgresql://postgres:${POSTGRES_PASSWORD}@supabase-db:5432/${POSTGRES_DB:-postgres}
       VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT:-true}"
       APIFULL_API_KEY: ${APIFULL_API_KEY:-}
-    command: ["start", "--main-service", "/home/deno/functions/main"]
+    command:
+      - "start"
+      - "--main-service"
+      - "/home/deno/functions/main"
+      - "--policy"
+      - "per_worker"
+      - "--wall-clock-limit-ms"
+      - "180000"
+      - "--cpu-time-soft-limit-ms"
+      - "10000"
+      - "--cpu-time-hard-limit-ms"
+      - "60000"
 
   supabase-studio:
     container_name: supabase-studio
