@@ -306,6 +306,10 @@ export default function ActiveClientsPage() {
     () => new Set(userRoles.filter((entry) => entry.role === "vendedor").map((entry) => entry.user_id)),
     [userRoles],
   );
+  const assignableProfiles = useMemo(
+    () => profiles.filter(p => p.full_name?.trim() && (isAdmin || vendedorIds.has(p.user_id)) && (assignableUserIds === null || assignableUserIds.has(p.user_id))),
+    [profiles, isAdmin, vendedorIds, assignableUserIds],
+  );
   const nameField = useMemo(() => fields.find(f => f.is_name_field), [fields]);
   const phoneField = useMemo(() => fields.find(f => f.is_phone_field), [fields]);
   const lastVisitField = useMemo(() => fields.find(f => f.is_last_visit_field), [fields]);
