@@ -29,6 +29,8 @@ interface AuthContextType {
   isGerente: boolean;
   isFinanceiro: boolean;
   loading: boolean;
+  /** true quando papéis + permissões do usuário já foram carregados. */
+  permissionsLoaded: boolean;
   /** true se a página atual (path) está permitida para a função do usuário. */
   canAccessPath: (path: string) => boolean;
   signOut: () => Promise<void>;
