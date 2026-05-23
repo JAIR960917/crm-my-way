@@ -190,7 +190,7 @@ Deno.serve(async (req) => {
     const today = new Date();
     const start = new Date(today);
     start.setMonth(start.getMonth() - months);
-    const windows = buildWindows(start, today, 90);
+    const windows = buildWindows(start, today, 30);
 
     // Constrói todas as tarefas (target × janela) e executa em paralelo
     type Task = { tgt: Target; w: { start: string; end: string } };
