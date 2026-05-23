@@ -56,7 +56,7 @@ type Profile = { user_id: string; full_name: string };
 
 const CONFIRMACAO_OPTIONS = ["Pendente", "Confirmado", "Cancelado"];
 const COMPARECIMENTO_OPTIONS = ["Pendente", "Compareceu", "Não Compareceu"];
-const VENDA_OPTIONS = ["Pendente", "Vendido", "Não Vendido", "Laudo", "Doença no Olho"];
+const VENDA_OPTIONS = ["Pendente", "Vendido", "Gerou Orçamento", "Não Gerou Orçamento", "Laudo", "Doença no Olho"];
 
 const FORMA_PAGAMENTO_CONSULTA_OPTIONS = ["PIX", "Cartão", "Dinheiro"];
 
@@ -127,11 +127,11 @@ export default function AppointmentsPage() {
   const [saleSaving, setSaleSaving] = useState(false);
   const [saleEntrada, setSaleEntrada] = useState("");
 
-  // Não Vendido dialog
+  // Não Vendido / Gerou Orçamento dialog
   const [nvDialogOpen, setNvDialogOpen] = useState(false);
   const [nvApptId, setNvApptId] = useState<string | null>(null);
+  const [nvVendaTipo, setNvVendaTipo] = useState<"Gerou Orçamento" | "Não Gerou Orçamento">("Gerou Orçamento");
   const [nvMotivo, setNvMotivo] = useState("");
-  const [nvFezOrcamento, setNvFezOrcamento] = useState<"sim" | "nao" | null>(null);
   const [nvValor, setNvValor] = useState("");
   const [nvProdutosItens, setNvProdutosItens] = useState<ProdutoItem[]>([{ nome: "", valor: "" }]);
   const [nvObservacao, setNvObservacao] = useState("");
@@ -195,11 +195,11 @@ export default function AppointmentsPage() {
   const getProfileName = (userId: string) => profiles.find(p => p.user_id === userId)?.full_name || "—";
 
   const updateField = async (id: string, field: string, value: string) => {
-    if (field === "venda" && value === "Não Vendido") {
+    if (field === "venda" && (value === "Gerou Orçamento" || value === "Não Gerou Orçamento")) {
       const appt = appointments.find(a => a.id === id);
       setNvApptId(id);
+      setNvVendaTipo(value as "Gerou Orçamento" | "Não Gerou Orçamento");
       setNvMotivo(appt?.nao_vendido_motivo || "");
-      setNvFezOrcamento(appt?.fez_orcamento ? "sim" : appt?.fez_orcamento === false && appt?.nao_vendido_motivo ? "nao" : null);
       setNvValor(appt?.orcamento_valor != null ? String(appt.orcamento_valor) : "");
       const existing = (appt?.orcamento_produtos_itens as ProdutoItem[] | null | undefined);
       setNvProdutosItens(existing && existing.length > 0 ? existing.map(p => ({ nome: p.nome || "", valor: p.valor || "" })) : [{ nome: "", valor: "" }]);
@@ -228,21 +228,21 @@ export default function AppointmentsPage() {
   const handleNvSubmit = async () => {
     if (!nvApptId) return;
     if (!nvMotivo.trim()) { toast.error("Informe o motivo da não compra"); return; }
-    if (!nvFezOrcamento) { toast.error("Informe se foi feito orçamento"); return; }
+    const fezOrc = nvVendaTipo === "Gerou Orçamento";
     const itensValidos = nvProdutosItens.filter(p => p.nome.trim() && p.valor);
-    if (nvFezOrcamento === "sim" && itensValidos.length === 0) {
+    if (fezOrc && itensValidos.length === 0) {
       toast.error("Adicione ao menos um produto com nome e valor");
       return;
     }
     const valorSoma = itensValidos.reduce((acc, p) => acc + (parseFloat(p.valor) || 0), 0);
     setNvSaving(true);
     const payload: any = {
-      venda: "Não Vendido",
+      venda: nvVendaTipo,
       nao_vendido_motivo: nvMotivo.trim(),
-      fez_orcamento: nvFezOrcamento === "sim",
-      orcamento_valor: nvFezOrcamento === "sim" ? valorSoma : null,
-      orcamento_produtos: nvFezOrcamento === "sim" ? itensValidos.map(p => `${p.nome} - R$ ${p.valor}`).join("; ") : null,
-      orcamento_produtos_itens: nvFezOrcamento === "sim" ? itensValidos : [],
+      fez_orcamento: fezOrc,
+      orcamento_valor: fezOrc ? valorSoma : null,
+      orcamento_produtos: fezOrc ? itensValidos.map(p => `${p.nome} - R$ ${p.valor}`).join("; ") : null,
+      orcamento_produtos_itens: fezOrc ? itensValidos : [],
       orcamento_observacao: nvObservacao.trim() || null,
     };
     const { error } = await supabase.from("crm_appointments").update(payload).eq("id", nvApptId);
@@ -680,27 +680,14 @@ export default function AppointmentsPage() {
       <Dialog open={nvDialogOpen} onOpenChange={(open) => { if (!open) { setNvDialogOpen(false); setNvApptId(null); } }}>
         <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Não Vendido — informações</DialogTitle>
+            <DialogTitle>{nvVendaTipo} — informações</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label>Por que o cliente não comprou? <span className="text-destructive">*</span></Label>
               <Textarea value={nvMotivo} onChange={(e) => setNvMotivo(e.target.value)} rows={3} maxLength={1000} placeholder="Ex.: achou caro, vai pensar, etc." />
             </div>
-            <div className="space-y-1.5">
-              <Label>Fez orçamento para o cliente? <span className="text-destructive">*</span></Label>
-              <RadioGroup value={nvFezOrcamento ?? ""} onValueChange={(v) => setNvFezOrcamento(v as "sim" | "nao")} className="flex gap-4">
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="sim" id="nv-orc-sim" />
-                  <Label htmlFor="nv-orc-sim" className="cursor-pointer">Sim</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="nao" id="nv-orc-nao" />
-                  <Label htmlFor="nv-orc-nao" className="cursor-pointer">Não</Label>
-                </div>
-              </RadioGroup>
-            </div>
-            {nvFezOrcamento === "sim" && (
+            {nvVendaTipo === "Gerou Orçamento" && (
               <>
                 <div className="space-y-1.5">
                   <Label>Produtos passados <span className="text-destructive">*</span></Label>
