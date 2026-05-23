@@ -199,6 +199,17 @@ export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onS
           {/* RIGHT: tabs Atividade / Comentário / Tarefa */}
           <ScrollArea className="max-h-[calc(90vh-110px)]">
             <div className="p-5 space-y-4">
+              {motivo.trim() && (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <AlertCircle className="h-4 w-4 text-destructive" />
+                    <span className="text-xs font-semibold text-destructive uppercase tracking-wide">
+                      Motivo da não compra
+                    </span>
+                  </div>
+                  <p className="text-sm whitespace-pre-wrap">{motivo}</p>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 {(["atividade", "comentario", "tarefa"] as Tab[]).map((t) => (
                   <button
