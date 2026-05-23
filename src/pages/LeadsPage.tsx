@@ -173,6 +173,7 @@ export default function LeadsPage() {
     refreshKey,
     orderColumn: "updated_at",
     orderAscending: false,
+    pollingIntervalMs: 30000,
   });
 
   const handleColumnScroll = (statusKey: string, e: React.UIEvent<HTMLDivElement>) => {
