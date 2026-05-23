@@ -70,6 +70,9 @@ export default function LeadsPage() {
   const [historyLeadId, setHistoryLeadId] = useState<string | null>(null);
   const [historyLeadName, setHistoryLeadName] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [restoreLead, setRestoreLead] = useState<Lead | null>(null);
+  const [restoreAssignee, setRestoreAssignee] = useState<string>("");
+  const [restoring, setRestoring] = useState(false);
   // Mobile: active tab for status columns
   const [mobileTab, setMobileTab] = useState<string>("");
 
