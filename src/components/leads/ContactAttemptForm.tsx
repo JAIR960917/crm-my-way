@@ -39,12 +39,13 @@ type Props = {
   leadStatus: string;
   leadSnapshot: { nome: string; telefone: string; idade: string };
   onSaved?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 type Atendeu = "sim" | "nao" | null;
 type Marcou = "sim" | "nao" | null;
 
-export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSnapshot, onSaved }: Props) {
+export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSnapshot, onSaved, onDirtyChange }: Props) {
   const [atendeu, setAtendeu] = useState<Atendeu>(null);
   const [tratativa, setTratativa] = useState("");
   const [tentativasObs, setTentativasObs] = useState("");
@@ -55,6 +56,9 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
   const [canal, setCanal] = useState("Ligação Leads");
   const [saving, setSaving] = useState(false);
 
+  const isDirty = atendeu !== null || tratativa.trim() !== "" || tentativasObs.trim() !== "" || marcou !== null || dateStr !== "" || formaPagamento !== "";
+  useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
+
   const reset = () => {
     setAtendeu(null);
     setTratativa("");
@@ -64,6 +68,7 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
     setTime("09:00");
     setFormaPagamento("");
     setCanal("Ligação Leads");
+    onDirtyChange?.(false);
   };
 
   const buildNoteContent = () => {
