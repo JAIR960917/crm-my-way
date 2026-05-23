@@ -97,6 +97,10 @@ export default function RenovacaoContactAttemptForm({
       toast.error("Descreva a tratativa do contato");
       return;
     }
+    if (atendeu === "nao" && !naoAtendeuObs.trim()) {
+      toast.error("Informe a observação (ex.: número errado, caixa postal...)");
+      return;
+    }
     if (atendeu === "sim" && marcou === "sim") {
       if (!dateStr || !time || !formaPagamento || !canal) {
         toast.error("Preencha todos os campos do agendamento");
