@@ -721,6 +721,11 @@ export default function ActiveClientsPage() {
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(item)}>
             <Pencil className="h-3 w-3" />
           </Button>
+          {isAdmin && item.status === "excluidos" && (
+            <Button variant="ghost" size="icon" className="h-7 w-7" title="Restaurar / Atribuir" onClick={() => { setRestoreItem(item); setRestoreAssignee(item.assigned_to || ""); }}>
+              <RotateCcw className="h-3.5 w-3.5 text-emerald-600" />
+            </Button>
+          )}
           {(isAdmin || isGerente) && (
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeleteConfirmId(item.id)}>
               <Trash2 className="h-3 w-3 text-destructive" />
