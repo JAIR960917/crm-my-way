@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,8 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { Phone, PhoneOff, Plus, Trash2, Check, X, CalendarCheck, CalendarX } from "lucide-react";
+import { Phone, PhoneOff, Plus, Trash2, Check, X, CalendarCheck, CalendarX, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatPhoneBR, unformatPhone } from "@/lib/phoneFormat";
 
 type ProdutoItem = { nome: string; valor: string };
 
@@ -31,6 +33,8 @@ type Props = {
 type Tab = "atividade" | "comentario" | "tarefa";
 
 export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onSaved }: Props) {
+  const { isGerente, isAdmin } = useAuth();
+  const canEditMotivo = !isGerente || isAdmin;
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
   const [motivo, setMotivo] = useState("");
@@ -50,7 +54,7 @@ export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onS
   useEffect(() => {
     if (open && orcamento) {
       setNome(orcamento.nome || "");
-      setTelefone(orcamento.telefone || "");
+      setTelefone(formatPhoneBR(orcamento.telefone || ""));
       setMotivo(orcamento.nao_vendido_motivo || "");
       setObservacao(orcamento.orcamento_observacao || "");
       const arr = Array.isArray(orcamento.orcamento_produtos_itens) ? orcamento.orcamento_produtos_itens : [];
@@ -105,7 +109,7 @@ export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onS
 
     const payload: any = {
       nome: nome.trim(),
-      telefone: telefone.trim(),
+      telefone: unformatPhone(telefone),
       nao_vendido_motivo: motivo.trim() || null,
       orcamento_observacao: novaObs || null,
       orcamento_produtos_itens: itensValidos,
@@ -141,7 +145,12 @@ export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onS
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Telefone</Label>
-                <Input value={telefone} onChange={(e) => setTelefone(e.target.value)} />
+                <Input
+                  value={telefone}
+                  onChange={(e) => setTelefone(formatPhoneBR(e.target.value))}
+                  placeholder="(11) 98765-4321"
+                  inputMode="tel"
+                />
               </div>
 
               <div className="space-y-2 rounded-md border p-3">
@@ -176,10 +185,13 @@ export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onS
                 </Button>
               </div>
 
-              <div className="space-y-1">
-                <Label className="text-xs">Motivo da não compra</Label>
-                <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} />
-              </div>
+              {canEditMotivo && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Motivo da não compra</Label>
+                  <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+                </div>
+              )}
+
 
             </div>
           </ScrollArea>
@@ -187,6 +199,17 @@ export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onS
           {/* RIGHT: tabs Atividade / Comentário / Tarefa */}
           <ScrollArea className="max-h-[calc(90vh-110px)]">
             <div className="p-5 space-y-4">
+              {motivo.trim() && (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <AlertCircle className="h-4 w-4 text-destructive" />
+                    <span className="text-xs font-semibold text-destructive uppercase tracking-wide">
+                      Motivo da não compra
+                    </span>
+                  </div>
+                  <p className="text-sm whitespace-pre-wrap">{motivo}</p>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 {(["atividade", "comentario", "tarefa"] as Tab[]).map((t) => (
                   <button
