@@ -578,6 +578,7 @@ export default function LeadsPage() {
         content: `♻️ Card restaurado por ${currentUserName || "admin"} e atribuído a ${assigneeName}`,
       });
       toast.success("Lead restaurado");
+      setRefreshKey((k) => k + 1);
       fetchAll();
     }
     setRestoring(false);
