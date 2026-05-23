@@ -680,27 +680,14 @@ export default function AppointmentsPage() {
       <Dialog open={nvDialogOpen} onOpenChange={(open) => { if (!open) { setNvDialogOpen(false); setNvApptId(null); } }}>
         <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Não Vendido — informações</DialogTitle>
+            <DialogTitle>{nvVendaTipo} — informações</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label>Por que o cliente não comprou? <span className="text-destructive">*</span></Label>
               <Textarea value={nvMotivo} onChange={(e) => setNvMotivo(e.target.value)} rows={3} maxLength={1000} placeholder="Ex.: achou caro, vai pensar, etc." />
             </div>
-            <div className="space-y-1.5">
-              <Label>Fez orçamento para o cliente? <span className="text-destructive">*</span></Label>
-              <RadioGroup value={nvFezOrcamento ?? ""} onValueChange={(v) => setNvFezOrcamento(v as "sim" | "nao")} className="flex gap-4">
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="sim" id="nv-orc-sim" />
-                  <Label htmlFor="nv-orc-sim" className="cursor-pointer">Sim</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="nao" id="nv-orc-nao" />
-                  <Label htmlFor="nv-orc-nao" className="cursor-pointer">Não</Label>
-                </div>
-              </RadioGroup>
-            </div>
-            {nvFezOrcamento === "sim" && (
+            {nvVendaTipo === "Gerou Orçamento" && (
               <>
                 <div className="space-y-1.5">
                   <Label>Produtos passados <span className="text-destructive">*</span></Label>
