@@ -360,8 +360,9 @@ export default function LeadsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams.get("edit")]);
 
-  const resolveStatus = (data: Record<string, any>): string => {
+  const resolveStatus = (data: Record<string, any>, excludeStatuses: string[] = []): string => {
     const defaultStatus = statuses.length > 0 ? statuses[0].key : formStatus;
+    const excludeSet = new Set(excludeStatuses);
 
     // Reúne TODAS as perguntas com regra (data ou opção) e processa por ordem do formulário.
     const ruleFields = formFields
@@ -369,6 +370,14 @@ export default function LeadsPage() {
         f.date_status_ranges ||
         (f.status_mapping && Object.keys(f.status_mapping).length > 0)
       )
+      // Pula campos cujo status_mapping aponta para a coluna atual — assim um lead
+      // que entrou em "Recomendação" via "Forma de captação" não fica preso lá
+      // depois que outras regras (ex.: data do último exame) já se aplicam.
+      .filter(f => {
+        if (excludeSet.size === 0) return true;
+        if (!f.status_mapping) return true;
+        return !Object.values(f.status_mapping).some((v: any) => excludeSet.has(v));
+      })
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
     if (ruleFields.length === 0) return formStatus;
@@ -426,7 +435,7 @@ export default function LeadsPage() {
     if (editingLead) {
       // Recalculate status based on date/mapping fields if they exist
       const hasMappingField = formFields.some(f => (f.status_mapping && Object.keys(f.status_mapping).length > 0) || f.date_status_ranges);
-      const finalStatus = hasMappingField ? resolveStatus(formData) : formStatus;
+      const finalStatus = hasMappingField ? resolveStatus(formData, [editingLead.status]) : formStatus;
       const { error } = await supabase.from("crm_leads").update({
         data: formData, status: finalStatus, assigned_to: formAssigned || null,
       }).eq("id", editingLead.id);
