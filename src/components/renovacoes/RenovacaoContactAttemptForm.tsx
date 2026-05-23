@@ -49,6 +49,8 @@ export default function RenovacaoContactAttemptForm({
 }: Props) {
   const [atendeu, setAtendeu] = useState<Atendeu>(null);
   const [tratativa, setTratativa] = useState("");
+  const [naoAtendeuObs, setNaoAtendeuObs] = useState("");
+  const [naoAtendeuTentativas, setNaoAtendeuTentativas] = useState<string>("1");
   const [marcou, setMarcou] = useState<Marcou>(null);
   const [dateStr, setDateStr] = useState("");
   const [time, setTime] = useState("09:00");
@@ -59,6 +61,8 @@ export default function RenovacaoContactAttemptForm({
   const reset = () => {
     setAtendeu(null);
     setTratativa("");
+    setNaoAtendeuObs("");
+    setNaoAtendeuTentativas("1");
     setMarcou(null);
     setDateStr("");
     setTime("09:00");
@@ -77,6 +81,9 @@ export default function RenovacaoContactAttemptForm({
       } else if (marcou === "nao") {
         lines.push("❌ Consulta NÃO marcada");
       }
+    } else if (atendeu === "nao") {
+      lines.push(`Tentativas: ${naoAtendeuTentativas}`);
+      if (naoAtendeuObs.trim()) lines.push(`Observação: ${naoAtendeuObs.trim()}`);
     }
     return lines.join("\n");
   };
@@ -88,6 +95,10 @@ export default function RenovacaoContactAttemptForm({
     }
     if (atendeu === "sim" && !tratativa.trim()) {
       toast.error("Descreva a tratativa do contato");
+      return;
+    }
+    if (atendeu === "nao" && !naoAtendeuObs.trim()) {
+      toast.error("Informe a observação (ex.: número errado, caixa postal...)");
       return;
     }
     if (atendeu === "sim" && marcou === "sim") {
@@ -220,6 +231,33 @@ export default function RenovacaoContactAttemptForm({
           </div>
         </>
       )}
+
+      {atendeu === "nao" && (
+        <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Quantas tentativas de contato? <span className="text-destructive">*</span></Label>
+            <Input
+              type="number"
+              min={1}
+              value={naoAtendeuTentativas}
+              onChange={(e) => setNaoAtendeuTentativas(e.target.value)}
+              className="h-9 text-sm"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Observação <span className="text-destructive">*</span></Label>
+            <Textarea
+              value={naoAtendeuObs}
+              onChange={(e) => setNaoAtendeuObs(e.target.value)}
+              rows={3}
+              placeholder="Ex.: Número errado, caixa postal, não atende..."
+              className="text-sm min-h-[70px]"
+              maxLength={1000}
+            />
+          </div>
+        </div>
+      )}
+
 
       {atendeu === "sim" && marcou === "sim" && (
         <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-2.5">
