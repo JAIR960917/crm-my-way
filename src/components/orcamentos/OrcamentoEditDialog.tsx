@@ -54,7 +54,7 @@ export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onS
   useEffect(() => {
     if (open && orcamento) {
       setNome(orcamento.nome || "");
-      setTelefone(orcamento.telefone || "");
+      setTelefone(formatPhoneBR(orcamento.telefone || ""));
       setMotivo(orcamento.nao_vendido_motivo || "");
       setObservacao(orcamento.orcamento_observacao || "");
       const arr = Array.isArray(orcamento.orcamento_produtos_itens) ? orcamento.orcamento_produtos_itens : [];
