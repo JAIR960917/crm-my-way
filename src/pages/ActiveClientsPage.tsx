@@ -1033,6 +1033,33 @@ export default function ActiveClientsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={!!restoreItem} onOpenChange={(open) => !open && setRestoreItem(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restaurar renovação excluída</AlertDialogTitle>
+            <AlertDialogDescription>
+              Atribua um responsável. O card voltará ao fluxo normal na coluna anterior à exclusão.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Select value={restoreAssignee} onValueChange={setRestoreAssignee}>
+              <SelectTrigger><SelectValue placeholder="Selecione o responsável" /></SelectTrigger>
+              <SelectContent>
+                {profiles.map((p) => (
+                  <SelectItem key={p.user_id} value={p.user_id}>{p.full_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restoring}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); confirmRestore(); }} disabled={restoring || !restoreAssignee}>
+              {restoring ? "Restaurando..." : "Restaurar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }
