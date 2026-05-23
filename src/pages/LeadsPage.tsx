@@ -21,6 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { usePaginatedColumns } from "@/hooks/use-paginated-columns";
+import { useVisibleStatusKeys } from "@/hooks/use-visible-status-keys";
 import { normalizeLeadData, resolveLeadIdentity } from "@/lib/leadIdentity";
 
 type CrmColumn = {
@@ -34,7 +35,7 @@ type Lead = {
 };
 type Profile = { user_id: string; full_name: string; email?: string; avatar_url?: string | null; company_id?: string | null };
 type CrmStatus = {
-  id: string; key: string; label: string; position: number; color: string;
+  id: string; key: string; label: string; position: number; color: string; is_system_excluded?: boolean;
 };
 type Company = { id: string; name: string };
 type FormFieldInfo = { id: string; label: string; position?: number; is_name_field: boolean; is_phone_field: boolean; show_on_card?: boolean; status_mapping?: Record<string, string> | null; date_status_ranges?: { ranges: { max_years: number; status_key: string }[]; above_all: string; no_answer: string } | null };
@@ -69,6 +70,9 @@ export default function LeadsPage() {
   const [historyLeadId, setHistoryLeadId] = useState<string | null>(null);
   const [historyLeadName, setHistoryLeadName] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [restoreLead, setRestoreLead] = useState<Lead | null>(null);
+  const [restoreAssignee, setRestoreAssignee] = useState<string>("");
+  const [restoring, setRestoring] = useState(false);
   // Mobile: active tab for status columns
   const [mobileTab, setMobileTab] = useState<string>("");
 
@@ -108,7 +112,13 @@ export default function LeadsPage() {
   }, []);
 
   // -------- Paginated columns (50 leads/coluna sob demanda) --------
-  const statusKeys = useMemo(() => statuses.map(s => s.key), [statuses]);
+  const { isVisible: isStatusVisible } = useVisibleStatusKeys("leads");
+  const visibleStatuses = useMemo(
+    () => statuses.filter((s) => isStatusVisible(s.key, s.is_system_excluded)),
+    [statuses, isStatusVisible],
+  );
+  const statusKeys = useMemo(() => visibleStatuses.map(s => s.key), [visibleStatuses]);
+
 
   const columnFilter = useMemo(() => ({
     apply: (q: any) => {
@@ -316,10 +326,10 @@ export default function LeadsPage() {
 
   // Set default mobile tab when statuses load
   useEffect(() => {
-    if (statuses.length > 0 && !mobileTab) {
-      setMobileTab(statuses[0].key);
+    if (visibleStatuses.length > 0 && !mobileTab) {
+      setMobileTab(visibleStatuses[0].key);
     }
-  }, [statuses]);
+  }, [visibleStatuses, mobileTab]);
 
   // Derive labels and options from DB statuses
   const statusOptions = statuses.map(s => s.key);
@@ -525,6 +535,44 @@ export default function LeadsPage() {
       fetchAll();
     }
     setDeleteConfirmId(null);
+  };
+
+  const openRestore = (lead: Lead) => {
+    setRestoreLead(lead);
+    setRestoreAssignee(lead.assigned_to || "");
+  };
+
+  const confirmRestore = async () => {
+    if (!restoreLead || !restoreAssignee) {
+      toast.error("Selecione um responsável");
+      return;
+    }
+    setRestoring(true);
+    const previous = (restoreLead as any).previous_status_before_exclude as string | null;
+    const newStatus = previous && previous !== "excluidos" ? previous : "novo";
+    const { error } = await supabase.from("crm_leads").update({
+      status: newStatus,
+      assigned_to: restoreAssignee,
+      excluded_at: null,
+      excluded_by: null,
+      previous_status_before_exclude: null,
+      previous_assigned_before_exclude: null,
+    } as any).eq("id", restoreLead.id);
+    if (error) {
+      toast.error("Erro ao restaurar lead");
+    } else {
+      const assigneeName = profiles.find((p) => p.user_id === restoreAssignee)?.full_name || "responsável";
+      await supabase.from("crm_lead_notes").insert({
+        lead_id: restoreLead.id,
+        user_id: user!.id,
+        content: `♻️ Card restaurado por ${currentUserName || "admin"} e atribuído a ${assigneeName}`,
+      });
+      toast.success("Lead restaurado");
+      fetchAll();
+    }
+    setRestoring(false);
+    setRestoreLead(null);
+    setRestoreAssignee("");
   };
 
   const getLeadDisplayStatus = useCallback((lead: Lead) => {
@@ -799,7 +847,7 @@ export default function LeadsPage() {
       {/* Mobile: Tab selector */}
       <div className="lg:hidden mb-3 overflow-x-auto -mx-3 px-3 sm:-mx-4 sm:px-4">
         <div className="flex gap-1.5 min-w-max">
-          {statuses.map((status) => {
+          {visibleStatuses.map((status) => {
             const colors = colorMap[status.color] || colorMap.blue;
             const count = getLeadsByStatus(status.key).length;
             return (
@@ -825,7 +873,7 @@ export default function LeadsPage() {
 
       {/* Mobile: Active column cards */}
       <div className="lg:hidden space-y-2 mb-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 220px)" }} onScroll={(e) => handleColumnScroll(mobileTab, e)}>
-        {statuses.filter(s => s.key === mobileTab).map((status) => {
+        {visibleStatuses.filter(s => s.key === mobileTab).map((status) => {
           const colState = getColumnState(status.key);
           const statusLeads = colState.items;
           const visibleLeads = statusLeads;
@@ -854,6 +902,7 @@ export default function LeadsPage() {
                     }}
                     onSchedule={() => openScheduleDialog(lead)}
                     onToggleComprou={(value) => handleToggleComprou(lead.id, value)}
+                    onRestore={() => openRestore(lead)}
                   />
                 </div>
               ))}
@@ -876,7 +925,7 @@ export default function LeadsPage() {
       {/* Desktop: Kanban board with drag & drop */}
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="hidden lg:flex gap-3 overflow-x-auto pb-4" style={{ height: "calc(100vh - 200px)" }}>
-          {statuses.map((status) => {
+          {visibleStatuses.map((status) => {
           const colState = getColumnState(status.key);
           const statusLeads = colState.items;
           const visibleLeads = statusLeads;
@@ -931,6 +980,7 @@ export default function LeadsPage() {
                                 }}
                                 onSchedule={() => openScheduleDialog(lead)}
                                 onToggleComprou={(value) => handleToggleComprou(lead.id, value)}
+                                onRestore={() => openRestore(lead)}
                               />
                             </div>
                           )}
@@ -1011,6 +1061,33 @@ export default function LeadsPage() {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!restoreLead} onOpenChange={(open) => !open && setRestoreLead(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restaurar lead excluído</AlertDialogTitle>
+            <AlertDialogDescription>
+              Atribua um responsável. O card voltará ao fluxo normal na coluna anterior à exclusão.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Select value={restoreAssignee} onValueChange={setRestoreAssignee}>
+              <SelectTrigger><SelectValue placeholder="Selecione o responsável" /></SelectTrigger>
+              <SelectContent>
+                {profiles.map((p) => (
+                  <SelectItem key={p.user_id} value={p.user_id}>{p.full_name || p.email}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restoring}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); confirmRestore(); }} disabled={restoring || !restoreAssignee}>
+              {restoring ? "Restaurando..." : "Restaurar"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

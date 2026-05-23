@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Search, Pencil, Trash2, Phone, UserCheck, CalendarHeart, AlertTriangle, CalendarClock, Clock, CheckCircle2, Shuffle, Loader2, CalendarPlus } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Phone, UserCheck, CalendarHeart, AlertTriangle, CalendarClock, Clock, CheckCircle2, Shuffle, Loader2, CalendarPlus, RotateCcw } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -17,6 +17,7 @@ import { ptBR } from "date-fns/locale";
 import RenovacaoEditSheet from "@/components/renovacoes/RenovacaoEditSheet";
 import ScheduleLeadDialog from "@/components/leads/ScheduleLeadDialog";
 import { usePaginatedColumns } from "@/hooks/use-paginated-columns";
+import { useVisibleStatusKeys } from "@/hooks/use-visible-status-keys";
 import { logTransition } from "@/lib/transitionLogs";
 
 type Renovacao = {
@@ -34,7 +35,7 @@ type Renovacao = {
 };
 
 type AppRole = "admin" | "vendedor" | "gerente" | "financeiro";
-type CrmStatus = { id: string; key: string; label: string; position: number; color: string };
+type CrmStatus = { id: string; key: string; label: string; position: number; color: string; is_system_excluded?: boolean };
 type Profile = { user_id: string; full_name: string; avatar_url?: string | null };
 type Company = { id: string; name: string };
 type UserRole = { user_id: string; role: AppRole };
@@ -116,6 +117,9 @@ export default function ActiveClientsPage() {
   const [filterCompanyId, setFilterCompanyId] = useState("all");
   const [filterAssignedTo, setFilterAssignedTo] = useState("all");
   const [mobileTab, setMobileTab] = useState("");
+  const [restoreItem, setRestoreItem] = useState<Renovacao | null>(null);
+  const [restoreAssignee, setRestoreAssignee] = useState<string>("");
+  const [restoring, setRestoring] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -143,7 +147,12 @@ export default function ActiveClientsPage() {
   const [schedulingItem, setSchedulingItem] = useState<Renovacao | null>(null);
   const [scheduleSaving, setScheduleSaving] = useState(false);
 
-  const statusKeys = useMemo(() => statuses.map((s) => s.key), [statuses]);
+  const { isVisible: isStatusVisible } = useVisibleStatusKeys("renovacao");
+  const visibleStatuses = useMemo(
+    () => statuses.filter((s) => isStatusVisible(s.key, s.is_system_excluded)),
+    [statuses, isStatusVisible],
+  );
+  const statusKeys = useMemo(() => visibleStatuses.map((s) => s.key), [visibleStatuses]);
 
   // Filter applied to every column query (server-side)
   const columnFilter = useMemo(() => ({
@@ -276,8 +285,8 @@ export default function ActiveClientsPage() {
   useEffect(() => { refreshUnassignedCount(); }, [refreshUnassignedCount, refreshKey]);
 
   useEffect(() => {
-    if (statuses.length > 0 && !mobileTab) setMobileTab(statuses[0].key);
-  }, [statuses, mobileTab]);
+    if (visibleStatuses.length > 0 && !mobileTab) setMobileTab(visibleStatuses[0].key);
+  }, [visibleStatuses, mobileTab]);
 
   const statusOptions = statuses.map(s => s.key);
   const vendedorIds = useMemo(
@@ -434,6 +443,41 @@ export default function ActiveClientsPage() {
     }
     setDeleteConfirmId(null);
   };
+
+  const confirmRestore = async () => {
+    if (!restoreItem || !restoreAssignee) {
+      toast.error("Selecione um responsável");
+      return;
+    }
+    setRestoring(true);
+    const previous = (restoreItem as any).previous_status_before_exclude as string | null;
+    const newStatus = previous && previous !== "excluidos" ? previous : "novo";
+    const { error } = await supabase.from("crm_renovacoes").update({
+      status: newStatus,
+      assigned_to: restoreAssignee,
+      excluded_at: null,
+      excluded_by: null,
+      previous_status_before_exclude: null,
+      previous_assigned_before_exclude: null,
+    } as any).eq("id", restoreItem.id);
+    if (error) {
+      toast.error("Erro ao restaurar");
+    } else {
+      const myName = profiles.find((p) => p.user_id === user?.id)?.full_name || "admin";
+      const assigneeName = profiles.find((p) => p.user_id === restoreAssignee)?.full_name || "responsável";
+      await supabase.from("crm_renovacao_notes").insert({
+        renovacao_id: restoreItem.id,
+        user_id: user!.id,
+        content: `♻️ Card restaurado por ${myName} e atribuído a ${assigneeName}`,
+      } as any);
+      toast.success("Renovação restaurada");
+      setRefreshKey((k) => k + 1);
+    }
+    setRestoring(false);
+    setRestoreItem(null);
+    setRestoreAssignee("");
+  };
+
 
   const openScheduleDialog = (item: Renovacao) => {
     setSchedulingItem(item);
@@ -712,6 +756,11 @@ export default function ActiveClientsPage() {
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(item)}>
             <Pencil className="h-3 w-3" />
           </Button>
+          {isAdmin && item.status === "excluidos" && (
+            <Button variant="ghost" size="icon" className="h-7 w-7" title="Restaurar / Atribuir" onClick={() => { setRestoreItem(item); setRestoreAssignee(item.assigned_to || ""); }}>
+              <RotateCcw className="h-3.5 w-3.5 text-emerald-600" />
+            </Button>
+          )}
           {(isAdmin || isGerente) && (
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeleteConfirmId(item.id)}>
               <Trash2 className="h-3 w-3 text-destructive" />
@@ -795,7 +844,7 @@ export default function ActiveClientsPage() {
       {/* Mobile tabs */}
       <div className="lg:hidden mb-3">
         <div className="flex gap-1 overflow-x-auto pb-1">
-          {statuses.map(status => {
+          {visibleStatuses.map(status => {
             const { total } = getByStatus(status.key);
             const colors = colorMap[status.color] || colorMap.blue;
             return (
@@ -816,7 +865,7 @@ export default function ActiveClientsPage() {
 
       <div className="lg:hidden space-y-2 mb-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 260px)" }}
            onScroll={(e) => mobileTab && handleColumnScroll(e, mobileTab)}>
-        {statuses.filter(s => s.key === mobileTab).map(status => {
+        {visibleStatuses.filter(s => s.key === mobileTab).map(status => {
           const { items, total, hasMore, loading } = getByStatus(status.key);
           return (
             <div key={status.key}>
@@ -841,7 +890,7 @@ export default function ActiveClientsPage() {
 
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="hidden lg:flex gap-3 overflow-x-auto pb-4" style={{ height: "calc(100vh - 200px)" }}>
-          {statuses.map(status => {
+          {visibleStatuses.map(status => {
             const { items, total, hasMore, loading } = getByStatus(status.key);
             const colors = colorMap[status.color] || colorMap.blue;
             return (
@@ -980,6 +1029,33 @@ export default function ActiveClientsPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {bulkDeleting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Excluindo...</> : "Excluir todos"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!restoreItem} onOpenChange={(open) => !open && setRestoreItem(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restaurar renovação excluída</AlertDialogTitle>
+            <AlertDialogDescription>
+              Atribua um responsável. O card voltará ao fluxo normal na coluna anterior à exclusão.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Select value={restoreAssignee} onValueChange={setRestoreAssignee}>
+              <SelectTrigger><SelectValue placeholder="Selecione o responsável" /></SelectTrigger>
+              <SelectContent>
+                {profiles.map((p) => (
+                  <SelectItem key={p.user_id} value={p.user_id}>{p.full_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restoring}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); confirmRestore(); }} disabled={restoring || !restoreAssignee}>
+              {restoring ? "Restaurando..." : "Restaurar"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Pencil, Trash2, CloudOff, CheckCircle2, CalendarPlus, CalendarClock, AlertTriangle, Plus, Clock, Phone } from "lucide-react";
+import { Pencil, Trash2, CloudOff, CheckCircle2, CalendarPlus, CalendarClock, AlertTriangle, Plus, Clock, Phone, RotateCcw } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { resolveLeadIdentity } from "@/lib/leadIdentity";
@@ -42,13 +42,14 @@ type LeadCardProps = {
   onHistory: () => void;
   onSchedule?: () => void;
   onToggleComprou?: (value: boolean) => void;
+  onRestore?: () => void;
   syncStatus?: "offline" | "synced" | null;
   activities?: LeadActivity[];
 };
 
 export default function LeadCard({
   lead, columns, formFields, profiles, isAdmin,
-  onEdit, onDelete, onHistory, onSchedule, onToggleComprou, syncStatus, activities,
+  onEdit, onDelete, onHistory, onSchedule, onToggleComprou, onRestore, syncStatus, activities,
 }: LeadCardProps) {
   const data = typeof lead.data === "object" ? (lead.data as Record<string, any>) : {};
   const assignedProfile = profiles.find((p) => p.user_id === lead.assigned_to);
@@ -145,6 +146,11 @@ export default function LeadCard({
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
               <Pencil className="h-3.5 w-3.5" />
             </Button>
+            {isAdmin && onRestore && lead.status === "excluidos" && (
+              <Button variant="ghost" size="icon" className="h-7 w-7" title="Restaurar / Atribuir" onClick={(e) => { e.stopPropagation(); onRestore(); }}>
+                <RotateCcw className="h-3.5 w-3.5 text-emerald-600" />
+              </Button>
+            )}
             {isAdmin && (
               <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
                 <Trash2 className="h-3.5 w-3.5 text-destructive" />
