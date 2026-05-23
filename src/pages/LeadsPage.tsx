@@ -980,6 +980,7 @@ export default function LeadsPage() {
                                 }}
                                 onSchedule={() => openScheduleDialog(lead)}
                                 onToggleComprou={(value) => handleToggleComprou(lead.id, value)}
+                                onRestore={() => openRestore(lead)}
                               />
                             </div>
                           )}
