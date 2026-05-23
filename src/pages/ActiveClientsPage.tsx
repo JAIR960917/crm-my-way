@@ -812,7 +812,7 @@ export default function ActiveClientsPage() {
               </SelectContent>
             </Select>
           )}
-          {(isAdmin || isGerente) && profiles.length > 0 && (
+          {(isAdmin || isGerente) && assignableProfiles.length > 0 && (
             <Select value={filterAssignedTo} onValueChange={setFilterAssignedTo}>
               <SelectTrigger className="h-9 w-full sm:w-56">
                 <SelectValue placeholder="Filtrar por vendedor" />
@@ -820,8 +820,7 @@ export default function ActiveClientsPage() {
               <SelectContent>
                 <SelectItem value="all">Todos os vendedores</SelectItem>
                 <SelectItem value="__unassigned__">— Sem responsável —</SelectItem>
-                {[...profiles]
-                  .filter(p => p.full_name?.trim() && (isAdmin || vendedorIds.has(p.user_id)))
+                {[...assignableProfiles]
                   .sort((a, b) => a.full_name.localeCompare(b.full_name))
                   .map(p => (
                     <SelectItem key={p.user_id} value={p.user_id}>{p.full_name}</SelectItem>
@@ -845,9 +844,6 @@ export default function ActiveClientsPage() {
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input placeholder="Buscar..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-8 h-9 w-full sm:w-48" />
           </div>
-          <Button size="sm" onClick={() => openCreate()}>
-            <Plus className="mr-2 h-4 w-4" />Nova Renovação
-          </Button>
           {isAdmin && (
             <Button size="sm" variant="destructive" onClick={() => setBulkDeleteOpen(true)}>
               <Trash2 className="mr-2 h-4 w-4" />Excluir todos
