@@ -107,6 +107,7 @@ export default function RenovacaoEditSheet(props: Props) {
 
   // Mandatory tratativa: enforced for non-admin users
   const [tratativaRegistrada, setTratativaRegistrada] = useState(false);
+  const [contactDirty, setContactDirty] = useState(false);
   const requiresTratativa = isEditing && !isAdmin;
 
   const fetchTimeline = async () => {
@@ -134,6 +135,10 @@ export default function RenovacaoEditSheet(props: Props) {
   }, [open, renovacaoId]);
 
   const handleOpenChange = (next: boolean) => {
+    if (!next && contactDirty) {
+      toast.error("Você iniciou uma tratativa. Clique em \"Salvar contato\" para concluir antes de fechar.");
+      return;
+    }
     if (!next && requiresTratativa && !tratativaRegistrada) {
       toast.error("Registre uma tratativa antes de fechar esta renovação.");
       return;
@@ -507,8 +512,10 @@ export default function RenovacaoEditSheet(props: Props) {
                     })()}
                     onSaved={() => {
                       setTratativaRegistrada(true);
+                      setContactDirty(false);
                       fetchTimeline();
                     }}
+                    onDirtyChange={setContactDirty}
                   />
                 </div>
               )}

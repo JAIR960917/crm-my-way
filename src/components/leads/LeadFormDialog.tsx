@@ -323,6 +323,7 @@ export default function LeadFormDialog({
 
   // Mandatory tratativa: enforced for non-admin users on edit mode
   const [tratativaRegistrada, setTratativaRegistrada] = useState(false);
+  const [contactDirty, setContactDirty] = useState(false);
   const requiresTratativa = isEditing && !isAdmin;
 
   useEffect(() => {
@@ -355,14 +356,19 @@ export default function LeadFormDialog({
     }
   }, [open, leadId]);
 
-  // Wrap onOpenChange to block close until tratativa is registered (non-admin only)
+  // Wrap onOpenChange to block close when there's an unsaved tratativa or required tratativa
   const handleOpenChange = (next: boolean) => {
+    if (!next && contactDirty) {
+      toast.error("Você iniciou uma tratativa. Clique em \"Salvar contato\" para concluir antes de fechar.");
+      return;
+    }
     if (!next && requiresTratativa && !tratativaRegistrada) {
       toast.error("Registre uma tratativa antes de fechar este lead.");
       return;
     }
     onOpenChange(next);
   };
+
 
   useEffect(() => {
     if (!open || fields.length === 0) return;
@@ -917,6 +923,7 @@ export default function LeadFormDialog({
                   })()}
                   onSaved={async () => {
                     setTratativaRegistrada(true);
+                    setContactDirty(false);
                     fetchNotes();
                     onActivityChange?.();
 
@@ -957,8 +964,9 @@ export default function LeadFormDialog({
                       console.error("[tratativa] falha ao reavaliar status:", e);
                     }
                   }}
-
+                  onDirtyChange={setContactDirty}
                 />
+
               </div>
             )}
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,13 +39,14 @@ type Props = {
   renovacaoStatus: string;
   renovacaoSnapshot: { nome: string; telefone: string; idade: string };
   onSaved?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 type Atendeu = "sim" | "nao" | null;
 type Marcou = "sim" | "nao" | null;
 
 export default function RenovacaoContactAttemptForm({
-  renovacaoId, userId, renovacaoStatus, renovacaoSnapshot, onSaved,
+  renovacaoId, userId, renovacaoStatus, renovacaoSnapshot, onSaved, onDirtyChange,
 }: Props) {
   const [atendeu, setAtendeu] = useState<Atendeu>(null);
   const [tratativa, setTratativa] = useState("");
@@ -58,6 +59,9 @@ export default function RenovacaoContactAttemptForm({
   const [canal, setCanal] = useState("Ligação Renovação");
   const [saving, setSaving] = useState(false);
 
+  const isDirty = atendeu !== null || tratativa.trim() !== "" || naoAtendeuObs.trim() !== "" || marcou !== null || dateStr !== "" || formaPagamento !== "";
+  useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
+
   const reset = () => {
     setAtendeu(null);
     setTratativa("");
@@ -68,6 +72,7 @@ export default function RenovacaoContactAttemptForm({
     setTime("09:00");
     setFormaPagamento("");
     setCanal("Ligação Renovação");
+    onDirtyChange?.(false);
   };
 
   const buildNoteContent = () => {

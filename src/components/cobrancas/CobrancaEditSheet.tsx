@@ -116,6 +116,7 @@ export default function CobrancaEditSheet(props: Props) {
   // Tracks whether a contact attempt was registered during this open session.
   // Required for "financeiro" role to be able to close / save the card.
   const [contactRegisteredInSession, setContactRegisteredInSession] = useState(false);
+  const [contactDirty, setContactDirty] = useState(false);
 
   // Task creation
   const [taskOpen, setTaskOpen] = useState(false);
@@ -293,6 +294,10 @@ export default function CobrancaEditSheet(props: Props) {
   const canCloseOrSave = !requiresContactRegistration || contactRegisteredInSession;
 
   const handleSheetOpenChange = (v: boolean) => {
+    if (!v && contactDirty) {
+      toast.error("Você iniciou uma tratativa. Clique em \"Salvar contato\" para concluir antes de fechar.");
+      return;
+    }
     if (!v && !canCloseOrSave) {
       toast.error("Registre uma tentativa de contato antes de fechar este card.");
       return;
@@ -734,7 +739,8 @@ export default function CobrancaEditSheet(props: Props) {
                         userName={getProfile(user.id)?.full_name}
                         cobrancaData={formData}
                         cobrancaStatus={formStatus}
-                        onSaved={() => { setContactRegisteredInSession(true); fetchTimeline(); }}
+                        onSaved={() => { setContactRegisteredInSession(true); setContactDirty(false); fetchTimeline(); }}
+                        onDirtyChange={setContactDirty}
                       />
                       <CobrancaFlowEvents
                         cobrancaId={cobrancaId}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,20 +17,25 @@ type Props = {
   /** Status atual do card (ex.: "31_dias_de_atraso_ligao") — usado para registrar tratativa por coluna */
   cobrancaStatus?: string | null;
   onSaved?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 export default function CobrancaContactAttemptForm({
-  cobrancaId, userId, userName, cobrancaData, cobrancaStatus, onSaved,
+  cobrancaId, userId, userName, cobrancaData, cobrancaStatus, onSaved, onDirtyChange,
 }: Props) {
   const [atendeu, setAtendeu] = useState<Atendeu>(null);
   const [observacao, setObservacao] = useState("");
   const [renegociou, setRenegociou] = useState<Renegociou>(null);
   const [saving, setSaving] = useState(false);
 
+  const isDirty = atendeu !== null || observacao.trim() !== "" || renegociou !== null;
+  useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
+
   const reset = () => {
     setAtendeu(null);
     setObservacao("");
     setRenegociou(null);
+    onDirtyChange?.(false);
   };
 
   const buildNoteContent = () => {
