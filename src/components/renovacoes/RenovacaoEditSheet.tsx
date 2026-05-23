@@ -135,6 +135,10 @@ export default function RenovacaoEditSheet(props: Props) {
   }, [open, renovacaoId]);
 
   const handleOpenChange = (next: boolean) => {
+    if (!next && contactDirty) {
+      toast.error("Você iniciou uma tratativa. Clique em \"Salvar contato\" para concluir antes de fechar.");
+      return;
+    }
     if (!next && requiresTratativa && !tratativaRegistrada) {
       toast.error("Registre uma tratativa antes de fechar esta renovação.");
       return;
