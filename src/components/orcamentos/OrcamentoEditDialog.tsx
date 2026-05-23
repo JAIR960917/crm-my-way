@@ -185,10 +185,13 @@ export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onS
                 </Button>
               </div>
 
-              <div className="space-y-1">
-                <Label className="text-xs">Motivo da não compra</Label>
-                <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} />
-              </div>
+              {canEditMotivo && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Motivo da não compra</Label>
+                  <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+                </div>
+              )}
+
 
             </div>
           </ScrollArea>
