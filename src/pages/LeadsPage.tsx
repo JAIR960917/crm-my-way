@@ -456,8 +456,10 @@ export default function LeadsPage() {
     e.preventDefault();
     setSaving(true);
     if (editingLead) {
-      // Recalculate status based on date/mapping fields if they exist
-      const finalStatus = hasMappingField
+      // Recalcula apenas via date_status_ranges; mapeamentos por opção (forma
+      // de captação) só valem na criação.
+      const hasDateRangeField = formFields.some(f => !!f.date_status_ranges);
+      const finalStatus = hasDateRangeField
         ? resolveStatus(formData, [editingLead.status], { skipStatusMapping: true })
         : formStatus;
       const { error } = await supabase.from("crm_leads").update({
