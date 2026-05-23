@@ -883,7 +883,7 @@ export default function LeadsPage() {
       {/* Desktop: Kanban board with drag & drop */}
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="hidden lg:flex gap-3 overflow-x-auto pb-4" style={{ height: "calc(100vh - 200px)" }}>
-          {statuses.map((status) => {
+          {visibleStatuses.map((status) => {
           const colState = getColumnState(status.key);
           const statusLeads = colState.items;
           const visibleLeads = statusLeads;
