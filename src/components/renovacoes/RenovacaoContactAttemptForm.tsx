@@ -49,6 +49,8 @@ export default function RenovacaoContactAttemptForm({
 }: Props) {
   const [atendeu, setAtendeu] = useState<Atendeu>(null);
   const [tratativa, setTratativa] = useState("");
+  const [naoAtendeuObs, setNaoAtendeuObs] = useState("");
+  const [naoAtendeuTentativas, setNaoAtendeuTentativas] = useState<string>("1");
   const [marcou, setMarcou] = useState<Marcou>(null);
   const [dateStr, setDateStr] = useState("");
   const [time, setTime] = useState("09:00");
@@ -59,6 +61,8 @@ export default function RenovacaoContactAttemptForm({
   const reset = () => {
     setAtendeu(null);
     setTratativa("");
+    setNaoAtendeuObs("");
+    setNaoAtendeuTentativas("1");
     setMarcou(null);
     setDateStr("");
     setTime("09:00");
@@ -77,6 +81,9 @@ export default function RenovacaoContactAttemptForm({
       } else if (marcou === "nao") {
         lines.push("❌ Consulta NÃO marcada");
       }
+    } else if (atendeu === "nao") {
+      lines.push(`Tentativas: ${naoAtendeuTentativas}`);
+      if (naoAtendeuObs.trim()) lines.push(`Observação: ${naoAtendeuObs.trim()}`);
     }
     return lines.join("\n");
   };
