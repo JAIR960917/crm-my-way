@@ -512,8 +512,10 @@ export default function RenovacaoEditSheet(props: Props) {
                     })()}
                     onSaved={() => {
                       setTratativaRegistrada(true);
+                      setContactDirty(false);
                       fetchTimeline();
                     }}
+                    onDirtyChange={setContactDirty}
                   />
                 </div>
               )}
