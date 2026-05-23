@@ -33,6 +33,8 @@ type Props = {
 type Tab = "atividade" | "comentario" | "tarefa";
 
 export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onSaved }: Props) {
+  const { isGerente, isAdmin } = useAuth();
+  const canEditMotivo = !isGerente || isAdmin;
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
   const [motivo, setMotivo] = useState("");
