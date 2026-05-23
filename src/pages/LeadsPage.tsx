@@ -716,9 +716,14 @@ export default function LeadsPage() {
       const aPrio = leadTaskPriority.get(a.id) || 0;
       const bPrio = leadTaskPriority.get(b.id) || 0;
       if (aPrio !== bPrio) return bPrio - aPrio;
-      const aHasRecent = leadsWithRecentActivity.has(a.id) ? 1 : 0;
-      const bHasRecent = leadsWithRecentActivity.has(b.id) ? 1 : 0;
-      return aHasRecent - bHasRecent;
+      const aTratativa = (a.data as any)?.tratativa_em ? 1 : 0;
+      const bTratativa = (b.data as any)?.tratativa_em ? 1 : 0;
+      const aHasRecent = (leadsWithRecentActivity.has(a.id) || aTratativa) ? 1 : 0;
+      const bHasRecent = (leadsWithRecentActivity.has(b.id) || bTratativa) ? 1 : 0;
+      if (aHasRecent !== bHasRecent) return aHasRecent - bHasRecent;
+      const aT = (a.data as any)?.tratativa_em ? new Date((a.data as any).tratativa_em).getTime() : 0;
+      const bT = (b.data as any)?.tratativa_em ? new Date((b.data as any).tratativa_em).getTime() : 0;
+      return aT - bT;
     });
   }, [leadTaskPriority, leadsWithRecentActivity]);
 
