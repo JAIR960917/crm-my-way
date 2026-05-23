@@ -182,6 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isGerente: roles.includes("gerente"),
     isFinanceiro: roles.includes("financeiro"),
     loading,
+    permissionsLoaded,
     canAccessPath,
     signOut,
   };
