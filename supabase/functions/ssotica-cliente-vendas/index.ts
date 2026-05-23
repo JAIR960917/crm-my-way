@@ -17,7 +17,7 @@ const addDays = (d: Date, days: number) => {
   return x;
 };
 
-function buildWindows(start: Date, end: Date, sizeDays = 90) {
+function buildWindows(start: Date, end: Date, sizeDays = 30) {
   const windows: { start: string; end: string }[] = [];
   let cur = new Date(start);
   while (cur <= end) {
