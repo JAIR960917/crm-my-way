@@ -56,7 +56,7 @@ type Profile = { user_id: string; full_name: string };
 
 const CONFIRMACAO_OPTIONS = ["Pendente", "Confirmado", "Cancelado"];
 const COMPARECIMENTO_OPTIONS = ["Pendente", "Compareceu", "Não Compareceu"];
-const VENDA_OPTIONS = ["Pendente", "Vendido", "Não Vendido", "Laudo", "Doença no Olho"];
+const VENDA_OPTIONS = ["Pendente", "Vendido", "Gerou Orçamento", "Não Gerou Orçamento", "Laudo", "Doença no Olho"];
 
 const FORMA_PAGAMENTO_CONSULTA_OPTIONS = ["PIX", "Cartão", "Dinheiro"];
 
