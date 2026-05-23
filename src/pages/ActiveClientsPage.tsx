@@ -193,6 +193,7 @@ export default function ActiveClientsPage() {
     searchQuery,
     buildSearchOr,
     refreshKey,
+    pollingIntervalMs: 30000,
   });
 
   // Load static data once (statuses, profiles, fields, etc.)
@@ -450,6 +451,7 @@ export default function ActiveClientsPage() {
         triggered_by: user?.id ?? null,
         trigger_source: "manual",
       });
+      removeItem(deleteConfirmId);
       setRefreshKey((k) => k + 1);
     }
     setDeleteConfirmId(null);

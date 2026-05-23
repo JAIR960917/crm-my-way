@@ -173,6 +173,7 @@ export default function LeadsPage() {
     refreshKey,
     orderColumn: "updated_at",
     orderAscending: false,
+    pollingIntervalMs: 30000,
   });
 
   const handleColumnScroll = (statusKey: string, e: React.UIEvent<HTMLDivElement>) => {
@@ -529,17 +530,20 @@ export default function LeadsPage() {
 
   const confirmDelete = async () => {
     if (!deleteConfirmId) return;
+    const idToDelete = deleteConfirmId;
     // Soft-delete: move para coluna "Excluídos" com comentário de quem excluiu
-    const { error } = await supabase.rpc("soft_delete_lead", { _lead_id: deleteConfirmId });
+    const { error } = await supabase.rpc("soft_delete_lead", { _lead_id: idToDelete });
     if (error) toast.error("Erro ao excluir");
     else {
       await supabase.from("crm_lead_notes").insert({
-        lead_id: deleteConfirmId,
+        lead_id: idToDelete,
         user_id: user!.id,
         content: `🗑️ Card excluído por ${currentUserName || "usuário"}`,
       });
       toast.success("Lead movido para Excluídos");
-      fetchAll();
+      // Remove instantaneamente do kanban (sem esperar refetch)
+      removePaginatedItem(idToDelete);
+      setRefreshKey((k) => k + 1);
     }
     setDeleteConfirmId(null);
   };
@@ -575,6 +579,7 @@ export default function LeadsPage() {
         content: `♻️ Card restaurado por ${currentUserName || "admin"} e atribuído a ${assigneeName}`,
       });
       toast.success("Lead restaurado");
+      setRefreshKey((k) => k + 1);
       fetchAll();
     }
     setRestoring(false);
