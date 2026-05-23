@@ -428,13 +428,7 @@ export default function ActiveClientsPage() {
       if (found) { snapshot = found as Renovacao; break; }
     }
     // Soft-delete: move para coluna "Excluídos"
-    const { error } = await supabase.from("crm_renovacoes").update({
-      status: "excluidos",
-      previous_status_before_exclude: snapshot?.status ?? null,
-      previous_assigned_before_exclude: snapshot?.assigned_to ?? null,
-      excluded_at: new Date().toISOString(),
-      excluded_by: user?.id ?? null,
-    } as any).eq("id", deleteConfirmId);
+    const { error } = await supabase.rpc("soft_delete_renovacao", { _renovacao_id: deleteConfirmId });
     if (error) toast.error("Erro ao excluir");
     else {
       const myName = profiles.find((p) => p.user_id === user?.id)?.full_name || "usuário";
