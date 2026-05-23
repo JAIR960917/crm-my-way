@@ -801,7 +801,7 @@ export default function ActiveClientsPage() {
       {/* Mobile tabs */}
       <div className="lg:hidden mb-3">
         <div className="flex gap-1 overflow-x-auto pb-1">
-          {statuses.map(status => {
+          {visibleStatuses.map(status => {
             const { total } = getByStatus(status.key);
             const colors = colorMap[status.color] || colorMap.blue;
             return (
