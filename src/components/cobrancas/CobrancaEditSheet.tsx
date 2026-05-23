@@ -116,6 +116,7 @@ export default function CobrancaEditSheet(props: Props) {
   // Tracks whether a contact attempt was registered during this open session.
   // Required for "financeiro" role to be able to close / save the card.
   const [contactRegisteredInSession, setContactRegisteredInSession] = useState(false);
+  const [contactDirty, setContactDirty] = useState(false);
 
   // Task creation
   const [taskOpen, setTaskOpen] = useState(false);
