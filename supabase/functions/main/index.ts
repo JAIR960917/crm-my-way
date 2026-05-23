@@ -97,8 +97,10 @@ Deno.serve(async (req: Request) => {
   const servicePath = `/home/deno/functions/${serviceName}`;
   console.error(`serving the request with ${servicePath}`);
 
-  const memoryLimitMb = 150;
-  const workerTimeoutMs = 1 * 60 * 1000;
+  const memoryLimitMb = 512;
+  const workerTimeoutMs = 3 * 60 * 1000; // 3 min wall clock
+  const cpuTimeSoftLimitMs = 10_000;
+  const cpuTimeHardLimitMs = 60_000;
   const noModuleCache = false;
   const importMapPath = null;
   const envVarsObj = Deno.env.toObject();
@@ -109,6 +111,8 @@ Deno.serve(async (req: Request) => {
       servicePath,
       memoryLimitMb,
       workerTimeoutMs,
+      cpuTimeSoftLimitMs,
+      cpuTimeHardLimitMs,
       noModuleCache,
       importMapPath,
       envVars,
