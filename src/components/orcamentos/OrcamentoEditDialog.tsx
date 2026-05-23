@@ -109,7 +109,7 @@ export default function OrcamentoEditDialog({ open, onOpenChange, orcamento, onS
 
     const payload: any = {
       nome: nome.trim(),
-      telefone: telefone.trim(),
+      telefone: unformatPhone(telefone),
       nao_vendido_motivo: motivo.trim() || null,
       orcamento_observacao: novaObs || null,
       orcamento_produtos_itens: itensValidos,
