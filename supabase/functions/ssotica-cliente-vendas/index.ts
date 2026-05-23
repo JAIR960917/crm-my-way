@@ -301,6 +301,14 @@ Deno.serve(async (req) => {
         months_back: months,
         total_vendas: vendasCliente.length,
         lojas_consultadas: lojasConsultadas,
+        diagnostico: {
+          ...diag,
+          // só os 10 cliente_ids mais frequentes pra não estourar payload
+          cliente_ids_top: Object.entries(diag.cliente_ids_encontrados)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10),
+          cliente_ids_encontrados: undefined,
+        },
         vendas: vendasCliente,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
