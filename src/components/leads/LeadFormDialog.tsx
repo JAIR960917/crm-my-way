@@ -323,6 +323,7 @@ export default function LeadFormDialog({
 
   // Mandatory tratativa: enforced for non-admin users on edit mode
   const [tratativaRegistrada, setTratativaRegistrada] = useState(false);
+  const [contactDirty, setContactDirty] = useState(false);
   const requiresTratativa = isEditing && !isAdmin;
 
   useEffect(() => {
