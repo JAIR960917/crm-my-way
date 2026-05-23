@@ -28,10 +28,12 @@ type SellerRow = {
   avatar_url: string | null;
   company_id: string | null;
   company_name: string;
-  atendidos: number;
-  agendou: number;
-  naoAtendeu: number;
-  atendeuSemAgendar: number;
+  adicionados: number;
+  tratados: number;
+  naoAtenderam: number;
+  atenderam: number;
+  agendaram: number;
+  naoAgendaram: number;
 };
 
 type CobrancaRow = {
@@ -160,26 +162,45 @@ export default function DashboardPage() {
     setAdminIds(adminSet);
     const compById = new Map(comps.map((c) => [c.id, c.name]));
 
+    const dayKey = (iso: string) => {
+      const d = new Date(iso);
+      return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    };
+
     const { data: opens } = await supabase
       .from("lead_card_opens")
       .select("user_id, card_type, lead_id, renovacao_id, opened_at")
       .gte("opened_at", startISO)
       .lte("opened_at", endISO);
 
-    // Atendidos: cards distintos abertos por vendedor por dia
-    // Chave: vendedor -> Set("dia|tipo:cardId")
-    const atendidosMap = new Map<string, Set<string>>();
-    const dayKey = (iso: string) => {
-      const d = new Date(iso);
-      return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    };
+    // Leads adicionados por usuário no período (created_by)
+    const { data: createdLeads } = await supabase
+      .from("crm_leads")
+      .select("id, created_by, created_at")
+      .gte("created_at", startISO)
+      .lte("created_at", endISO);
+
+    const adicionadosMap = new Map<string, Set<string>>();
+    (createdLeads || []).forEach((l: any) => {
+      if (!l.created_by || adminSet.has(l.created_by)) return;
+      if (!adicionadosMap.has(l.created_by)) adicionadosMap.set(l.created_by, new Set());
+      adicionadosMap.get(l.created_by)!.add(l.id);
+    });
+
+    // Tratados: distinct (lead_id) abertos pelo usuário no período (qualquer card_type)
+    //           + leads criados pelo usuário no período.
+    const tratadosMap = new Map<string, Set<string>>();
     (opens || []).forEach((o: any) => {
       if (adminSet.has(o.user_id)) return;
       const cardId = o.lead_id || o.renovacao_id;
       if (!cardId) return;
-      const key = `${dayKey(o.opened_at)}|${o.card_type}:${cardId}`;
-      if (!atendidosMap.has(o.user_id)) atendidosMap.set(o.user_id, new Set());
-      atendidosMap.get(o.user_id)!.add(key);
+      const key = `${o.card_type}:${cardId}`;
+      if (!tratadosMap.has(o.user_id)) tratadosMap.set(o.user_id, new Set());
+      tratadosMap.get(o.user_id)!.add(key);
+    });
+    adicionadosMap.forEach((set, uid) => {
+      if (!tratadosMap.has(uid)) tratadosMap.set(uid, new Set());
+      set.forEach((id) => tratadosMap.get(uid)!.add(`lead:${id}`));
     });
 
     const [{ data: leadNotes }, { data: renovNotes }] = await Promise.all([
@@ -196,11 +217,9 @@ export default function DashboardPage() {
     ]);
 
     // Para cada (vendedor, card, dia) armazenamos APENAS a última tentativa de contato.
-    // Assim o lead aparece em apenas uma categoria no dia (a mais recente).
     type Cat = "agendou" | "naoAtendeu" | "atendeuSemAgendar";
     type LastEntry = { ts: number; cat: Cat };
     const latestPerCardDay = new Map<string, LastEntry>();
-    // chave: `${userId}|${dayKey}|${cardType}:${cardId}`
 
     const classify = (content: string): Cat | null => {
       if (!content.startsWith("📞 Tentativa de contato")) return null;
@@ -251,7 +270,8 @@ export default function DashboardPage() {
     });
 
     const userIds = new Set<string>([
-      ...atendidosMap.keys(),
+      ...tratadosMap.keys(),
+      ...adicionadosMap.keys(),
       ...agendou.keys(),
       ...naoAtendeu.keys(),
       ...atendeuSemAgendar.keys(),
@@ -259,20 +279,24 @@ export default function DashboardPage() {
 
     const rows: SellerRow[] = Array.from(userIds).map((uid) => {
       const p = profs.find((x) => x.user_id === uid);
+      const ag = agendou.get(uid) || 0;
+      const semAg = atendeuSemAgendar.get(uid) || 0;
       return {
         user_id: uid,
         full_name: p?.full_name || "(usuário desconhecido)",
         avatar_url: p?.avatar_url || null,
         company_id: p?.company_id || null,
         company_name: p?.company_id ? compById.get(p.company_id) || "—" : "—",
-        atendidos: atendidosMap.get(uid)?.size || 0,
-        agendou: agendou.get(uid) || 0,
-        naoAtendeu: naoAtendeu.get(uid) || 0,
-        atendeuSemAgendar: atendeuSemAgendar.get(uid) || 0,
+        adicionados: adicionadosMap.get(uid)?.size || 0,
+        tratados: tratadosMap.get(uid)?.size || 0,
+        naoAtenderam: naoAtendeu.get(uid) || 0,
+        atenderam: ag + semAg,
+        agendaram: ag,
+        naoAgendaram: semAg,
       };
     });
 
-    rows.sort((a, b) => b.atendidos - a.atendidos);
+    rows.sort((a, b) => b.tratados - a.tratados);
     setAllRows(rows);
   };
 
@@ -461,12 +485,14 @@ export default function DashboardPage() {
   const reportTotals = useMemo(() => {
     return filteredRows.reduce(
       (acc, r) => ({
-        atendidos: acc.atendidos + r.atendidos,
-        agendou: acc.agendou + r.agendou,
-        naoAtendeu: acc.naoAtendeu + r.naoAtendeu,
-        atendeuSemAgendar: acc.atendeuSemAgendar + r.atendeuSemAgendar,
+        adicionados: acc.adicionados + r.adicionados,
+        tratados: acc.tratados + r.tratados,
+        naoAtenderam: acc.naoAtenderam + r.naoAtenderam,
+        atenderam: acc.atenderam + r.atenderam,
+        agendaram: acc.agendaram + r.agendaram,
+        naoAgendaram: acc.naoAgendaram + r.naoAgendaram,
       }),
-      { atendidos: 0, agendou: 0, naoAtendeu: 0, atendeuSemAgendar: 0 },
+      { adicionados: 0, tratados: 0, naoAtenderam: 0, atenderam: 0, agendaram: 0, naoAgendaram: 0 },
     );
   }, [filteredRows]);
 
@@ -709,11 +735,13 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             {/* Resumo */}
-            <div className="grid gap-3 sm:grid-cols-4 mb-4">
-              <SummaryStat label="Atendidos" value={reportTotals.atendidos} icon={Users} tone="default" />
-              <SummaryStat label="Agendaram" value={reportTotals.agendou} icon={CalendarCheck} tone="success" />
-              <SummaryStat label="Não atenderam" value={reportTotals.naoAtendeu} icon={PhoneOff} tone="danger" />
-              <SummaryStat label="Sem agendar" value={reportTotals.atendeuSemAgendar} icon={CalendarX} tone="warning" />
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6 mb-4">
+              <SummaryStat label="Leads Adicionados" value={reportTotals.adicionados} icon={Users} tone="default" />
+              <SummaryStat label="Leads Tratados" value={reportTotals.tratados} icon={Phone} tone="default" />
+              <SummaryStat label="Leads Não Atenderam" value={reportTotals.naoAtenderam} icon={PhoneOff} tone="danger" />
+              <SummaryStat label="Leads Atenderam" value={reportTotals.atenderam} icon={ThumbsUp} tone="success" />
+              <SummaryStat label="Leads Agendaram" value={reportTotals.agendaram} icon={CalendarCheck} tone="success" />
+              <SummaryStat label="Leads Não Agendaram" value={reportTotals.naoAgendaram} icon={CalendarX} tone="warning" />
             </div>
 
             <Tabs defaultValue="vendedores">
@@ -731,18 +759,12 @@ export default function DashboardPage() {
                         <TableRow>
                           <TableHead>Vendedor</TableHead>
                           <TableHead>Empresa</TableHead>
-                          <TableHead className="text-center">
-                            <span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5" /> Atendidos</span>
-                          </TableHead>
-                          <TableHead className="text-center">
-                            <span className="inline-flex items-center gap-1 text-emerald-600"><CalendarCheck className="h-3.5 w-3.5" /> Agendaram</span>
-                          </TableHead>
-                          <TableHead className="text-center">
-                            <span className="inline-flex items-center gap-1 text-destructive"><PhoneOff className="h-3.5 w-3.5" /> Não atenderam</span>
-                          </TableHead>
-                          <TableHead className="text-center">
-                            <span className="inline-flex items-center gap-1 text-amber-600"><CalendarX className="h-3.5 w-3.5" /> Sem agendar</span>
-                          </TableHead>
+                          <TableHead className="text-center">Adicionados</TableHead>
+                          <TableHead className="text-center">Tratados</TableHead>
+                          <TableHead className="text-center text-destructive">Não atenderam</TableHead>
+                          <TableHead className="text-center text-emerald-600">Atenderam</TableHead>
+                          <TableHead className="text-center text-emerald-600">Agendaram</TableHead>
+                          <TableHead className="text-center text-amber-600">Não agendaram</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -760,20 +782,26 @@ export default function DashboardPage() {
                               </div>
                             </TableCell>
                             <TableCell className="text-muted-foreground text-sm">{row.company_name}</TableCell>
-                            <TableCell className="text-center font-semibold">{row.atendidos}</TableCell>
+                            <TableCell className="text-center font-semibold">{row.adicionados}</TableCell>
+                            <TableCell className="text-center font-semibold">{row.tratados}</TableCell>
                             <TableCell className="text-center">
-                              <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 bg-emerald-500/10">
-                                {row.agendou}
+                              <Badge variant="outline" className="border-destructive/40 text-destructive bg-destructive/10">
+                                {row.naoAtenderam}
                               </Badge>
                             </TableCell>
                             <TableCell className="text-center">
-                              <Badge variant="outline" className="border-destructive/40 text-destructive bg-destructive/10">
-                                {row.naoAtendeu}
+                              <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 bg-emerald-500/10">
+                                {row.atenderam}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 bg-emerald-500/10">
+                                {row.agendaram}
                               </Badge>
                             </TableCell>
                             <TableCell className="text-center">
                               <Badge variant="outline" className="border-amber-500/40 text-amber-700 bg-amber-500/10">
-                                {row.atendeuSemAgendar}
+                                {row.naoAgendaram}
                               </Badge>
                             </TableCell>
                           </TableRow>
@@ -787,8 +815,9 @@ export default function DashboardPage() {
 
             <p className="text-[11px] text-muted-foreground mt-4">
               <Phone className="h-3 w-3 inline mr-1" />
-              "Atendidos" = cards distintos abertos pelo vendedor no dia. "Agendaram", "Não atenderam" e
-              "Sem agendar" vêm das tentativas de contato registradas em cada card.
+              "Adicionados" = leads cadastrados no período. "Tratados" = leads abertos para tratativa
+              ou criados pelo usuário. Atenderam/Não atenderam/Agendaram/Não agendaram vêm das
+              tentativas de contato registradas em cada card.
             </p>
           </CardContent>
         </Card>

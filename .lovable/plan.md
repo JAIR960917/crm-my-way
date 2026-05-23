@@ -1,67 +1,54 @@
-## Mudanças solicitadas
+## Plano de implementação
 
-### 1. Bug: lead criado como "Recomendação" continua na coluna mesmo após tratativa
+### 1. Nova coluna "Forma de Pagamento do Óculos" em Agendamentos
 
-**Diagnóstico:** A reavaliação atual em `LeadFormDialog.tsx` (linha 929) usa `resolveLeadStatusFromData` com `excludeFieldsMappingTo: [formStatus]` e fallback para o próprio `formStatus`. Quando o lead foi criado **sem responder** os campos do funil (data do exame, sintomas, etc.), nenhuma regra resolve e o fallback mantém em "recomendacao".
+- Adicionar coluna na tabela `crm_appointments` (campo `forma_pagamento_oculos text`).
+- Em `src/pages/AppointmentsPage.tsx`, inserir nova coluna entre "Venda" e "Resumo" com Select (Cartão, Pix, Crediário Cora).
+- Salvar via `updateField`.
 
-**Solução:** Após registrar a tratativa, se nenhuma regra resolveu para um status diferente, mover automaticamente para o status inicial padrão do funil de leads (primeira coluna após "recomendacao", normalmente "novo_lead" ou similar). Buscar a primeira coluna ativa de `crm_statuses` que **não** seja a atual e usar como fallback. Alternativa mais segura: usar o status padrão configurado em `system_settings` (`lead_default_status`), se existir; caso contrário, primeira coluna por `position`.
+### 2. Cards de KPI no Relatório de Atendimentos (Dashboard)
 
-### 2. Botão "Não atendeu" deve exibir campo de observação
+Em `src/pages/DashboardPage.tsx` (seção "Relatório de atendimentos"), substituir os 4 cards atuais (Atendidos/Agendaram/Não atenderam/Sem agendar) por 6 cards:
 
-**Arquivo:** `src/components/leads/ContactAttemptForm.tsx`
+- **Leads Adicionados** — `crm_leads` criados no período por `assigned_to`/`created_by`.
+- **Leads Tratados** — leads em que o usuário registrou tratativa OU criou no período (distinct lead_id em `crm_lead_contact_attempts` ∪ leads criados).
+- **Leads Não Atenderam** — tentativas com resultado "não atendeu".
+- **Leads Atenderam** — tentativas com resultado "atendeu".
+- **Leads Agendaram** — atenderam **e** agendaram (resultado "atendeu_agendou" ou similar).
+- **Leads Não Agendaram** — atenderam mas não agendaram.
 
-Hoje, ao clicar em "Não atendeu", o form salva apenas a nota fixa "Cliente NÃO ATENDEU". Adicionar um `Textarea` "Como tentou contato? (descreva as tentativas)" exibido quando `atendeu === "nao"`, obrigatório, e incluí-lo em `buildNoteContent`.
+Filtros existentes (empresa, vendedor, período) continuam aplicáveis.
 
-Aplicar a mesma mudança em `RenovacaoContactAttemptForm.tsx` e `CobrancaContactAttemptForm.tsx` para consistência.
+### 3. Coluna "Excluídos" + permissão por colunas em Funções
 
-### 3. Expandir opções do campo "Venda" na tela Agendamentos
+**Banco:**
 
-**Arquivo:** `src/pages/AppointmentsPage.tsx`
+- Adicionar coluna virtual `excluidos` (status_key fix) para leads e renovaoções — provavelmente como linhas no `crm_lead_statuses`/`crm_renovacao_statuses` com flag `is_system_excluded boolean`.
+- Adicionar campos em `crm_leads`/`crm_renovacoes`: `excluded_at timestamptz`, `excluded_by uuid`, `previous_status text`, `previous_assigned_to uuid`.
+- Nova tabela `role_status_permissions(role, module ['leads'|'renovacao'], status_key, visible)` — permite escolher por função quais colunas são visíveis.
 
-Trocar `VENDA_OPTIONS` de `["Pendente", "Vendido", "Não Vendido"]` para:
-```
-["Pendente", "Vendido", "Não Vendido", "Laudo", "Doença no Olho"]
-```
+**RLS:** atualizar políticas de SELECT em `crm_leads`/`crm_renovacoes` para que apenas admins vejam cards com status = "excluidos".
 
-**Novo fluxo "Não Vendido":** ao selecionar essa opção (tanto no inline select da tabela quanto no dialog de edição), abrir `Dialog` com:
-- "Por que o cliente não comprou?" (textarea, obrigatório)
-- "Fez orçamento para o cliente?" (Sim/Não)
-- Se Sim: "Valor do orçamento" (number) + "Produtos passados" (textarea)
-- "Observação" (textarea, sempre visível, opcional)
+**UI:**
 
-Persistir os dados em colunas novas em `crm_appointments`:
-- `nao_vendido_motivo TEXT`
-- `fez_orcamento BOOLEAN DEFAULT false`
-- `orcamento_valor NUMERIC`
-- `orcamento_produtos TEXT`
-- `orcamento_observacao TEXT`
+- `src/components/settings/RolePermissionsManager.tsx`: nova aba/seção "Colunas visíveis" por módulo (Leads/Renovação) com checkbox por coluna.
+- Em `LeadsPage`/`ActiveClientsPage`: filtrar `statusKeys` pelas permissões da role; só admin vê coluna "Excluídos".
+- Ação "Excluir" nos cards: ao invés de deletar, mover para status `excluidos`, salvar `excluded_by`/`excluded_at`/`previous_status`, e adicionar comentário automático "Card excluído por {nome do usuário}" em `crm_lead_contact_attempts`/equivalente.
+- Na coluna Excluídos (admin), permitir reatribuir `assigned_to`; ao reatribuir, restaurar status para `previous_status` (ou recalcular via `resolveLeadStatusFromData`) — o card volta ao fluxo normal e aparece para o novo responsável.
 
-A migration adiciona apenas colunas (sem mudar RLS existente).
+### Detalhes técnicos
 
-### 4. Tela "Orçamentos"
+- Migrações via `supabase--migration` (3 migrações separadas ou única).
+- Realtime continua funcionando — `usePaginatedColumns` já reflete mudanças de status.
+- O comentário de exclusão usa a tabela de tentativas de contato existente, com um `tipo`/`result` específico ex: `system_exclusao`.
+- A página de Funções já lê de `role_page_permissions`; criaremos `role_status_permissions` análoga e novo componente de gerenciamento.
 
-Quando o agendamento é marcado como "Não Vendido" com "Fez orçamento = Sim", o registro fica disponível em uma nova página `/orcamentos` (item de menu).
+### Ordem de implementação
 
-**Implementação:**
-- Nova rota `OrcamentosPage.tsx` que lista `crm_appointments` filtrando `fez_orcamento = true`.
-- Colunas: Cliente, Telefone, Data do agendamento, Valor do orçamento, Produtos, Observação, Vendedor, Ações (editar).
-- Filtros: data range e empresa (mesma lógica de filtros do AppointmentsPage).
-- Botão para reabrir o dialog "Não Vendido" e editar os dados do orçamento.
-- O registro **continua aparecendo** na tela Agendamentos (não é movido, apenas espelhado por filtro).
-- Adicionar entrada no `AppSidebar` ("Orçamentos") e em `pagePermissions.ts` (`page_orcamentos`).
-- Adicionar rota em `App.tsx`.
+1. Migração 1: campo `forma_pagamento_oculos` em appointments.
+2. Migração 2: campos de exclusão + tabela `role_status_permissions` + status "excluidos" seed + RLS.
+3. UI Agendamentos (nova coluna).
+4. Dashboard (6 KPIs).
+5. RolePermissionsManager + filtragem de colunas + lógica de exclusão/restauração.
 
-### Ordem de execução
-
-1. Criar migration (colunas novas em `crm_appointments`).
-2. Corrigir bug do status pós-tratativa em `LeadFormDialog.tsx`.
-3. Adicionar campo de observação no `ContactAttemptForm.tsx` (e nas variações renovação/cobrança).
-4. Atualizar `VENDA_OPTIONS` + dialog "Não Vendido" em `AppointmentsPage.tsx`.
-5. Criar `OrcamentosPage.tsx`, registrar rota, sidebar e permissão.
-
-### Deploy
-
-Após implementar, na VPS:
-```
-cd /opt/crm && ./deploy.sh --migrations --frontend
-```
+Confirma para eu prosseguir?
