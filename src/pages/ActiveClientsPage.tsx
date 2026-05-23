@@ -35,7 +35,7 @@ type Renovacao = {
 };
 
 type AppRole = "admin" | "vendedor" | "gerente" | "financeiro";
-type CrmStatus = { id: string; key: string; label: string; position: number; color: string };
+type CrmStatus = { id: string; key: string; label: string; position: number; color: string; is_system_excluded?: boolean };
 type Profile = { user_id: string; full_name: string; avatar_url?: string | null };
 type Company = { id: string; name: string };
 type UserRole = { user_id: string; role: AppRole };
