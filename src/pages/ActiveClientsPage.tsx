@@ -193,6 +193,7 @@ export default function ActiveClientsPage() {
     searchQuery,
     buildSearchOr,
     refreshKey,
+    pollingIntervalMs: 30000,
   });
 
   // Load static data once (statuses, profiles, fields, etc.)
