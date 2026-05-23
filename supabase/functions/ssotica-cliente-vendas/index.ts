@@ -210,10 +210,38 @@ Deno.serve(async (req) => {
 
     await runPool(tasks, 8, async ({ tgt, w }) => {
       const targetClienteId = Number(tgt.ssoticaClienteId);
-      const url = `${SSOTICA_BASE}/vendas/periodo?cnpj=${encodeURIComponent(tgt.cnpj)}&inicio_periodo=${w.start}&fim_periodo=${w.end}`;
+      const vendasUrl = `${SSOTICA_BASE}/vendas/periodo?cnpj=${encodeURIComponent(tgt.cnpj)}&inicio_periodo=${w.start}&fim_periodo=${w.end}`;
+      const osUrl = `${SSOTICA_BASE}/ordens-servico/periodo?cnpj=${encodeURIComponent(tgt.cnpj)}&inicio_periodo=${w.start}&fim_periodo=${w.end}`;
       try {
-        const vendas = await fetchSSotica(url, tgt.bearer_token);
+        const [vendas, ordensRaw] = await Promise.all([
+          fetchSSotica(vendasUrl, tgt.bearer_token),
+          fetchSSotica(osUrl, tgt.bearer_token).catch((e) => {
+            console.warn(`[ssotica-cliente-vendas][os] ${w.start}→${w.end}`, (e as Error).message);
+            return [];
+          }),
+        ]);
         if (!Array.isArray(vendas)) return;
+
+        // Mapa OS numero -> nome do responsável (apenas OS do cliente alvo, para reduzir memória)
+        const osByNumero = new Map<string, string>();
+        if (Array.isArray(ordensRaw)) {
+          for (const os of ordensRaw) {
+            if (os?.cliente?.id !== targetClienteId) continue;
+            const nome =
+              os?.funcionario?.nome ??
+              os?.vendedor?.nome ??
+              os?.responsavel?.nome ??
+              os?.usuario?.nome ??
+              os?.atendente?.nome ??
+              (typeof os?.funcionario === "string" ? os.funcionario : null) ??
+              (typeof os?.vendedor === "string" ? os.vendedor : null) ??
+              (typeof os?.responsavel === "string" ? os.responsavel : null) ??
+              null;
+            const numero = os?.numero != null ? String(os.numero) : null;
+            if (numero && nome) osByNumero.set(numero, String(nome));
+          }
+        }
+
         diag.raw_vendas_total += vendas.length;
         diag.raw_vendas_por_loja[tgt.ssoticaCompanyId] =
           (diag.raw_vendas_por_loja[tgt.ssoticaCompanyId] || 0) + vendas.length;
@@ -242,14 +270,17 @@ Deno.serve(async (req) => {
             itens: Array.isArray(venda.itens)
               ? venda.itens.map((it: any) => {
                   const os = it.ordem_servico;
-                  const osNome =
+                  const inlineNome =
                     os?.funcionario?.nome ??
                     os?.vendedor?.nome ??
                     os?.responsavel?.nome ??
                     os?.usuario?.nome ??
+                    os?.atendente?.nome ??
                     (typeof os?.funcionario === "string" ? os.funcionario : null) ??
                     (typeof os?.vendedor === "string" ? os.vendedor : null) ??
                     null;
+                  const numero = os?.numero != null ? String(os.numero) : null;
+                  const osNome = inlineNome ?? (numero ? osByNumero.get(numero) ?? null : null);
                   return {
                     id: it.id,
                     quantidade: Number(it.quantidade ?? 0),
@@ -283,6 +314,7 @@ Deno.serve(async (req) => {
         console.error(`[ssotica-cliente-vendas] loja=${tgt.ssoticaCompanyId} janela ${w.start}→${w.end}`, err);
       }
     });
+
 
 
     vendasCliente.sort((a, b) => (b.data || "").localeCompare(a.data || ""));
