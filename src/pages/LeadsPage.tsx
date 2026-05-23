@@ -806,7 +806,7 @@ export default function LeadsPage() {
       {/* Mobile: Tab selector */}
       <div className="lg:hidden mb-3 overflow-x-auto -mx-3 px-3 sm:-mx-4 sm:px-4">
         <div className="flex gap-1.5 min-w-max">
-          {statuses.map((status) => {
+          {visibleStatuses.map((status) => {
             const colors = colorMap[status.color] || colorMap.blue;
             const count = getLeadsByStatus(status.key).length;
             return (
