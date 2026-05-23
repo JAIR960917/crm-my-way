@@ -739,7 +739,8 @@ export default function CobrancaEditSheet(props: Props) {
                         userName={getProfile(user.id)?.full_name}
                         cobrancaData={formData}
                         cobrancaStatus={formStatus}
-                        onSaved={() => { setContactRegisteredInSession(true); fetchTimeline(); }}
+                        onSaved={() => { setContactRegisteredInSession(true); setContactDirty(false); fetchTimeline(); }}
+                        onDirtyChange={setContactDirty}
                       />
                       <CobrancaFlowEvents
                         cobrancaId={cobrancaId}
