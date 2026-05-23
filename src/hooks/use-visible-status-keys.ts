@@ -34,7 +34,7 @@ export function useVisibleStatusKeys(module: Module) {
         .eq("module", module);
       if (!mounted) return;
       const hidden = new Set<string>();
-      ((data || []) as Array<{ status_key: string; visible: boolean }>).forEach((r) => {
+      (((data || []) as unknown) as Array<{ status_key: string; visible: boolean }>).forEach((r) => {
         if (!r.visible) hidden.add(r.status_key);
       });
       setHiddenKeys(hidden);
