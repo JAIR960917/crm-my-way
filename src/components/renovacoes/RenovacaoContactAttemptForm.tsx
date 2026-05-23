@@ -119,6 +119,26 @@ export default function RenovacaoContactAttemptForm({
       } as any);
       if (noteErr) throw noteErr;
 
+      // 1.1) Marca a tratativa no card (para colorir verde/vermelho e ordenar)
+      {
+        const { data: cur } = await supabase
+          .from("crm_renovacoes")
+          .select("data")
+          .eq("id", renovacaoId)
+          .maybeSingle();
+        const curData = ((cur?.data as Record<string, any>) || {});
+        const nowIso = new Date().toISOString();
+        const newData = {
+          ...curData,
+          tratativa_em: nowIso,
+          tratativa_atendeu: atendeu,
+          tratativa_by: userId,
+        };
+        await supabase.from("crm_renovacoes").update({ data: newData }).eq("id", renovacaoId);
+      }
+
+
+
       // 2) If consultation was scheduled, create the appointment linked to renovacao
       if (atendeu === "sim" && marcou === "sim") {
         const [y, mo, d] = dateStr.split("-").map(Number);
