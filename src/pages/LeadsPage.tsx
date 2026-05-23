@@ -832,7 +832,7 @@ export default function LeadsPage() {
 
       {/* Mobile: Active column cards */}
       <div className="lg:hidden space-y-2 mb-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 220px)" }} onScroll={(e) => handleColumnScroll(mobileTab, e)}>
-        {statuses.filter(s => s.key === mobileTab).map((status) => {
+        {visibleStatuses.filter(s => s.key === mobileTab).map((status) => {
           const colState = getColumnState(status.key);
           const statusLeads = colState.items;
           const visibleLeads = statusLeads;
