@@ -28,10 +28,12 @@ type SellerRow = {
   avatar_url: string | null;
   company_id: string | null;
   company_name: string;
-  atendidos: number;
-  agendou: number;
-  naoAtendeu: number;
-  atendeuSemAgendar: number;
+  adicionados: number;
+  tratados: number;
+  naoAtenderam: number;
+  atenderam: number;
+  agendaram: number;
+  naoAgendaram: number;
 };
 
 type CobrancaRow = {
@@ -166,20 +168,34 @@ export default function DashboardPage() {
       .gte("opened_at", startISO)
       .lte("opened_at", endISO);
 
-    // Atendidos: cards distintos abertos por vendedor por dia
-    // Chave: vendedor -> Set("dia|tipo:cardId")
-    const atendidosMap = new Map<string, Set<string>>();
-    const dayKey = (iso: string) => {
-      const d = new Date(iso);
-      return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    };
+    // Leads adicionados por usuário no período (created_by)
+    const { data: createdLeads } = await supabase
+      .from("crm_leads")
+      .select("id, created_by, created_at")
+      .gte("created_at", startISO)
+      .lte("created_at", endISO);
+
+    const adicionadosMap = new Map<string, Set<string>>();
+    (createdLeads || []).forEach((l: any) => {
+      if (!l.created_by || adminSet.has(l.created_by)) return;
+      if (!adicionadosMap.has(l.created_by)) adicionadosMap.set(l.created_by, new Set());
+      adicionadosMap.get(l.created_by)!.add(l.id);
+    });
+
+    // Tratados: distinct (lead_id) abertos pelo usuário no período (qualquer card_type)
+    //           + leads criados pelo usuário no período.
+    const tratadosMap = new Map<string, Set<string>>();
     (opens || []).forEach((o: any) => {
       if (adminSet.has(o.user_id)) return;
       const cardId = o.lead_id || o.renovacao_id;
       if (!cardId) return;
-      const key = `${dayKey(o.opened_at)}|${o.card_type}:${cardId}`;
-      if (!atendidosMap.has(o.user_id)) atendidosMap.set(o.user_id, new Set());
-      atendidosMap.get(o.user_id)!.add(key);
+      const key = `${o.card_type}:${cardId}`;
+      if (!tratadosMap.has(o.user_id)) tratadosMap.set(o.user_id, new Set());
+      tratadosMap.get(o.user_id)!.add(key);
+    });
+    adicionadosMap.forEach((set, uid) => {
+      if (!tratadosMap.has(uid)) tratadosMap.set(uid, new Set());
+      set.forEach((id) => tratadosMap.get(uid)!.add(`lead:${id}`));
     });
 
     const [{ data: leadNotes }, { data: renovNotes }] = await Promise.all([
@@ -196,11 +212,9 @@ export default function DashboardPage() {
     ]);
 
     // Para cada (vendedor, card, dia) armazenamos APENAS a última tentativa de contato.
-    // Assim o lead aparece em apenas uma categoria no dia (a mais recente).
     type Cat = "agendou" | "naoAtendeu" | "atendeuSemAgendar";
     type LastEntry = { ts: number; cat: Cat };
     const latestPerCardDay = new Map<string, LastEntry>();
-    // chave: `${userId}|${dayKey}|${cardType}:${cardId}`
 
     const classify = (content: string): Cat | null => {
       if (!content.startsWith("📞 Tentativa de contato")) return null;
@@ -251,7 +265,8 @@ export default function DashboardPage() {
     });
 
     const userIds = new Set<string>([
-      ...atendidosMap.keys(),
+      ...tratadosMap.keys(),
+      ...adicionadosMap.keys(),
       ...agendou.keys(),
       ...naoAtendeu.keys(),
       ...atendeuSemAgendar.keys(),
@@ -259,20 +274,24 @@ export default function DashboardPage() {
 
     const rows: SellerRow[] = Array.from(userIds).map((uid) => {
       const p = profs.find((x) => x.user_id === uid);
+      const ag = agendou.get(uid) || 0;
+      const semAg = atendeuSemAgendar.get(uid) || 0;
       return {
         user_id: uid,
         full_name: p?.full_name || "(usuário desconhecido)",
         avatar_url: p?.avatar_url || null,
         company_id: p?.company_id || null,
         company_name: p?.company_id ? compById.get(p.company_id) || "—" : "—",
-        atendidos: atendidosMap.get(uid)?.size || 0,
-        agendou: agendou.get(uid) || 0,
-        naoAtendeu: naoAtendeu.get(uid) || 0,
-        atendeuSemAgendar: atendeuSemAgendar.get(uid) || 0,
+        adicionados: adicionadosMap.get(uid)?.size || 0,
+        tratados: tratadosMap.get(uid)?.size || 0,
+        naoAtenderam: naoAtendeu.get(uid) || 0,
+        atenderam: ag + semAg,
+        agendaram: ag,
+        naoAgendaram: semAg,
       };
     });
 
-    rows.sort((a, b) => b.atendidos - a.atendidos);
+    rows.sort((a, b) => b.tratados - a.tratados);
     setAllRows(rows);
   };
 
