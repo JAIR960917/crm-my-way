@@ -199,6 +199,14 @@ Deno.serve(async (req) => {
 
     const vendasCliente: any[] = [];
     const counts = new Map<string, number>();
+    const diag = {
+      windows: windows.length,
+      tasks: tasks.length,
+      raw_vendas_total: 0,
+      raw_vendas_por_loja: {} as Record<string, number>,
+      cliente_ids_encontrados: {} as Record<string, number>,
+      erros: [] as { loja: string; janela: string; erro: string }[],
+    };
 
     await runPool(tasks, 8, async ({ tgt, w }) => {
       const targetClienteId = Number(tgt.ssoticaClienteId);
@@ -206,8 +214,16 @@ Deno.serve(async (req) => {
       try {
         const vendas = await fetchSSotica(url, tgt.bearer_token);
         if (!Array.isArray(vendas)) return;
+        diag.raw_vendas_total += vendas.length;
+        diag.raw_vendas_por_loja[tgt.ssoticaCompanyId] =
+          (diag.raw_vendas_por_loja[tgt.ssoticaCompanyId] || 0) + vendas.length;
         for (const venda of vendas) {
-          if (venda?.cliente?.id !== targetClienteId) continue;
+          const cid = venda?.cliente?.id;
+          if (cid != null) {
+            const k = String(cid);
+            diag.cliente_ids_encontrados[k] = (diag.cliente_ids_encontrados[k] || 0) + 1;
+          }
+          if (cid !== targetClienteId) continue;
           counts.set(tgt.ssoticaCompanyId, (counts.get(tgt.ssoticaCompanyId) || 0) + 1);
           vendasCliente.push({
             id: venda.id,
@@ -226,7 +242,6 @@ Deno.serve(async (req) => {
             itens: Array.isArray(venda.itens)
               ? venda.itens.map((it: any) => {
                   const os = it.ordem_servico;
-                  // Tenta extrair o nome do responsável pela OS de vários campos possíveis
                   const osNome =
                     os?.funcionario?.nome ??
                     os?.vendedor?.nome ??
@@ -263,9 +278,12 @@ Deno.serve(async (req) => {
           });
         }
       } catch (err) {
+        const msg = (err as Error).message || String(err);
+        diag.erros.push({ loja: tgt.ssoticaCompanyId, janela: `${w.start}→${w.end}`, erro: msg.slice(0, 200) });
         console.error(`[ssotica-cliente-vendas] loja=${tgt.ssoticaCompanyId} janela ${w.start}→${w.end}`, err);
       }
     });
+
 
     vendasCliente.sort((a, b) => (b.data || "").localeCompare(a.data || ""));
 
