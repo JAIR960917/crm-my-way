@@ -822,7 +822,7 @@ export default function ActiveClientsPage() {
 
       <div className="lg:hidden space-y-2 mb-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 260px)" }}
            onScroll={(e) => mobileTab && handleColumnScroll(e, mobileTab)}>
-        {statuses.filter(s => s.key === mobileTab).map(status => {
+        {visibleStatuses.filter(s => s.key === mobileTab).map(status => {
           const { items, total, hasMore, loading } = getByStatus(status.key);
           return (
             <div key={status.key}>
