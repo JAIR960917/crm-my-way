@@ -42,13 +42,14 @@ type LeadCardProps = {
   onHistory: () => void;
   onSchedule?: () => void;
   onToggleComprou?: (value: boolean) => void;
+  onRestore?: () => void;
   syncStatus?: "offline" | "synced" | null;
   activities?: LeadActivity[];
 };
 
 export default function LeadCard({
   lead, columns, formFields, profiles, isAdmin,
-  onEdit, onDelete, onHistory, onSchedule, onToggleComprou, syncStatus, activities,
+  onEdit, onDelete, onHistory, onSchedule, onToggleComprou, onRestore, syncStatus, activities,
 }: LeadCardProps) {
   const data = typeof lead.data === "object" ? (lead.data as Record<string, any>) : {};
   const assignedProfile = profiles.find((p) => p.user_id === lead.assigned_to);
