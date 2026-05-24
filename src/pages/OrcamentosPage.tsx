@@ -9,9 +9,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Receipt, CalendarIcon, Pencil } from "lucide-react";
+import { Receipt, CalendarIcon, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import OrcamentoEditDialog from "@/components/orcamentos/OrcamentoEditDialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type ProdutoItem = { nome: string; valor: string };
 
@@ -47,6 +51,31 @@ export default function OrcamentosPage() {
   const [filterCompanyId, setFilterCompanyId] = useState<string>("all");
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<Orcamento | null>(null);
+  const [deleting, setDeleting] = useState<Orcamento | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const handleDelete = async () => {
+    if (!deleting) return;
+    setDeleteLoading(true);
+    const { error } = await supabase
+      .from("crm_appointments")
+      .update({
+        fez_orcamento: false,
+        orcamento_valor: null,
+        orcamento_produtos: null,
+        orcamento_produtos_itens: null,
+        orcamento_observacao: null,
+      })
+      .eq("id", deleting.id);
+    setDeleteLoading(false);
+    if (error) {
+      toast.error("Erro ao excluir orçamento: " + error.message);
+      return;
+    }
+    toast.success("Orçamento excluído");
+    setDeleting(null);
+    fetchAll();
+  };
 
   const fetchAll = async () => {
     setLoading(true);
@@ -167,15 +196,28 @@ export default function OrcamentosPage() {
                     <td className="px-3 py-2 max-w-[200px] truncate" title={o.nao_vendido_motivo || ""}>{o.nao_vendido_motivo || "—"}</td>
                     <td className="px-3 py-2 max-w-[200px] truncate" title={o.orcamento_observacao || ""}>{o.orcamento_observacao || "—"}</td>
                     <td className="px-3 py-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        title="Editar orçamento"
-                        onClick={() => handleEdit(o)}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Editar orçamento"
+                          onClick={() => handleEdit(o)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        {isAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            title="Excluir orçamento"
+                            onClick={() => setDeleting(o)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -191,6 +233,27 @@ export default function OrcamentosPage() {
         orcamento={editing}
         onSaved={fetchAll}
       />
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir orçamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O orçamento de <strong>{deleting?.nome || "—"}</strong> será removido. Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDelete(); }}
+              disabled={deleteLoading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteLoading ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }
