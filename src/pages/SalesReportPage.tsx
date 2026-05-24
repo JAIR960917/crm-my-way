@@ -180,6 +180,8 @@ export default function SalesReportPage() {
     "Armação",
     "Óculos Solar",
     "Lentes",
+    "Lentes de Contato",
+    "Caixa 3 Pares",
     "Consulta A 50",
     "Consulta A 100",
   ] as const;
@@ -207,7 +209,13 @@ export default function SalesReportPage() {
     // Óculos Solar (verificar antes de "armação" porque solar pode conter armação)
     if (/solar/.test(t) || /\bsol\b/.test(t)) return "Óculos Solar";
 
-    // Lentes (oftálmicas, de contato, etc.)
+    // Caixa 3 pares (verificar antes de Lentes)
+    if (/caixa/.test(t) && /3\s*pares?/.test(t)) return "Caixa 3 Pares";
+
+    // Lentes de contato (verificar antes de "Lentes" genérico)
+    if (/lente/.test(t) && /contato/.test(t)) return "Lentes de Contato";
+
+    // Lentes oftálmicas / demais
     if (/lente/.test(t)) return "Lentes";
 
     // Armação (grau)
