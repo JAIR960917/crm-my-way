@@ -192,6 +192,22 @@ serve(async (req) => {
                   whatsapp_trigger_campaign_name: campaign.name,
                   details: { phone, sent_at: sentAt },
                 });
+                // Registra tarefa concluída para refletir o envio no painel "Atividade"
+                try {
+                  const createdBy = cob.assigned_to || cob.created_by || null;
+                  if (createdBy) {
+                    await supabase.from("cobranca_activities").insert({
+                      cobranca_id: cob.id,
+                      created_by: createdBy,
+                      title: `WhatsApp enviado — ${campaign.name}`,
+                      description: text,
+                      scheduled_date: sentAt,
+                      completed_at: sentAt,
+                    });
+                  }
+                } catch (e) {
+                  console.error("[flow-advance] erro ao registrar activity:", e);
+                }
                 // refletimos a mudança em memória para a checagem de avanço a seguir
                 Object.assign(data, newData);
                 triggeredLeadsByStatus.add(leadKey);
