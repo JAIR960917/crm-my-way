@@ -6,8 +6,10 @@ import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Save, Upload, Trash2, Clock } from "lucide-react";
+import { Save, Upload, Trash2, Clock, Wrench } from "lucide-react";
 import RolePermissionsManager from "@/components/settings/RolePermissionsManager";
 
 type SettingField = {
@@ -32,13 +34,20 @@ export default function SettingsPage() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [adminUsers, setAdminUsers] = useState<Array<{ user_id: string; full_name: string }>>([]);
 
   useEffect(() => {
     const loadExtraSettings = async () => {
       const { data } = await supabase
         .from("system_settings")
         .select("setting_key, setting_value")
-        .in("setting_key", ["twilio_whatsapp_number", "whatsapp_cron_interval"]);
+        .in("setting_key", [
+          "twilio_whatsapp_number",
+          "whatsapp_cron_interval",
+          "maintenance_mode",
+          "maintenance_admin_1",
+          "maintenance_admin_2",
+        ]);
       const extra: Record<string, string> = {};
       (data || []).forEach((r: any) => { extra[r.setting_key] = r.setting_value; });
       setValues({
@@ -50,10 +59,30 @@ export default function SettingsPage() {
         logo_url: settings.logo_url,
         twilio_whatsapp_number: extra.twilio_whatsapp_number || "",
         whatsapp_cron_interval: extra.whatsapp_cron_interval || "5",
+        maintenance_mode: extra.maintenance_mode || "false",
+        maintenance_admin_1: extra.maintenance_admin_1 || "",
+        maintenance_admin_2: extra.maintenance_admin_2 || "",
       });
     };
     loadExtraSettings();
   }, [settings]);
+
+  useEffect(() => {
+    const loadAdmins = async () => {
+      const { data: roles } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "admin");
+      const ids = Array.from(new Set((roles || []).map((r: any) => r.user_id)));
+      if (ids.length === 0) { setAdminUsers([]); return; }
+      const { data: profs } = await supabase
+        .from("profiles")
+        .select("user_id, full_name")
+        .in("user_id", ids);
+      setAdminUsers(((profs || []) as any[]).sort((a, b) => a.full_name.localeCompare(b.full_name)));
+    };
+    loadAdmins();
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
