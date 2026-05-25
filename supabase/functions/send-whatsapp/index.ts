@@ -522,8 +522,9 @@ serve(async (req) => {
           }
 
           const data = typeof card.data === "object" ? (card.data as Record<string, any>) : {};
-          const alreadyTriggeredForStatus = isCobrancas && data.gatilho_status_key === statusKey && data.gatilho_enviado_em;
-          if (alreadyTriggeredForStatus) continue;
+          // Dedup já feito via sentIds (whatsapp_campaign_sends por campaign_id).
+          // Não usar `data.gatilho_*` aqui — campanhas distintas devem disparar
+          // independentemente quando o card muda de coluna.
           const { phone, name } = resolveCardFields(moduleKey, data, nameFields, phoneFields);
           if (!phone) continue;
 
