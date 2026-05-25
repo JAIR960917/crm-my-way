@@ -371,11 +371,15 @@ function resolveCardEnteredAt(card: any): Date {
     if (!Number.isNaN(parsed.getTime())) return parsed;
   }
 
-  const fallback = new Date(card?.updated_at);
+  // Fallback: created_at do card. Usar updated_at quebrava cards que já estavam
+  // na coluna antes da campanha existir — qualquer edição "reiniciava o timer",
+  // fazendo passos com delay_days > 0 nunca dispararem para cards antigos.
+  const fallback = new Date(card?.created_at || card?.updated_at);
   if (!Number.isNaN(fallback.getTime())) return fallback;
 
   return new Date();
 }
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -651,7 +655,7 @@ serve(async (req) => {
         const tcStatusLabel = tcStatusRow?.label || statusKey;
 
         const { data: cardsRaw } = await supabase.from(cfg.dataTable)
-          .select(isCobrancas ? "id, data, status, updated_at, created_by, assigned_to, company_id, ssotica_company_id" : "id, data, status, updated_at, created_by, assigned_to").eq("status", statusKey);
+          .select(isCobrancas ? "id, data, status, created_at, updated_at, created_by, assigned_to, company_id, ssotica_company_id" : "id, data, status, created_at, updated_at, created_by, assigned_to").eq("status", statusKey);
         if (!cardsRaw || cardsRaw.length === 0) continue;
 
         let cards: any[];
