@@ -626,7 +626,7 @@ export default function LeadFormDialog({
     const newVal = activity.completed_at ? null : new Date().toISOString();
     const { error } = await supabase.from("lead_activities").update({ completed_at: newVal }).eq("id", activity.id);
     if (error) toast.error("Erro ao atualizar atividade");
-    else { fetchActivities(); onActivityChange?.(); }
+    else { fetchActivities(); onActivityChange?.(); if (newVal) setTratativaRegistrada(true); }
   };
 
   const handleDeleteActivity = async (id: string) => {
