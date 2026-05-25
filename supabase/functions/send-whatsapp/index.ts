@@ -42,11 +42,54 @@ const ERROR_TOKENS = [
 
 // ========== Module configuration ==========
 type ModuleKey = "leads" | "cobrancas" | "renovacoes";
-const MODULE_CONFIG: Record<ModuleKey, { dataTable: string; statusTable: string; useFormBuilder: boolean }> = {
-  leads:      { dataTable: "crm_leads",      statusTable: "crm_statuses",            useFormBuilder: true  },
-  cobrancas:  { dataTable: "crm_cobrancas",  statusTable: "crm_cobranca_statuses",   useFormBuilder: false },
-  renovacoes: { dataTable: "crm_renovacoes", statusTable: "crm_renovacao_statuses",  useFormBuilder: false },
+const MODULE_CONFIG: Record<ModuleKey, { dataTable: string; statusTable: string; useFormBuilder: boolean; activityTable: string; activityFk: string }> = {
+  leads:      { dataTable: "crm_leads",      statusTable: "crm_statuses",            useFormBuilder: true,  activityTable: "lead_activities",      activityFk: "lead_id" },
+  cobrancas:  { dataTable: "crm_cobrancas",  statusTable: "crm_cobranca_statuses",   useFormBuilder: false, activityTable: "cobranca_activities",  activityFk: "cobranca_id" },
+  renovacoes: { dataTable: "crm_renovacoes", statusTable: "crm_renovacao_statuses",  useFormBuilder: false, activityTable: "renovacao_activities", activityFk: "renovacao_id" },
 };
+
+// Cache de um admin para usar como created_by fallback em activities geradas pelo sistema.
+let _systemUserIdCache: string | null = null;
+async function getSystemUserId(supabase: any): Promise<string | null> {
+  if (_systemUserIdCache) return _systemUserIdCache;
+  const { data } = await supabase
+    .from("user_roles")
+    .select("user_id")
+    .eq("role", "admin")
+    .limit(1)
+    .maybeSingle();
+  _systemUserIdCache = data?.user_id || null;
+  return _systemUserIdCache;
+}
+
+async function logWhatsappActivity(
+  supabase: any,
+  moduleKey: ModuleKey,
+  card: any,
+  title: string,
+  description: string,
+) {
+  try {
+    const cfg = MODULE_CONFIG[moduleKey];
+    const createdBy = card?.assigned_to || card?.created_by || (await getSystemUserId(supabase));
+    if (!createdBy) {
+      console.warn(`[logWhatsappActivity] sem created_by para card ${card?.id}, pulando`);
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    await supabase.from(cfg.activityTable).insert({
+      [cfg.activityFk]: card.id,
+      created_by: createdBy,
+      title,
+      description,
+      scheduled_date: nowIso,
+      completed_at: nowIso,
+    });
+  } catch (e) {
+    console.error("[logWhatsappActivity] erro:", e);
+  }
+}
+
 
 function extractApiMessages(result: any) {
   return [
@@ -556,6 +599,7 @@ serve(async (req) => {
             const result = await sendMessage(session!, APIFULL_API_KEY, cp, messageBody, campaign.image_url);
             if (result.ok) {
               await supabase.from("whatsapp_campaign_sends").insert({ campaign_id: campaign.id, lead_id: card.id, phone: cp, status: "sent", sent_at: new Date().toISOString() });
+              await logWhatsappActivity(supabase, moduleKey, card, `WhatsApp enviado — ${campaign.name}`, messageBody);
               totalSent++;
               campaignSentNow++;
             } else {
@@ -776,6 +820,7 @@ serve(async (req) => {
               if (result.ok) {
                 const sentAt = new Date().toISOString();
                 await supabase.from("whatsapp_trigger_sends").insert({ campaign_id: tc.id, step_id: step.id, lead_id: card.id, phone: cp, status: "sent", sent_at: sentAt });
+                await logWhatsappActivity(supabase, moduleKey, card, `WhatsApp enviado — ${tc.name} (passo ${step.position})`, messageBody);
                 totalSent++;
                 triggerSentNow++;
                 // avança round-robin (cobrancas / instance_ids) somente após envio bem-sucedido
