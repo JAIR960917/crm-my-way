@@ -272,9 +272,13 @@ export default function SalesReportPage() {
           });
         }
         const cat = classificarItem(it.produto?.grupo, it.produto?.descricao);
+        const valor = Number(it.valor_total_liquido || 0);
+        // Consultas com valor 0 não são contabilizadas
+        if (cat === "Consulta" && valor <= 0) return;
         const cur = map.get(cat)!;
-        cur.quantidade += Number(it.quantidade || 0);
-        cur.valorTotal += Number(it.valor_total_liquido || 0);
+        const qtdRaw = Number(it.quantidade || 0);
+        cur.quantidade += DIVIDE_POR_2.has(cat) ? qtdRaw / 2 : qtdRaw;
+        cur.valorTotal += valor;
         cur.vendasUnicas.add(v.id);
       });
     });
