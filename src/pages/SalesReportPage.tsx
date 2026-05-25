@@ -344,9 +344,12 @@ export default function SalesReportPage() {
     vendasDoVendedor.forEach((v) => {
       v.itens.forEach((it) => {
         const cat = classificarItem(it.produto?.grupo, it.produto?.descricao);
+        const valor = Number(it.valor_total_liquido || 0);
+        if (cat === "Consulta" && valor <= 0) return;
         const cur = map.get(cat)!;
-        cur.quantidade += Number(it.quantidade || 0);
-        cur.valorTotal += Number(it.valor_total_liquido || 0);
+        const qtdRaw = Number(it.quantidade || 0);
+        cur.quantidade += DIVIDE_POR_2.has(cat) ? qtdRaw / 2 : qtdRaw;
+        cur.valorTotal += valor;
       });
     });
 
