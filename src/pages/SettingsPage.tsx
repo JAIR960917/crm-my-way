@@ -321,6 +321,49 @@ export default function SettingsPage() {
           </p>
         </div>
 
+        {/* Modo Manutenção */}
+        <div className="space-y-3 border-t pt-4">
+          <div className="flex items-center justify-between">
+            <Label className="flex items-center gap-2">
+              <Wrench className="h-4 w-4" />
+              Modo Manutenção
+            </Label>
+            <Switch
+              checked={values.maintenance_mode === "true"}
+              onCheckedChange={(checked) =>
+                setValues((prev) => ({ ...prev, maintenance_mode: checked ? "true" : "false" }))
+              }
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Quando ativado, todos os usuários verão a tela de manutenção. Apenas os 2 administradores abaixo continuarão acessando normalmente.
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {[1, 2].map((n) => {
+              const key = `maintenance_admin_${n}`;
+              return (
+                <div key={key} className="space-y-1">
+                  <Label className="text-xs">Admin {n} liberado</Label>
+                  <Select
+                    value={values[key] || "__none__"}
+                    onValueChange={(v) =>
+                      setValues((prev) => ({ ...prev, [key]: v === "__none__" ? "" : v }))
+                    }
+                  >
+                    <SelectTrigger><SelectValue placeholder="Selecione um admin" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">— Nenhum —</SelectItem>
+                      {adminUsers.map((u) => (
+                        <SelectItem key={u.user_id} value={u.user_id}>{u.full_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
 
         <Button onClick={handleSave} disabled={saving} className="w-full">
           <Save className="mr-2 h-4 w-4" />
