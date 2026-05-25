@@ -182,6 +182,7 @@ export default function RenovacaoEditSheet(props: Props) {
       toast.success("Tarefa criada");
       setTaskOpen(false); setTaskTitle(""); setTaskDescription(""); setTaskDate(undefined); setTaskTime("09:00");
       fetchTimeline();
+      setTratativaRegistrada(true);
     }
     setSavingTask(false);
   };
