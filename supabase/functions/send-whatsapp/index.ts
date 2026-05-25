@@ -565,9 +565,10 @@ serve(async (req) => {
           }
 
           const data = typeof card.data === "object" ? (card.data as Record<string, any>) : {};
-          // Dedup já feito via sentIds (whatsapp_campaign_sends por campaign_id).
-          // Não usar `data.gatilho_*` aqui — campanhas distintas devem disparar
-          // independentemente quando o card muda de coluna.
+          // Lock por entrada na coluna (cobranças): evita reenvio enquanto o
+          // card estiver na mesma coluna. Limpo pelo trigger DB ao mudar status.
+          const alreadyTriggeredForStatus = isCobrancas && data.gatilho_status_key === statusKey && data.gatilho_enviado_em;
+          if (alreadyTriggeredForStatus) continue;
           const { phone, name } = resolveCardFields(moduleKey, data, nameFields, phoneFields);
           if (!phone) continue;
 
@@ -763,17 +764,22 @@ serve(async (req) => {
           const { phone, name } = resolveCardFields(moduleKey, data, nameFields, phoneFields);
           if (!phone) continue;
 
-          // ----- Dedup por entrada atual na coluna -----
-          // Só conta como "já enviado" os envios DESTA campanha feitos APÓS a
-          // entrada atual do card na coluna. Quando o card sai e volta (ou vai
-          // para outra coluna que tem outra campanha), envios antigos não
-          // bloqueiam novos gatilhos. Cada campanha tem seu próprio
-          // existingSends (filtrado por campaign_id), então campanhas
-          // diferentes nunca se bloqueiam mutuamente.
-          //
-          // O antigo lock por `data.gatilho_*` foi removido: era redundante
-          // com este filtro por timestamp e podia travar o card quando o
-          // trigger DB de reset não rodava por algum motivo.
+          // ----- LOCK por entrada na coluna -----
+          // Só envia UMA vez por entrada do card na coluna. O lock é limpo
+          // automaticamente pelo trigger DB `_reset_gatilho_on_status_change`
+          // quando o card muda de status. Se o card sair e voltar para a mesma
+          // coluna, o lock é limpo nas duas transições → reenvia normalmente.
+          if (
+            data.gatilho_campaign_id === tc.id &&
+            data.gatilho_status_key === statusKey &&
+            data.gatilho_enviado_em
+          ) {
+            continue;
+          }
+
+          // Reforço: também ignora envios anteriores feitos APÓS a entrada
+          // atual na coluna (cobre execuções simultâneas onde o lock ainda
+          // não foi gravado).
           const enteredAt = resolveCardEnteredAt(card);
           const enteredAtMs = enteredAt.getTime();
           const sendsMapForCard = sendsByCardWithTs.get(card.id) || new Map<string, number>();
