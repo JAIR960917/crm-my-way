@@ -180,6 +180,7 @@ export default function SalesReportPage() {
     "Armação",
     "Óculos Solar",
     "Lentes",
+    "Lentes Varilux",
     "Combo de Lentes",
     "Lentes de Contato",
     "Caixa 3 Pares",
