@@ -371,11 +371,15 @@ function resolveCardEnteredAt(card: any): Date {
     if (!Number.isNaN(parsed.getTime())) return parsed;
   }
 
-  const fallback = new Date(card?.updated_at);
+  // Fallback: created_at do card. Usar updated_at quebrava cards que já estavam
+  // na coluna antes da campanha existir — qualquer edição "reiniciava o timer",
+  // fazendo passos com delay_days > 0 nunca dispararem para cards antigos.
+  const fallback = new Date(card?.created_at || card?.updated_at);
   if (!Number.isNaN(fallback.getTime())) return fallback;
 
   return new Date();
 }
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
