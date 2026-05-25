@@ -182,6 +182,7 @@ export default function RenovacaoEditSheet(props: Props) {
       toast.success("Tarefa criada");
       setTaskOpen(false); setTaskTitle(""); setTaskDescription(""); setTaskDate(undefined); setTaskTime("09:00");
       fetchTimeline();
+      setTratativaRegistrada(true);
     }
     setSavingTask(false);
   };
@@ -224,7 +225,7 @@ export default function RenovacaoEditSheet(props: Props) {
       scheduled_date: dt.toISOString(),
     } as any).eq("id", editingTaskId);
     if (error) toast.error("Erro ao atualizar tarefa");
-    else { toast.success("Tarefa atualizada"); setEditingTaskId(null); fetchTimeline(); }
+    else { toast.success("Tarefa atualizada"); setEditingTaskId(null); fetchTimeline(); setTratativaRegistrada(true); }
     setSavingEditTask(false);
   };
 
