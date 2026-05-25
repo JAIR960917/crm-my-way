@@ -220,6 +220,9 @@ export default function SalesReportPage() {
     // Combo de lentes (verificar antes de "Lentes" genérico)
     if (/combo/.test(t) && /lente/.test(t)) return "Combo de Lentes";
 
+    // Lentes Varilux (marca específica — verificar antes de Lentes genérico)
+    if (/lente/.test(t) && /varilux/.test(t)) return "Lentes Varilux";
+
     // Lentes oftálmicas / demais
     if (/lente/.test(t)) return "Lentes";
 
