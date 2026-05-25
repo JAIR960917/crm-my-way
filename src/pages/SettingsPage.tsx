@@ -5,6 +5,7 @@ import { useSystemSettings } from "@/contexts/SystemSettingsContext";
 import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -47,6 +48,8 @@ export default function SettingsPage() {
           "maintenance_mode",
           "maintenance_admin_1",
           "maintenance_admin_2",
+          "maintenance_title",
+          "maintenance_message",
         ]);
       const extra: Record<string, string> = {};
       (data || []).forEach((r: any) => { extra[r.setting_key] = r.setting_value; });
@@ -62,6 +65,8 @@ export default function SettingsPage() {
         maintenance_mode: extra.maintenance_mode || "false",
         maintenance_admin_1: extra.maintenance_admin_1 || "",
         maintenance_admin_2: extra.maintenance_admin_2 || "",
+        maintenance_title: extra.maintenance_title || "Sistema em manutenção",
+        maintenance_message: extra.maintenance_message || "Estamos realizando uma manutenção no sistema. Volte em breve — agradecemos a sua paciência.",
       });
     };
     loadExtraSettings();
@@ -338,6 +343,23 @@ export default function SettingsPage() {
           <p className="text-[11px] text-muted-foreground">
             Quando ativado, todos os usuários verão a tela de manutenção. Apenas os 2 administradores abaixo continuarão acessando normalmente.
           </p>
+          <div className="space-y-1">
+            <Label className="text-xs">Título exibido</Label>
+            <Input
+              value={values.maintenance_title || ""}
+              onChange={(e) => setValues((prev) => ({ ...prev, maintenance_title: e.target.value }))}
+              placeholder="Sistema em manutenção"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Mensagem exibida</Label>
+            <Textarea
+              rows={3}
+              value={values.maintenance_message || ""}
+              onChange={(e) => setValues((prev) => ({ ...prev, maintenance_message: e.target.value }))}
+              placeholder="Estamos realizando uma manutenção no sistema..."
+            />
+          </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {[1, 2].map((n) => {
               const key = `maintenance_admin_${n}`;
