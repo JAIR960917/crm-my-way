@@ -149,8 +149,8 @@ export default function MeuDashboardPage() {
       hoje.sort((a, b) => new Date(a.scheduled).getTime() - new Date(b.scheduled).getTime());
       atr.sort((a, b) => new Date(a.scheduled).getTime() - new Date(b.scheduled).getTime());
 
-      setLeadsCount(leadIdsRes.count ?? leadIds.length);
-      setRenovCount(renovIdsRes.count ?? renovIds.length);
+      setLeadsCount(leadIdsRes.count ?? 0);
+      setRenovCount(renovIdsRes.count ?? 0);
       setHojeRows(hoje);
       setAtrasadasRows(atr);
       setCounts({ hojeL: hojeL.size, hojeR: hojeR.size, atrL: atrL.size, atrR: atrR.size });
