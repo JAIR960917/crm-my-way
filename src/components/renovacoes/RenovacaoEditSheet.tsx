@@ -190,7 +190,7 @@ export default function RenovacaoEditSheet(props: Props) {
   const toggleTaskComplete = async (a: Activity) => {
     const newVal = a.completed_at ? null : new Date().toISOString();
     const { error } = await supabase.from("renovacao_activities" as any).update({ completed_at: newVal } as any).eq("id", a.id);
-    if (error) toast.error("Erro"); else fetchTimeline();
+    if (error) toast.error("Erro"); else { fetchTimeline(); if (newVal) setTratativaRegistrada(true); }
   };
 
   const deleteActivity = async (id: string) => {
