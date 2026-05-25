@@ -718,20 +718,17 @@ serve(async (req) => {
           const { phone, name } = resolveCardFields(moduleKey, data, nameFields, phoneFields);
           if (!phone) continue;
 
-          // ----- LOCK por entrada na coluna (todos os módulos) -----
-          // Se já houve envio desta campanha enquanto o card está nesta coluna,
-          // NÃO envia de novo, independente do tempo. O lock só é liberado
-          // quando o card sair e voltar para a coluna (ver leitura do data abaixo).
-          if (
-            data.gatilho_campaign_id === tc.id &&
-            data.gatilho_status_key === statusKey &&
-            data.gatilho_enviado_em
-          ) {
-            continue;
-          }
-
-          // Reforço: só considerar como "já enviado" os envios feitos APÓS a entrada atual
-          // na coluna. Se o card saiu e voltou, envios antigos são ignorados.
+          // ----- Dedup por entrada atual na coluna -----
+          // Só conta como "já enviado" os envios DESTA campanha feitos APÓS a
+          // entrada atual do card na coluna. Quando o card sai e volta (ou vai
+          // para outra coluna que tem outra campanha), envios antigos não
+          // bloqueiam novos gatilhos. Cada campanha tem seu próprio
+          // existingSends (filtrado por campaign_id), então campanhas
+          // diferentes nunca se bloqueiam mutuamente.
+          //
+          // O antigo lock por `data.gatilho_*` foi removido: era redundante
+          // com este filtro por timestamp e podia travar o card quando o
+          // trigger DB de reset não rodava por algum motivo.
           const enteredAt = resolveCardEnteredAt(card);
           const enteredAtMs = enteredAt.getTime();
           const sendsMapForCard = sendsByCardWithTs.get(card.id) || new Map<string, number>();
