@@ -670,16 +670,26 @@ serve(async (req) => {
         const { data: existingSends } = await supabase.from("whatsapp_trigger_sends")
           .select("lead_id, step_id, status, sent_at").eq("campaign_id", tc.id);
 
-        const sendsByCard = new Map<string, Set<string>>();
+        // Mantém timestamp por (card, step) para permitir filtrar por "entrada atual" na coluna.
+        // Quando o card sai e volta para a coluna, sends anteriores não devem mais contar
+        // como "já enviado nesta entrada", senão o gatilho nunca dispararia novamente.
+        const sendsByCardWithTs = new Map<string, Map<string, number>>();
         const lastSentAtByCard = new Map<string, number>();
         for (const s of (existingSends || []) as any[]) {
           if (s.status === "sent") {
-            if (!sendsByCard.has(s.lead_id)) sendsByCard.set(s.lead_id, new Set());
-            sendsByCard.get(s.lead_id)!.add(s.step_id);
             const ts = s.sent_at ? new Date(s.sent_at).getTime() : 0;
+            if (!sendsByCardWithTs.has(s.lead_id)) sendsByCardWithTs.set(s.lead_id, new Map());
+            const m = sendsByCardWithTs.get(s.lead_id)!;
+            const prevStep = m.get(s.step_id) || 0;
+            if (ts > prevStep) m.set(s.step_id, ts);
             const prev = lastSentAtByCard.get(s.lead_id) || 0;
             if (ts > prev) lastSentAtByCard.set(s.lead_id, ts);
           }
+        }
+        // Compat para o cálculo de "pendentes" (preview de quantos cards faltam)
+        const sendsByCard = new Map<string, Set<string>>();
+        for (const [cardId, m] of sendsByCardWithTs.entries()) {
+          sendsByCard.set(cardId, new Set(m.keys()));
         }
 
         const totalSteps = steps.length;
