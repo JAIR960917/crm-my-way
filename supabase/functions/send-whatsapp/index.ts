@@ -730,17 +730,14 @@ serve(async (req) => {
             continue;
           }
 
-          // Reforço: se já existe envio bem-sucedido registrado para esta campanha
-          // e este card, pula até que o card mude de coluna (o lock acima é a fonte
-          // primária; este é um fallback para campanhas antigas sem o lock no data).
-          if ((sendsByCard.get(card.id)?.size || 0) > 0) {
-            // Sem status_entered_at confiável, considerar já enviado nesta entrada.
-            const lastSentTs = lastSentAtByCard.get(card.id) || 0;
-            const enteredAt = resolveCardEnteredAt(card);
-            if (lastSentTs >= enteredAt.getTime()) continue;
-            // Caso updated_at seja maior (card foi movido para outra coluna e voltou)
-            // mas só liberamos se o status_entered_status_key bater com o atual.
-            if (data.status_entered_status_key !== statusKey) continue;
+          // Reforço: só considerar como "já enviado" os envios feitos APÓS a entrada atual
+          // na coluna. Se o card saiu e voltou, envios antigos são ignorados.
+          const enteredAt = resolveCardEnteredAt(card);
+          const enteredAtMs = enteredAt.getTime();
+          const sendsMapForCard = sendsByCardWithTs.get(card.id) || new Map<string, number>();
+          const sentStepIds = new Set<string>();
+          for (const [stepId, ts] of sendsMapForCard.entries()) {
+            if (ts >= enteredAtMs) sentStepIds.add(stepId);
           }
 
           // Resolve sessão por card
@@ -762,10 +759,8 @@ serve(async (req) => {
             }
           }
 
-          const sentStepIds = sendsByCard.get(card.id) || new Set();
-          const enteredAt = resolveCardEnteredAt(card);
           const now = new Date();
-          const daysSinceEntry = Math.floor((now.getTime() - enteredAt.getTime()) / (1000 * 60 * 60 * 24));
+          const daysSinceEntry = Math.floor((now.getTime() - enteredAtMs) / (1000 * 60 * 60 * 24));
 
           for (const step of steps) {
             if (sentStepIds.has(step.id)) continue;
