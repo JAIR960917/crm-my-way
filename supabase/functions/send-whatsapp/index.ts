@@ -670,16 +670,26 @@ serve(async (req) => {
         const { data: existingSends } = await supabase.from("whatsapp_trigger_sends")
           .select("lead_id, step_id, status, sent_at").eq("campaign_id", tc.id);
 
-        const sendsByCard = new Map<string, Set<string>>();
+        // Mantém timestamp por (card, step) para permitir filtrar por "entrada atual" na coluna.
+        // Quando o card sai e volta para a coluna, sends anteriores não devem mais contar
+        // como "já enviado nesta entrada", senão o gatilho nunca dispararia novamente.
+        const sendsByCardWithTs = new Map<string, Map<string, number>>();
         const lastSentAtByCard = new Map<string, number>();
         for (const s of (existingSends || []) as any[]) {
           if (s.status === "sent") {
-            if (!sendsByCard.has(s.lead_id)) sendsByCard.set(s.lead_id, new Set());
-            sendsByCard.get(s.lead_id)!.add(s.step_id);
             const ts = s.sent_at ? new Date(s.sent_at).getTime() : 0;
+            if (!sendsByCardWithTs.has(s.lead_id)) sendsByCardWithTs.set(s.lead_id, new Map());
+            const m = sendsByCardWithTs.get(s.lead_id)!;
+            const prevStep = m.get(s.step_id) || 0;
+            if (ts > prevStep) m.set(s.step_id, ts);
             const prev = lastSentAtByCard.get(s.lead_id) || 0;
             if (ts > prev) lastSentAtByCard.set(s.lead_id, ts);
           }
+        }
+        // Compat para o cálculo de "pendentes" (preview de quantos cards faltam)
+        const sendsByCard = new Map<string, Set<string>>();
+        for (const [cardId, m] of sendsByCardWithTs.entries()) {
+          sendsByCard.set(cardId, new Set(m.keys()));
         }
 
         const totalSteps = steps.length;
@@ -720,17 +730,14 @@ serve(async (req) => {
             continue;
           }
 
-          // Reforço: se já existe envio bem-sucedido registrado para esta campanha
-          // e este card, pula até que o card mude de coluna (o lock acima é a fonte
-          // primária; este é um fallback para campanhas antigas sem o lock no data).
-          if ((sendsByCard.get(card.id)?.size || 0) > 0) {
-            // Sem status_entered_at confiável, considerar já enviado nesta entrada.
-            const lastSentTs = lastSentAtByCard.get(card.id) || 0;
-            const enteredAt = resolveCardEnteredAt(card);
-            if (lastSentTs >= enteredAt.getTime()) continue;
-            // Caso updated_at seja maior (card foi movido para outra coluna e voltou)
-            // mas só liberamos se o status_entered_status_key bater com o atual.
-            if (data.status_entered_status_key !== statusKey) continue;
+          // Reforço: só considerar como "já enviado" os envios feitos APÓS a entrada atual
+          // na coluna. Se o card saiu e voltou, envios antigos são ignorados.
+          const enteredAt = resolveCardEnteredAt(card);
+          const enteredAtMs = enteredAt.getTime();
+          const sendsMapForCard = sendsByCardWithTs.get(card.id) || new Map<string, number>();
+          const sentStepIds = new Set<string>();
+          for (const [stepId, ts] of sendsMapForCard.entries()) {
+            if (ts >= enteredAtMs) sentStepIds.add(stepId);
           }
 
           // Resolve sessão por card
@@ -752,10 +759,8 @@ serve(async (req) => {
             }
           }
 
-          const sentStepIds = sendsByCard.get(card.id) || new Set();
-          const enteredAt = resolveCardEnteredAt(card);
           const now = new Date();
-          const daysSinceEntry = Math.floor((now.getTime() - enteredAt.getTime()) / (1000 * 60 * 60 * 24));
+          const daysSinceEntry = Math.floor((now.getTime() - enteredAtMs) / (1000 * 60 * 60 * 24));
 
           for (const step of steps) {
             if (sentStepIds.has(step.id)) continue;
