@@ -666,6 +666,7 @@ export default function LeadFormDialog({
       setEditingActivityId(null);
       fetchActivities();
       onActivityChange?.();
+      setTratativaRegistrada(true);
     }
     setEditActSaving(false);
   };
