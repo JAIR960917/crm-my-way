@@ -101,12 +101,15 @@ export default function LeadCard({
   const hasPending = pendingActivities.length > 0 && !hasOverdue && !hasToday;
 
   const tratativaAtendeu = (data?.tratativa_atendeu as string | undefined) || null;
+  const envioErro = (data?.envio_erro as string | undefined) || null;
 
   let cardBorderClass = "";
   if (isOffline) {
     cardBorderClass = "border-amber-500/50 bg-amber-500/5";
   } else if (isSynced) {
     cardBorderClass = "border-emerald-500/50 bg-emerald-500/5";
+  } else if (envioErro) {
+    cardBorderClass = "border-red-500 bg-red-500/10 shadow-red-500/20 shadow-md";
   } else if (tratativaAtendeu === "sim") {
     cardBorderClass = "border-emerald-500 bg-emerald-500/10 shadow-emerald-500/20 shadow-md";
   } else if (tratativaAtendeu === "nao") {
