@@ -216,6 +216,16 @@ export default function LeadCard({
 
       {/* Activity section */}
       <div className="mt-2 pt-2 border-t">
+        {/* Erro no envio do WhatsApp */}
+        {envioErro && (
+          <div className="mb-1.5">
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-white bg-red-600 px-2 py-0.5 rounded-full uppercase" title={envioErro}>
+              <AlertTriangle className="h-3 w-3" />
+              Erro no envio
+            </span>
+          </div>
+        )}
+
         {/* Overdue badge */}
         {hasOverdue && (
           <div className="mb-1.5">
