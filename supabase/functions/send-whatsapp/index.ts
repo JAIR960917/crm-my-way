@@ -658,8 +658,12 @@ serve(async (req) => {
     }
 
     // ========== TRIGGER CAMPAIGNS ==========
-    const { data: triggerCampaigns } = await supabase.from("whatsapp_trigger_campaigns")
+    const { data: triggerCampaignsRaw } = await supabase.from("whatsapp_trigger_campaigns")
       .select("*, whatsapp_trigger_steps(*)").eq("is_active", true);
+
+    // Embaralha a ordem para garantir que, mesmo se o tempo do cron acabar,
+    // diferentes gatilhos sejam priorizados em execuções diferentes.
+    const triggerCampaigns = triggerCampaignsRaw ? [...triggerCampaignsRaw].sort(() => Math.random() - 0.5) : [];
 
     if (triggerCampaigns && triggerCampaigns.length > 0) {
       for (const tc of triggerCampaigns) {
