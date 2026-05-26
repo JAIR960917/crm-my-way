@@ -658,8 +658,12 @@ serve(async (req) => {
     }
 
     // ========== TRIGGER CAMPAIGNS ==========
-    const { data: triggerCampaigns } = await supabase.from("whatsapp_trigger_campaigns")
+    const { data: triggerCampaignsRaw } = await supabase.from("whatsapp_trigger_campaigns")
       .select("*, whatsapp_trigger_steps(*)").eq("is_active", true);
+
+    // Embaralha a ordem para garantir que, mesmo se o tempo do cron acabar,
+    // diferentes gatilhos sejam priorizados em execuções diferentes.
+    const triggerCampaigns = triggerCampaignsRaw ? [...triggerCampaignsRaw].sort(() => Math.random() - 0.5) : [];
 
     if (triggerCampaigns && triggerCampaigns.length > 0) {
       for (const tc of triggerCampaigns) {
@@ -768,8 +772,9 @@ serve(async (req) => {
           if (s.status === "sent") rrIndex++;
         }
 
-        // Limite por execução para garantir que todos os gatilhos rodem dentro do tempo do cron
-        const MAX_SENDS_PER_TRIGGER_PER_RUN = 2;
+        // Limite de 1 envio por gatilho por execução: garante round-robin justo
+        // entre todos os gatilhos ativos, em vez de um gatilho monopolizar o cron.
+        const MAX_SENDS_PER_TRIGGER_PER_RUN = 1;
 
         for (const card of cards) {
           if (triggerSentNow >= MAX_SENDS_PER_TRIGGER_PER_RUN) break;
