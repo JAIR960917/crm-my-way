@@ -937,25 +937,30 @@ serve(async (req) => {
               totalErrors++;
               triggerErrorsNow++;
               const nowIso = new Date().toISOString();
-              await supabase
-                .from(cfg.dataTable)
-                .update({
-                  data: {
-                    ...data,
-                    status_entered_at: data.status_entered_at ?? nowIso,
-                    status_entered_status_key: data.status_entered_status_key ?? statusKey,
-                    gatilho_enviado_em: nowIso,
-                    gatilho_status_key: statusKey,
-                    gatilho_campaign_id: tc.id,
-                    gatilho_campaign_name: tc.name,
-                    envio_erro: errMsg,
-                    envio_erro_em: nowIso,
-                    envio_erro_campaign_id: tc.id,
-                    envio_erro_campaign_name: tc.name,
-                  },
-                })
-                .eq("id", card.id);
+              if (useMultiRoundRobin || useGlobalCobrancasFallback) {
+                rrIndex++;
+              } else {
+                await supabase
+                  .from(cfg.dataTable)
+                  .update({
+                    data: {
+                      ...data,
+                      status_entered_at: data.status_entered_at ?? nowIso,
+                      status_entered_status_key: data.status_entered_status_key ?? statusKey,
+                      gatilho_enviado_em: nowIso,
+                      gatilho_status_key: statusKey,
+                      gatilho_campaign_id: tc.id,
+                      gatilho_campaign_name: tc.name,
+                      envio_erro: errMsg,
+                      envio_erro_em: nowIso,
+                      envio_erro_campaign_id: tc.id,
+                      envio_erro_campaign_name: tc.name,
+                    },
+                  })
+                  .eq("id", card.id);
+              }
               if (isCobrancas) {
+
                 const instanceName = sessionToInstanceName.get(session!) || session!;
                 await supabase.from("crm_cobranca_flow_events").insert({
                   cobranca_id: card.id,
