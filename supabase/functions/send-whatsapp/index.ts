@@ -556,7 +556,10 @@ serve(async (req) => {
         // Round-robin index para cobrancas (persistente entre execuções via sentIds.size)
         let rrIndex = sentIds.size;
 
+        const MAX_SENDS_PER_CAMPAIGN_PER_RUN = 2;
+
         for (const card of pendingCards) {
+          if (campaignSentNow >= MAX_SENDS_PER_CAMPAIGN_PER_RUN) break;
           // Re-check window mid-batch (in case we cross end_time)
           if (!isWithinDailyWindow(campaign.start_time, campaign.end_time)) {
             skippedOutOfWindow++;
@@ -765,7 +768,11 @@ serve(async (req) => {
           if (s.status === "sent") rrIndex++;
         }
 
+        // Limite por execução para garantir que todos os gatilhos rodem dentro do tempo do cron
+        const MAX_SENDS_PER_TRIGGER_PER_RUN = 2;
+
         for (const card of cards) {
+          if (triggerSentNow >= MAX_SENDS_PER_TRIGGER_PER_RUN) break;
           if (!isWithinDailyWindow(tc.start_time, tc.end_time)) {
             skippedOutOfWindow++;
             aborted = true;
