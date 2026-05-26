@@ -859,9 +859,32 @@ serve(async (req) => {
                   });
                 }
               } else {
-                await supabase.from("whatsapp_trigger_sends").insert({ campaign_id: tc.id, step_id: step.id, lead_id: card.id, phone: cp, status: "error", error_message: result.errorMessage || "Erro" });
+                const errMsg = result.errorMessage || "Erro";
+                await supabase.from("whatsapp_trigger_sends").insert({ campaign_id: tc.id, step_id: step.id, lead_id: card.id, phone: cp, status: "error", error_message: errMsg });
                 totalErrors++;
                 triggerErrorsNow++;
+                // Marca o card com erro de envio (vermelho) e fixa o lock do gatilho
+                // para NÃO reprocessar este card a cada 5 min — assim libera fila p/ outros gatilhos.
+                // Lock é limpo automaticamente quando o card muda de coluna.
+                const nowIso = new Date().toISOString();
+                await supabase
+                  .from(cfg.dataTable)
+                  .update({
+                    data: {
+                      ...data,
+                      status_entered_at: data.status_entered_at ?? nowIso,
+                      status_entered_status_key: data.status_entered_status_key ?? statusKey,
+                      gatilho_enviado_em: nowIso,
+                      gatilho_status_key: statusKey,
+                      gatilho_campaign_id: tc.id,
+                      gatilho_campaign_name: tc.name,
+                      envio_erro: errMsg,
+                      envio_erro_em: nowIso,
+                      envio_erro_campaign_id: tc.id,
+                      envio_erro_campaign_name: tc.name,
+                    },
+                  })
+                  .eq("id", card.id);
                 if (isCobrancas) {
                   await supabase.from("crm_cobranca_flow_events").insert({
                     cobranca_id: card.id,
@@ -871,14 +894,34 @@ serve(async (req) => {
                     event_type: "gatilho_falhou",
                     whatsapp_trigger_campaign_id: tc.id,
                     whatsapp_trigger_campaign_name: tc.name,
-                    details: { phone: cp, session, instance_name: instanceName, step_position: step.position, error: result.errorMessage || "Erro" },
+                    details: { phone: cp, session, instance_name: instanceName, step_position: step.position, error: errMsg },
                   });
                 }
               }
             } catch (e) {
-              await supabase.from("whatsapp_trigger_sends").insert({ campaign_id: tc.id, step_id: step.id, lead_id: card.id, phone: cp, status: "error", error_message: e instanceof Error ? e.message : "Unknown error" });
+              const errMsg = e instanceof Error ? e.message : "Unknown error";
+              await supabase.from("whatsapp_trigger_sends").insert({ campaign_id: tc.id, step_id: step.id, lead_id: card.id, phone: cp, status: "error", error_message: errMsg });
               totalErrors++;
               triggerErrorsNow++;
+              const nowIso = new Date().toISOString();
+              await supabase
+                .from(cfg.dataTable)
+                .update({
+                  data: {
+                    ...data,
+                    status_entered_at: data.status_entered_at ?? nowIso,
+                    status_entered_status_key: data.status_entered_status_key ?? statusKey,
+                    gatilho_enviado_em: nowIso,
+                    gatilho_status_key: statusKey,
+                    gatilho_campaign_id: tc.id,
+                    gatilho_campaign_name: tc.name,
+                    envio_erro: errMsg,
+                    envio_erro_em: nowIso,
+                    envio_erro_campaign_id: tc.id,
+                    envio_erro_campaign_name: tc.name,
+                  },
+                })
+                .eq("id", card.id);
               if (isCobrancas) {
                 const instanceName = sessionToInstanceName.get(session!) || session!;
                 await supabase.from("crm_cobranca_flow_events").insert({
@@ -889,10 +932,11 @@ serve(async (req) => {
                   event_type: "gatilho_falhou",
                   whatsapp_trigger_campaign_id: tc.id,
                   whatsapp_trigger_campaign_name: tc.name,
-                  details: { phone: cp, session, instance_name: instanceName, step_position: step.position, error: e instanceof Error ? e.message : "Unknown error" },
+                  details: { phone: cp, session, instance_name: instanceName, step_position: step.position, error: errMsg },
                 });
               }
             }
+
 
             break;
           }
