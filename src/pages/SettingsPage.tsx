@@ -92,6 +92,14 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      const prevInterval = (
+        await supabase
+          .from("system_settings")
+          .select("setting_value")
+          .eq("setting_key", "whatsapp_cron_interval")
+          .maybeSingle()
+      ).data?.setting_value;
+
       for (const [key, value] of Object.entries(values)) {
         await supabase
           .from("system_settings")
@@ -100,6 +108,17 @@ export default function SettingsPage() {
             { onConflict: "setting_key" }
           );
       }
+
+      // Se o intervalo do cron mudou, reagendar o pg_cron
+      if (values.whatsapp_cron_interval && values.whatsapp_cron_interval !== prevInterval) {
+        const { error: cronErr } = await supabase.rpc("manage_whatsapp_cron" as any);
+        if (cronErr) {
+          toast.error("Configurações salvas, mas falhou ao reagendar o cron: " + cronErr.message);
+        } else {
+          toast.success(`Cron reagendado para cada ${values.whatsapp_cron_interval} min`);
+        }
+      }
+
       await refresh();
       toast.success("Configurações salvas!");
     } catch {
@@ -107,6 +126,7 @@ export default function SettingsPage() {
     }
     setSaving(false);
   };
+
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
