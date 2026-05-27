@@ -973,6 +973,9 @@ export default function ActiveClientsPage() {
           })}
         </div>
       </DragDropContext>
+        </>
+      )}
+
 
       <RenovacaoEditSheet
         open={dialogOpen}
