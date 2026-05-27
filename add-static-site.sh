@@ -27,6 +27,8 @@ err() { echo -e "${R}[err ]${N} $*" >&2; }
 # ---------------------------------------------------------------------------
 mkdir -p "${SITE_DIR}"
 chmod 755 "${SITE_DIR}"
+# Garante que o Caddy consiga ler o diretório
+chown -R root:root "${SITE_DIR}" 2>/dev/null || true
 ok "Diretório criado: ${SITE_DIR}"
 
 # ---------------------------------------------------------------------------
