@@ -114,6 +114,8 @@ export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId, 
       if (invErr) throw invErr;
       if (data?.error) throw new Error(data.error);
       setVendas(data.vendas || []);
+      setDiagnostico(data?.diagnostico ?? null);
+      setLojas(data?.lojas_consultadas ?? null);
       try {
         sessionStorage.setItem(key, JSON.stringify({ vendas: data.vendas || [], at: Date.now() }));
       } catch {}
