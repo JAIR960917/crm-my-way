@@ -142,6 +142,7 @@ export default function ActiveClientsPage() {
   const [autoAssignConfirm, setAutoAssignConfirm] = useState(false);
   const [unassignedCount, setUnassignedCount] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [metaLoading, setMetaLoading] = useState(true);
 
   // Schedule dialog
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -274,6 +275,7 @@ export default function ActiveClientsPage() {
       setCompanies(comps || []);
       setAssignableUserIds(null);
     }
+    setMetaLoading(false);
   }, [isGerente, isAdmin, user?.id]);
 
   // Count unassigned (server-side)
@@ -858,6 +860,14 @@ export default function ActiveClientsPage() {
         </div>
       </div>
 
+      {metaLoading ? (
+        <div className="flex flex-col items-center justify-center py-24 gap-3 text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="text-sm">Carregando renovações...</span>
+        </div>
+      ) : (
+        <>
+
       {/* Mobile tabs */}
       <div className="lg:hidden mb-3">
         <div className="flex gap-1 overflow-x-auto pb-1">
@@ -963,6 +973,9 @@ export default function ActiveClientsPage() {
           })}
         </div>
       </DragDropContext>
+        </>
+      )}
+
 
       <RenovacaoEditSheet
         open={dialogOpen}
