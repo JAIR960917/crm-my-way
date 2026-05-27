@@ -114,6 +114,7 @@ export default function CobrancaEditSheet(props: Props) {
   const [loadingParcelas, setLoadingParcelas] = useState(false);
   const [newComment, setNewComment] = useState("");
   const [postingComment, setPostingComment] = useState(false);
+  const [flowRefreshKey, setFlowRefreshKey] = useState(0);
   // Tracks whether a contact attempt was registered during this open session.
   // Required for "financeiro" role to be able to close / save the card.
   const [contactRegisteredInSession, setContactRegisteredInSession] = useState(false);
@@ -278,6 +279,7 @@ export default function CobrancaEditSheet(props: Props) {
       setNewComment("");
       setTaskOpen(false);
       setContactRegisteredInSession(false);
+      setFlowRefreshKey(0);
       // Registra abertura do card de cobrança (atualiza dashboard em tempo real)
       if (user?.id) {
         recordCardOpen({
@@ -752,6 +754,7 @@ export default function CobrancaEditSheet(props: Props) {
                           if (updatedData) setFormData(updatedData);
                           setContactRegisteredInSession(true);
                           setContactDirty(false);
+                          setFlowRefreshKey((v) => v + 1);
                           fetchTimeline();
                           onCardUpdated?.();
                         }}
@@ -761,7 +764,7 @@ export default function CobrancaEditSheet(props: Props) {
                         cobrancaId={cobrancaId}
                         cobrancaData={formData}
                         currentStatusKey={formStatus}
-                        refreshKey={contactRegisteredInSession ? 1 : 0}
+                        refreshKey={flowRefreshKey}
                       />
                     </>
                   )}
