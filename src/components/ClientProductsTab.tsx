@@ -65,11 +65,15 @@ export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId, 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [vendas, setVendas] = useState<Venda[] | null>(null);
+  const [diagnostico, setDiagnostico] = useState<any>(null);
+  const [lojas, setLojas] = useState<any[] | null>(null);
   const [monthsBack, setMonthsBack] = useState(24);
 
   useEffect(() => {
     setError(null);
     setVendas(null);
+    setDiagnostico(null);
+    setLojas(null);
   }, [ssoticaClienteId, ssoticaCompanyId, cpf]);
 
   const fetchVendas = async (months: number, force = false) => {
@@ -110,6 +114,8 @@ export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId, 
       if (invErr) throw invErr;
       if (data?.error) throw new Error(data.error);
       setVendas(data.vendas || []);
+      setDiagnostico(data?.diagnostico ?? null);
+      setLojas(data?.lojas_consultadas ?? null);
       try {
         sessionStorage.setItem(key, JSON.stringify({ vendas: data.vendas || [], at: Date.now() }));
       } catch {}
@@ -201,8 +207,24 @@ export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId, 
           )}
 
           {!loading && !error && vendas && vendas.length === 0 && (
-            <div className="text-center text-sm text-muted-foreground py-12">
-              Nenhuma venda encontrada para este cliente nos últimos {monthsBack} meses.
+            <div className="space-y-3 py-6">
+              <div className="text-center text-sm text-muted-foreground">
+                Nenhuma venda encontrada para este cliente nos últimos {monthsBack} meses.
+              </div>
+              <details className="mx-auto max-w-xl text-xs bg-muted/30 rounded-md p-3">
+                <summary className="cursor-pointer text-muted-foreground">Diagnóstico técnico</summary>
+                <div className="mt-2 space-y-1 font-mono text-[11px]">
+                  <div>cliente_id: {String(ssoticaClienteId)}</div>
+                  <div>company_id: {String(ssoticaCompanyId)}</div>
+                  <div>cpf enviado: {cpf || "(vazio)"}</div>
+                  {lojas && (
+                    <pre className="whitespace-pre-wrap break-all">lojas_consultadas: {JSON.stringify(lojas, null, 2)}</pre>
+                  )}
+                  {diagnostico && (
+                    <pre className="whitespace-pre-wrap break-all">diagnostico: {JSON.stringify(diagnostico, null, 2)}</pre>
+                  )}
+                </div>
+              </details>
             </div>
           )}
 
