@@ -658,8 +658,10 @@ serve(async (req) => {
           const cp = cleanPhone(phone);
 
           try {
+            await refreshGlobalSendLock(supabase, GLOBAL_LOCK_TTL_SECONDS);
             if (!isFirstSend) await sleep(SEND_DELAY_MS);
             isFirstSend = false;
+            await refreshGlobalSendLock(supabase, GLOBAL_LOCK_TTL_SECONDS);
             const result = await sendMessage(session!, APIFULL_API_KEY, cp, messageBody, campaign.image_url);
             if (result.ok) {
               await supabase.from("whatsapp_campaign_sends").insert({ campaign_id: campaign.id, lead_id: card.id, phone: cp, status: "sent", sent_at: new Date().toISOString() });
