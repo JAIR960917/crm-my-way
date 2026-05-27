@@ -72,6 +72,8 @@ export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId, 
   useEffect(() => {
     setError(null);
     setVendas(null);
+    setDiagnostico(null);
+    setLojas(null);
   }, [ssoticaClienteId, ssoticaCompanyId, cpf]);
 
   const fetchVendas = async (months: number, force = false) => {
