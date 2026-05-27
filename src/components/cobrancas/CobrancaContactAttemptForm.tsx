@@ -16,7 +16,7 @@ type Props = {
   cobrancaData: Record<string, any>;
   /** Status atual do card (ex.: "31_dias_de_atraso_ligao") — usado para registrar tratativa por coluna */
   cobrancaStatus?: string | null;
-  onSaved?: () => void;
+  onSaved?: (updatedData?: Record<string, any>) => void;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
