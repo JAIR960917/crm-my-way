@@ -163,7 +163,7 @@ export default function CobrancaContactAttemptForm({
 
       toast.success("Contato registrado!");
       reset();
-      onSaved?.();
+      onSaved?.(newData);
     } catch (err: any) {
       console.error("CobrancaContactAttemptForm save error:", err);
       toast.error("Erro ao registrar contato: " + (err?.message || "tente novamente"));
