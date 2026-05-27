@@ -142,6 +142,7 @@ export default function ActiveClientsPage() {
   const [autoAssignConfirm, setAutoAssignConfirm] = useState(false);
   const [unassignedCount, setUnassignedCount] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [metaLoading, setMetaLoading] = useState(true);
 
   // Schedule dialog
   const [scheduleOpen, setScheduleOpen] = useState(false);
