@@ -65,6 +65,8 @@ export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId, 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [vendas, setVendas] = useState<Venda[] | null>(null);
+  const [diagnostico, setDiagnostico] = useState<any>(null);
+  const [lojas, setLojas] = useState<any[] | null>(null);
   const [monthsBack, setMonthsBack] = useState(24);
 
   useEffect(() => {
