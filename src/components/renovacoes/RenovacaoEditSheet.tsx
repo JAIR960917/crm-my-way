@@ -515,7 +515,8 @@ export default function RenovacaoEditSheet(props: Props) {
                       const telefone = phoneField ? String(formData[`field_${phoneField.id}`] || "") : "";
                       return { nome, telefone, idade: "" };
                     })()}
-                    onSaved={() => {
+                    onSaved={(updatedData) => {
+                      if (updatedData) setFormData((prev) => ({ ...prev, ...updatedData }));
                       setTratativaRegistrada(true);
                       setContactDirty(false);
                       fetchTimeline();
