@@ -250,6 +250,13 @@ serve(async (req) => {
       const nextStatus = statusById.get(flow.next_status_id);
       if (!nextStatus) continue;
 
+      // Bloqueia avanço se houver tarefa pendente/atrasada vinculada ao card.
+      if (pendingCobrancaIds.has(cob.id)) {
+        stats.bloqueados_por_tarefa++;
+        continue;
+      }
+
+
       let baseTs: string | null = null;
       if (flow.column_type === "manual") {
         if (data.tratativa_status_key === cob.status && data.tratativa_em) {
