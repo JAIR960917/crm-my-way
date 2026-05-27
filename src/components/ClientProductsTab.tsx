@@ -67,6 +67,11 @@ export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId, 
   const [vendas, setVendas] = useState<Venda[] | null>(null);
   const [monthsBack, setMonthsBack] = useState(24);
 
+  useEffect(() => {
+    setError(null);
+    setVendas(null);
+  }, [ssoticaClienteId, ssoticaCompanyId, cpf]);
+
   const fetchVendas = async (months: number, force = false) => {
     if (!ssoticaClienteId || !ssoticaCompanyId) {
       setError("Cliente sem vínculo SSótica — não é possível buscar produtos.");
@@ -96,7 +101,14 @@ export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId, 
         sessionStorage.setItem(key, JSON.stringify({ vendas: data.vendas || [], at: Date.now() }));
       } catch {}
     } catch (err: any) {
-      setError(err?.message || "Erro ao buscar produtos do cliente.");
+      let message = err?.message || "Erro ao buscar produtos do cliente.";
+      try {
+        if (err?.context?.json) {
+          const details = await err.context.json();
+          message = details?.error || details?.message || message;
+        }
+      } catch {}
+      setError(message);
       setVendas([]);
     } finally {
       setLoading(false);
@@ -104,11 +116,11 @@ export default function ClientProductsTab({ ssoticaClienteId, ssoticaCompanyId, 
   };
 
   useEffect(() => {
-    if (ssoticaClienteId && ssoticaCompanyId && vendas === null) {
+    if (ssoticaClienteId && ssoticaCompanyId) {
       fetchVendas(monthsBack);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ssoticaClienteId, ssoticaCompanyId, cpf]);
+  }, [ssoticaClienteId, ssoticaCompanyId, cpf, monthsBack]);
 
   if (!ssoticaClienteId || !ssoticaCompanyId) {
     return (
