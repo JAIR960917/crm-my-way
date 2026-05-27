@@ -34,6 +34,8 @@ type Cobranca = {
   assigned_to: string | null;
   created_by: string | null;
   company_id: string | null;
+  ssotica_cliente_id?: number | null;
+  ssotica_company_id?: string | null;
   valor: number;
   created_at: string;
   updated_at: string;
@@ -493,8 +495,13 @@ export default function CobrancasPage() {
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) loadMore(statusKey);
   };
 
+  const getBestItemForEdit = useCallback((group: CobrancaGroup) => {
+    return group.items.find((item) => item.ssotica_cliente_id && item.ssotica_company_id) ?? group.representative;
+  }, []);
+
   const renderCard = (group: CobrancaGroup) => {
     const cobranca = group.representative;
+    const editItem = getBestItemForEdit(group);
     const d = cobranca.data as Record<string, any>;
     const grouped = group.items.length > 1;
     const valor = grouped ? group.valorTotal : Number(cobranca.valor || 0);
@@ -654,7 +661,7 @@ export default function CobrancasPage() {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={() => openEdit(cobranca)}
+            onClick={() => openEdit(editItem)}
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
