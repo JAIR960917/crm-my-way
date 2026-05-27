@@ -437,6 +437,23 @@ serve(async (req) => {
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // ===== LOCK GLOBAL =====
+    // Impede que duas execuções do cron rodem simultaneamente — a causa
+    // raiz de clientes recebendo o mesmo gatilho em duplicidade (uma vez
+    // por instância) é envios concorrentes que carregam o card antes de
+    // qualquer um gravar o lock por entrada na coluna.
+    const { data: lockAcquired, error: lockErr } = await supabase.rpc("try_lock_send_whatsapp", { p_ttl_seconds: 300 });
+    if (lockErr) {
+      console.error("[send-whatsapp] erro ao tentar adquirir lock:", lockErr);
+    }
+    if (!lockAcquired) {
+      console.log("[send-whatsapp] já existe execução em andamento — pulando ciclo.");
+      return new Response(
+        JSON.stringify({ ok: true, skipped: "locked" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const { data: formFields } = await supabase
       .from("crm_form_fields")
       .select("id, label, is_name_field, is_phone_field");
@@ -1048,12 +1065,20 @@ serve(async (req) => {
       }
     }
 
+    await supabase.rpc("unlock_send_whatsapp").catch((e: any) => console.error("[send-whatsapp] erro ao liberar lock:", e));
+
     return new Response(
       JSON.stringify({ message: "Processamento concluído", sent: totalSent, errors: totalErrors, skipped_no_company: skippedNoCompany, skipped_out_of_window: skippedOutOfWindow }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("send-whatsapp error:", error);
+    try {
+      const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+      const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+      await supabase.rpc("unlock_send_whatsapp");
+    } catch (_) {}
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
