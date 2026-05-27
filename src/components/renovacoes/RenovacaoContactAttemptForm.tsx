@@ -38,7 +38,7 @@ type Props = {
   userId: string;
   renovacaoStatus: string;
   renovacaoSnapshot: { nome: string; telefone: string; idade: string };
-  onSaved?: () => void;
+  onSaved?: (updatedData?: Record<string, any>) => void;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
@@ -136,10 +136,12 @@ export default function RenovacaoContactAttemptForm({
         const newData = {
           ...curData,
           tratativa_em: nowIso,
+          tratativa_status_key: renovacaoStatus,
           tratativa_atendeu: atendeu,
           tratativa_by: userId,
         };
         await supabase.from("crm_renovacoes").update({ data: newData }).eq("id", renovacaoId);
+        onSaved?.(newData);
       }
 
 
@@ -177,7 +179,9 @@ export default function RenovacaoContactAttemptForm({
       }
 
       reset();
-      onSaved?.();
+      if (!(atendeu === "sim" && marcou === "sim")) {
+        onSaved?.();
+      }
     } catch (err: any) {
       console.error("RenovacaoContactAttemptForm save error:", err);
       toast.error("Erro ao registrar contato: " + (err?.message || "tente novamente"));

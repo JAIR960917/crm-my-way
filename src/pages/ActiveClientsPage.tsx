@@ -666,11 +666,11 @@ export default function ActiveClientsPage() {
     const tratativaAtendeu = (d?.tratativa_atendeu as string | undefined) || null;
 
     let cardBorderClass = "";
-    if (tratativaAtendeu === "sim") cardBorderClass = "border-emerald-500 bg-emerald-500/10 shadow-emerald-500/20 shadow-md";
-    else if (tratativaAtendeu === "nao") cardBorderClass = "border-red-500 bg-red-500/10 shadow-red-500/20 shadow-md";
-    else if (hasOverdue) cardBorderClass = "border-red-500 bg-red-500/10 shadow-red-500/20 shadow-md";
+    if (hasOverdue) cardBorderClass = "border-red-500 bg-red-500/10 shadow-red-500/20 shadow-md";
     else if (hasToday) cardBorderClass = "border-amber-400 bg-amber-500/5";
     else if (hasPending) cardBorderClass = "border-blue-400/50 bg-blue-500/5";
+    else if (tratativaAtendeu === "sim") cardBorderClass = "border-emerald-500 bg-emerald-500/10 shadow-emerald-500/20 shadow-md";
+    else if (tratativaAtendeu === "nao") cardBorderClass = "border-red-500 bg-red-500/10 shadow-red-500/20 shadow-md";
 
     const nextActivity = [...pending].sort(
       (a, b) => new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime()
