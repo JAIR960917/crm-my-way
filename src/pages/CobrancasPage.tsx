@@ -403,14 +403,6 @@ export default function CobrancasPage() {
     return map;
   }, [activities]);
 
-  // Cobrancas with recent interaction (completed task or notes) — go to the END when no pending task
-  const cobrancasWithRecentActivity = useMemo(() => {
-    const ids = new Set<string>();
-    activities.filter(a => a.completed_at).forEach(a => ids.add(a.cobranca_id));
-    noteIds.forEach(id => ids.add(id));
-    return ids;
-  }, [activities, noteIds]);
-
   // Ordena grupos pela parcela mais antiga (vencimento ASC) — mais antigas no topo.
   // Empate cai para prioridade de tarefa para manter relevância.
   const sortGroupsByTaskPriority = useCallback((groups: CobrancaGroup[]) => {
@@ -424,18 +416,17 @@ export default function CobrancasPage() {
       }
       return min;
     };
-    // Grupo com tratativa registrada na coluna atual vai para o fim da lista,
-    // ordenado pela tratativa mais antiga primeiro (FIFO no rodapé).
+    // Grupo com tratativa registrada na coluna atual e sem tarefa pendente vai para o fim da lista.
     const tratativaTs = (g: CobrancaGroup): number => {
-      let max = 0;
+      let latest = 0;
       for (const it of g.items) {
         const d: any = (it as any).data || {};
         if (d?.tratativa_em && d?.tratativa_status_key === it.status) {
           const t = new Date(String(d.tratativa_em)).getTime();
-          if (!isNaN(t) && t > max) max = t;
+          if (!isNaN(t) && t > latest) latest = t;
         }
       }
-      return max;
+      return latest;
     };
     return [...groups].sort((a, b) => {
       const ta = tratativaTs(a);
@@ -443,7 +434,7 @@ export default function CobrancasPage() {
       const aHas = ta > 0 ? 1 : 0;
       const bHas = tb > 0 ? 1 : 0;
       if (aHas !== bHas) return aHas - bHas; // sem tratativa primeiro
-      if (aHas && bHas) return ta - tb;       // ambos com tratativa: mais antiga primeiro
+      if (aHas && bHas) return ta - tb;       // ambos com tratativa: mais antiga primeiro no bloco final
       const va = oldestVencimento(a);
       const vb = oldestVencimento(b);
       if (va !== vb) return va - vb; // mais antiga primeiro
@@ -894,6 +885,7 @@ export default function CobrancasPage() {
         companies={companies}
         saving={saving}
         onSave={handleSave}
+        onCardUpdated={() => setRefreshKey((k) => k + 1)}
         canReassign={isAdmin || isGerente}
       />
 

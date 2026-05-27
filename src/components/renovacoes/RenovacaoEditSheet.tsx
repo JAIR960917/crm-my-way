@@ -55,6 +55,7 @@ type Props = {
   fields: FormField[];
   saving: boolean;
   onSave: (e: React.FormEvent) => void;
+  onCardUpdated?: () => void;
   canReassign: boolean;
   ssoticaClienteId?: number | null;
   ssoticaCompanyId?: string | null;
@@ -78,7 +79,7 @@ export default function RenovacaoEditSheet(props: Props) {
   const {
     open, onOpenChange, renovacaoId, formData, setFormData,
     formStatus, setFormStatus, formAssigned, setFormAssigned,
-    formValor, setFormValor, statuses, profiles, fields, saving, onSave, canReassign,
+    formValor, setFormValor, statuses, profiles, fields, saving, onSave, onCardUpdated, canReassign,
     ssoticaClienteId, ssoticaCompanyId,
   } = props;
   const { user, isAdmin } = useAuth();
@@ -109,6 +110,10 @@ export default function RenovacaoEditSheet(props: Props) {
   const [tratativaRegistrada, setTratativaRegistrada] = useState(false);
   const [contactDirty, setContactDirty] = useState(false);
   const requiresTratativa = isEditing && !isAdmin;
+  const hasAnyTasks = activities.length > 0;
+  const hasPendingTasks = useMemo(() => activities.some(a => !a.completed_at), [activities]);
+  const hasTratativa = useMemo(() => tratativaRegistrada || !!formData.tratativa_em, [tratativaRegistrada, formData.tratativa_em]);
+  const canCloseOrSave = !requiresTratativa || hasTratativa || hasAnyTasks;
 
   const fetchTimeline = async () => {
     if (!renovacaoId) return;
@@ -139,8 +144,8 @@ export default function RenovacaoEditSheet(props: Props) {
       toast.error("Você iniciou uma tratativa. Clique em \"Salvar contato\" para concluir antes de fechar.");
       return;
     }
-    if (!next && requiresTratativa && !tratativaRegistrada) {
-      toast.error("Registre uma tratativa antes de fechar esta renovação.");
+    if (!next && !canCloseOrSave) {
+      toast.error("Registre uma tratativa ou adicione uma tarefa antes de fechar.");
       return;
     }
     onOpenChange(next);
@@ -182,7 +187,7 @@ export default function RenovacaoEditSheet(props: Props) {
       toast.success("Tarefa criada");
       setTaskOpen(false); setTaskTitle(""); setTaskDescription(""); setTaskDate(undefined); setTaskTime("09:00");
       fetchTimeline();
-      setTratativaRegistrada(true);
+      onCardUpdated?.();
     }
     setSavingTask(false);
   };
@@ -190,7 +195,7 @@ export default function RenovacaoEditSheet(props: Props) {
   const toggleTaskComplete = async (a: Activity) => {
     const newVal = a.completed_at ? null : new Date().toISOString();
     const { error } = await supabase.from("renovacao_activities" as any).update({ completed_at: newVal } as any).eq("id", a.id);
-    if (error) toast.error("Erro"); else { fetchTimeline(); if (newVal) setTratativaRegistrada(true); }
+    if (error) toast.error("Erro"); else { fetchTimeline(); onCardUpdated?.(); }
   };
 
   const deleteActivity = async (id: string) => {
@@ -225,7 +230,7 @@ export default function RenovacaoEditSheet(props: Props) {
       scheduled_date: dt.toISOString(),
     } as any).eq("id", editingTaskId);
     if (error) toast.error("Erro ao atualizar tarefa");
-    else { toast.success("Tarefa atualizada"); setEditingTaskId(null); fetchTimeline(); setTratativaRegistrada(true); }
+    else { toast.success("Tarefa atualizada"); setEditingTaskId(null); fetchTimeline(); onCardUpdated?.(); }
     setSavingEditTask(false);
   };
 
@@ -353,9 +358,9 @@ export default function RenovacaoEditSheet(props: Props) {
           </div>
           <ScrollArea className="sm:flex-1">
             <form onSubmit={(e) => {
-              if (requiresTratativa && !tratativaRegistrada) {
+              if (!canCloseOrSave) {
                 e.preventDefault();
-                toast.error("Registre uma tratativa antes de salvar esta renovação.");
+                toast.error("Registre uma tratativa ou adicione uma tarefa antes de salvar.");
                 return;
               }
               onSave(e);
@@ -494,10 +499,10 @@ export default function RenovacaoEditSheet(props: Props) {
               {/* Tentativa de contato — visível para todos os usuários (admin, gerente, vendedor) */}
               {tab === "atividade" && renovacaoId && user && (
                 <div className="px-5 py-3 border-b">
-                  {requiresTratativa && !tratativaRegistrada && (
+                  {!canCloseOrSave && (
                     <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-start gap-2">
                       <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                      <span>É obrigatório registrar uma tratativa antes de fechar ou salvar esta renovação.</span>
+                      <span>Registre uma tratativa ou adicione uma tarefa antes de fechar o card.</span>
                     </div>
                   )}
                   <RenovacaoContactAttemptForm
@@ -511,10 +516,12 @@ export default function RenovacaoEditSheet(props: Props) {
                       const telefone = phoneField ? String(formData[`field_${phoneField.id}`] || "") : "";
                       return { nome, telefone, idade: "" };
                     })()}
-                    onSaved={() => {
+                    onSaved={(updatedData) => {
+                      if (updatedData) setFormData((prev) => ({ ...prev, ...updatedData }));
                       setTratativaRegistrada(true);
                       setContactDirty(false);
                       fetchTimeline();
+                      onCardUpdated?.();
                     }}
                     onDirtyChange={setContactDirty}
                   />
