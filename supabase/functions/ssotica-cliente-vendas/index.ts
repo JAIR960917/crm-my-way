@@ -251,7 +251,13 @@ Deno.serve(async (req) => {
             const k = String(cid);
             diag.cliente_ids_encontrados[k] = (diag.cliente_ids_encontrados[k] || 0) + 1;
           }
-          if (cid !== targetClienteId) continue;
+          // Aceita venda se cliente.id bate OU se o CPF da venda bate com o CPF informado.
+          const vendaCpf = onlyDigits(
+            String(venda?.cliente?.cpf ?? venda?.cliente?.documento ?? venda?.cliente?.cpf_cnpj ?? "")
+          );
+          const matchById = cid === targetClienteId;
+          const matchByCpf = cpfDigits.length >= 11 && vendaCpf && vendaCpf === cpfDigits;
+          if (!matchById && !matchByCpf) continue;
           counts.set(tgt.ssoticaCompanyId, (counts.get(tgt.ssoticaCompanyId) || 0) + 1);
           vendasCliente.push({
             id: venda.id,
