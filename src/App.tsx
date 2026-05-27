@@ -52,6 +52,7 @@ import TransitionLogsPage from "./pages/TransitionLogsPage";
 import DashboardPage from "./pages/DashboardPage";
 import SalesReportPage from "./pages/SalesReportPage";
 import MeuDashboardPage from "./pages/MeuDashboardPage";
+import CobrancaDashboardPage from "./pages/CobrancaDashboardPage";
 import MaintenancePage from "./pages/MaintenancePage";
 import NotFound from "./pages/NotFound";
 
