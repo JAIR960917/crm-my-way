@@ -132,6 +132,31 @@ function summarizeApiPayload(result: any, maxLen = 400): string {
   }
 }
 
+/** Erro 463 = NackCallerReachoutTimelocked (limite WhatsApp para contato sem conversa recente). */
+function isWhatsAppError463(message: string): boolean {
+  return /\b463\b/.test(message);
+}
+
+function translateApiFullError(message: string): string {
+  const raw = (message || "").trim();
+  if (!raw) return raw;
+  if (isWhatsAppError463(raw)) {
+    return (
+      "WhatsApp recusou o envio (erro 463): limite para iniciar conversa com este número. " +
+      "O cliente precisa ter conversado antes ou enviar uma mensagem primeiro; " +
+      "após restrição da conta, novas conversas podem ficar bloqueadas por alguns dias. " +
+      "Tente enviar manualmente pelo celular da instância e aguarde a resposta do cliente."
+    );
+  }
+  if (/\b400\b/.test(raw) && /unknown|server returned/i.test(raw)) {
+    return (
+      "API recusou o envio (erro 400). Verifique se a instância está conectada, " +
+      "se o telefone está correto e se a mensagem não viola regras do WhatsApp."
+    );
+  }
+  return raw;
+}
+
 async function sendMessage(session: string, apiKey: string, phone: string, text: string, imageUrl?: string | null) {
   const endpoint = imageUrl ? "/send-image" : "/send-message";
   const body: Record<string, any> = imageUrl
@@ -879,6 +904,9 @@ serve(async (req) => {
           const { phone, name } = resolveCardFields(moduleKey, data, nameFields, phoneFields);
           if (!phone) continue;
 
+          // Erro 463: pausa reenvio automático até "Reenviar gatilhos com erro" no admin
+          if (data.envio_erro_codigo === "463") continue;
+
           // ----- LOCK por entrada na coluna -----
           // Só envia UMA vez por entrada do card na coluna, INDEPENDENTE de
           // qual campanha disparou. Isso evita que dois gatilhos distintos
@@ -1028,7 +1056,9 @@ serve(async (req) => {
                   });
                 }
               } else {
-                const errMsg = result.errorMessage || "Erro";
+                const rawErr = result.errorMessage || "Erro";
+                const errMsg = translateApiFullError(rawErr);
+                const is463 = isWhatsAppError463(rawErr);
                 await supabase.rpc("mark_whatsapp_trigger_send_error", {
                   p_campaign_id: tc.id,
                   p_step_id: step.id,
@@ -1043,21 +1073,23 @@ serve(async (req) => {
                 // NÃO trava o card. Apenas avança o rrIndex para a próxima instância tentar no próximo ciclo.
                 if (useMultiRoundRobin || useGlobalCobrancasFallback) {
                   rrIndex++;
-                } else {
-                  // Falha transitória (restrição/desconexão): registra erro mas NÃO trava o card —
-                  // o cron tenta de novo no próximo ciclo via claim_whatsapp_trigger_send.
-                  await supabase
-                    .from(cfg.dataTable)
-                    .update({
-                      data: {
-                        ...data,
-                        envio_erro: errMsg,
-                        envio_erro_em: nowIso,
-                        envio_erro_campaign_id: tc.id,
-                        envio_erro_campaign_name: tc.name,
-                      },
-                    })
-                    .eq("id", card.id);
+                }
+                const errPayload: Record<string, any> = {
+                  ...data,
+                  envio_erro: errMsg,
+                  envio_erro_em: nowIso,
+                  envio_erro_campaign_id: tc.id,
+                  envio_erro_campaign_name: tc.name,
+                };
+                if (is463) {
+                  errPayload.envio_erro_codigo = "463";
+                  errPayload.gatilho_enviado_em = nowIso;
+                  errPayload.gatilho_status_key = statusKey;
+                  errPayload.gatilho_campaign_id = tc.id;
+                  errPayload.gatilho_campaign_name = tc.name;
+                  await supabase.from(cfg.dataTable).update({ data: errPayload }).eq("id", card.id);
+                } else if (!useMultiRoundRobin && !useGlobalCobrancasFallback) {
+                  await supabase.from(cfg.dataTable).update({ data: errPayload }).eq("id", card.id);
                 }
                 if (isCobrancas) {
                   await supabase.from("crm_cobranca_flow_events").insert({
@@ -1074,6 +1106,7 @@ serve(async (req) => {
                       instance_name: instanceName,
                       step_position: step.position,
                       error: errMsg,
+                      error_code: is463 ? 463 : undefined,
                       api_response: summarizeApiPayload(result.raw),
                     },
                   });
@@ -1081,7 +1114,9 @@ serve(async (req) => {
               }
 
             } catch (e) {
-              const errMsg = e instanceof Error ? e.message : "Unknown error";
+              const rawErr = e instanceof Error ? e.message : "Unknown error";
+              const errMsg = translateApiFullError(rawErr);
+              const is463 = isWhatsAppError463(rawErr);
               await supabase.rpc("mark_whatsapp_trigger_send_error", {
                 p_campaign_id: tc.id,
                 p_step_id: step.id,
@@ -1094,22 +1129,25 @@ serve(async (req) => {
               const nowIso = new Date().toISOString();
               if (useMultiRoundRobin || useGlobalCobrancasFallback) {
                 rrIndex++;
-              } else {
-                await supabase
-                  .from(cfg.dataTable)
-                  .update({
-                    data: {
-                      ...data,
-                      envio_erro: errMsg,
-                      envio_erro_em: nowIso,
-                      envio_erro_campaign_id: tc.id,
-                      envio_erro_campaign_name: tc.name,
-                    },
-                  })
-                  .eq("id", card.id);
+              }
+              const errPayload: Record<string, any> = {
+                ...data,
+                envio_erro: errMsg,
+                envio_erro_em: nowIso,
+                envio_erro_campaign_id: tc.id,
+                envio_erro_campaign_name: tc.name,
+              };
+              if (is463) {
+                errPayload.envio_erro_codigo = "463";
+                errPayload.gatilho_enviado_em = nowIso;
+                errPayload.gatilho_status_key = statusKey;
+                errPayload.gatilho_campaign_id = tc.id;
+                errPayload.gatilho_campaign_name = tc.name;
+                await supabase.from(cfg.dataTable).update({ data: errPayload }).eq("id", card.id);
+              } else if (!useMultiRoundRobin && !useGlobalCobrancasFallback) {
+                await supabase.from(cfg.dataTable).update({ data: errPayload }).eq("id", card.id);
               }
               if (isCobrancas) {
-
                 const instanceName = sessionToInstanceName.get(session!) || session!;
                 await supabase.from("crm_cobranca_flow_events").insert({
                   cobranca_id: card.id,
@@ -1125,6 +1163,7 @@ serve(async (req) => {
                     instance_name: instanceName,
                     step_position: step.position,
                     error: errMsg,
+                    error_code: is463 ? 463 : undefined,
                   },
                 });
               }
