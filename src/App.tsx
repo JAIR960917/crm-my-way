@@ -39,6 +39,7 @@ import ProfilePage from "./pages/ProfilePage";
 import InstallPage from "./pages/InstallPage";
 import NotificationSettingsPage from "./pages/NotificationSettingsPage";
 import WhatsAppPage from "./pages/WhatsAppPage";
+import WhatsAppInboxDemoPage from "./pages/WhatsAppInboxDemoPage";
 import AppointmentsPage from "./pages/AppointmentsPage";
 import OrcamentosPage from "./pages/OrcamentosPage";
 
@@ -137,6 +138,7 @@ const AppRoutes = () => {
       <Route path="/perfil" element={<RoleGate><ProfilePage /></RoleGate>} />
       <Route path="/notificacoes" element={<RoleGate><NotificationSettingsPage /></RoleGate>} />
       <Route path="/whatsapp" element={<RoleGate><WhatsAppPage /></RoleGate>} />
+      <Route path="/whatsapp-inbox-demo" element={<RoleGate><WhatsAppInboxDemoPage /></RoleGate>} />
       <Route path="/agendamentos" element={<RoleGate><AppointmentsPage /></RoleGate>} />
       <Route path="/orcamentos" element={<RoleGate><OrcamentosPage /></RoleGate>} />
 

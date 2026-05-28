@@ -57,6 +57,7 @@ const navItems: NavItem[] = [
   { path: "/configuracoes",        label: "Configurações",          icon: Settings },
   { path: "/notificacoes",         label: "Notificações",           icon: Bell },
   { path: "/whatsapp",             label: "WhatsApp",               icon: MessageSquare },
+  { path: "/whatsapp-inbox-demo",  label: "Inbox WhatsApp (demo)",  icon: MessageSquare },
   { path: "/importar",             label: "Importar Leads",         icon: Upload },
   { path: "/integracoes-ssotica",  label: "Integrações SSótica",    icon: Plug },
   { path: "/status-ssotica",       label: "Status SSótica",         icon: Activity },
