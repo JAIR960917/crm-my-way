@@ -652,9 +652,11 @@ export default function TransitionLogsPage() {
                       const detalhe =
                         e.event_type === "avancou_coluna" && e.next_status_label
                           ? `${e.status_label ?? "—"} → ${e.next_status_label}`
-                          : e.event_type === "gatilho_enviado" || e.event_type === "gatilho_falhou"
-                            ? e.whatsapp_trigger_campaign_name ?? e.details?.error ?? "—"
-                            : e.details?.tratativa ?? e.details?.note ?? "—";
+                          : e.event_type === "gatilho_falhou"
+                            ? (e.details?.error || e.details?.reason || e.whatsapp_trigger_campaign_name || "—")
+                            : e.event_type === "gatilho_enviado"
+                              ? (e.whatsapp_trigger_campaign_name ?? "—")
+                              : e.details?.tratativa ?? e.details?.note ?? "—";
                       return (
                         <TableRow key={e.id}>
                           <TableCell className="whitespace-nowrap text-sm">
@@ -668,7 +670,14 @@ export default function TransitionLogsPage() {
                           <TableCell className="text-sm text-muted-foreground">
                             {String(instancia)}
                           </TableCell>
-                          <TableCell className="text-sm text-muted-foreground max-w-[280px] truncate" title={String(detalhe)}>
+                          <TableCell
+                            className="text-sm text-muted-foreground max-w-[280px] truncate"
+                            title={
+                              e.event_type === "gatilho_falhou"
+                                ? [e.details?.error, e.details?.api_response].filter(Boolean).join(" | ")
+                                : String(detalhe)
+                            }
+                          >
                             {String(detalhe)}
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">

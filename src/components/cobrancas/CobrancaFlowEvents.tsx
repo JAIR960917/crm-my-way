@@ -157,7 +157,9 @@ export default function CobrancaFlowEvents({ cobrancaId, cobrancaData, currentSt
                 )}
                 {e.event_type === "gatilho_falhou" && (
                   <p className="text-red-600">
-                    Falha ao enviar gatilho <strong>{e.whatsapp_trigger_campaign_name || ""}</strong>: {e.details?.error || e.details?.reason || "erro"}
+                    Falha ao enviar gatilho <strong>{e.whatsapp_trigger_campaign_name || ""}</strong>
+                    {e.details?.instance_name ? <> via <strong>{String(e.details.instance_name)}</strong></> : null}
+                    : {e.details?.error || e.details?.reason || "erro"}
                   </p>
                 )}
                 <p className="text-[10px] text-muted-foreground">{fmt(e.created_at)}</p>

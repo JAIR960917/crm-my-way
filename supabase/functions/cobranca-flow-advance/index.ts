@@ -47,6 +47,44 @@ function applyPlaceholders(text: string, data: Record<string, any>): string {
   return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => String(map[k] ?? data[k] ?? ""));
 }
 
+const SUCCESS_TOKENS = ["success", "sucesso", "sent", "enviado", "accepted", "queued", "ok"];
+const ERROR_TOKENS = [
+  "error", "erro", "failed", "failure", "invalid", "invalido", "inválido",
+  "offline", "disconnected", "desconect", "not connected", "não conectado",
+  "nao conectado", "not found", "forbidden", "blocked",
+  "restri", "banimento", "banido", "bloqueio", "limite excedido",
+];
+
+function extractApiMessages(result: any) {
+  return [
+    result?.message, result?.mensagem, result?.error, result?.msg, result?.status,
+    result?.data?.message, result?.data?.mensagem, result?.data?.error, result?.data?.msg, result?.data?.status,
+  ].map((v) => (typeof v === "string" ? v.trim() : "")).filter(Boolean);
+}
+
+function includesToken(values: string[], tokens: string[]) {
+  const haystack = values.join(" ").toLowerCase();
+  return tokens.some((t) => haystack.includes(t));
+}
+
+function resolveSendResult(responseOk: boolean, result: any) {
+  const messages = extractApiMessages(result);
+  const fallback = messages[0] || "A API Full não confirmou o envio da mensagem";
+  const boolFlags = [
+    result?.success,
+    result?.sucesso,
+    result?.data?.success,
+    result?.data?.sucesso,
+  ].filter((v) => typeof v === "boolean");
+
+  if (!responseOk) return { ok: false, error: fallback };
+  if (boolFlags.includes(false)) return { ok: false, error: fallback };
+  if (includesToken(messages, ERROR_TOKENS)) return { ok: false, error: fallback };
+  if (boolFlags.includes(true) || includesToken(messages, SUCCESS_TOKENS)) return { ok: true, error: null };
+  if (responseOk) return { ok: true, error: null };
+  return { ok: false, error: fallback };
+}
+
 async function sendMessage(apiKey: string, session: string, phone: string, text: string, imageUrl?: string | null) {
   const endpoint = imageUrl ? "/send-image" : "/send-message";
   const body: Record<string, any> = imageUrl
@@ -60,14 +98,14 @@ async function sendMessage(apiKey: string, session: string, phone: string, text:
   const t = await res.text();
   let json: any = null;
   try { json = t ? JSON.parse(t) : null; } catch { json = { raw: t }; }
-  if (!res.ok) return { ok: false, error: json?.message || json?.error || `HTTP ${res.status}` };
-  return { ok: true, raw: json };
+  const resolved = resolveSendResult(res.ok, json);
+  return { ok: resolved.ok, error: resolved.error, raw: json };
 }
 
 async function resolveSession(supabase: any, instanceId: string | null, companyId: string | null): Promise<string | null> {
   if (instanceId) {
     const { data } = await supabase.from("whatsapp_instances").select("session, is_active").eq("id", instanceId).maybeSingle();
-    if (data?.is_active) return data.session;
+    if (data?.session) return data.session;
   }
   if (companyId) {
     const { data } = await supabase.from("whatsapp_instances").select("session").eq("company_id", companyId).eq("is_active", true).maybeSingle();
@@ -146,7 +184,9 @@ serve(async (req) => {
 
       // ---- COLUNA AUTO: garantir disparo do gatilho ----
       if (flow.column_type === "auto") {
-        const sentForThisStatus = data.gatilho_status_key === cob.status && data.gatilho_enviado_em;
+        const sentForThisStatus = data.gatilho_status_key === cob.status
+          && data.gatilho_enviado_em
+          && !data.envio_erro;
         const phoneRawDedupe = String(data.telefone || data.phone || data.celular || "").replace(/\D/g, "");
         const leadKey = `${cob.status}::${(cob as any).ssotica_cliente_id || phoneRawDedupe || cob.id}`;
         if (!sentForThisStatus && !triggeredLeadsByStatus.has(leadKey) && flow.whatsapp_trigger_campaign_id) {
@@ -228,6 +268,16 @@ serve(async (req) => {
                 triggeredLeadsByStatus.add(leadKey);
                 stats.gatilhos_enviados++;
               } else {
+                const errMsg = (result as any).error || "envio_falhou";
+                await supabase.from("crm_cobrancas").update({
+                  data: {
+                    ...data,
+                    envio_erro: errMsg,
+                    envio_erro_em: new Date().toISOString(),
+                    envio_erro_campaign_id: campaign.id,
+                    envio_erro_campaign_name: campaign.name,
+                  },
+                }).eq("id", cob.id);
                 await supabase.from("crm_cobranca_flow_events").insert({
                   cobranca_id: cob.id,
                   status_id: statusObj.id,
@@ -236,7 +286,7 @@ serve(async (req) => {
                   event_type: "gatilho_falhou",
                   whatsapp_trigger_campaign_id: campaign.id,
                   whatsapp_trigger_campaign_name: campaign.name,
-                  details: { error: (result as any).error || "envio_falhou" },
+                  details: { error: errMsg, session, phone },
                 });
                 stats.gatilhos_falhos++;
               }

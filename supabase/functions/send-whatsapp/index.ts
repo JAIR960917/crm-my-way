@@ -38,6 +38,7 @@ const ERROR_TOKENS = [
   "error", "erro", "failed", "failure", "invalid", "invalido", "inválido",
   "offline", "disconnected", "desconect", "not connected", "não conectado",
   "nao conectado", "not found", "forbidden", "blocked",
+  "restri", "banimento", "banido", "bloqueio", "limite excedido",
 ];
 
 // ========== Module configuration ==========
@@ -106,13 +107,29 @@ function includesToken(values: string[], tokens: string[]) {
 function resolveSendResult(responseOk: boolean, result: any) {
   const messages = extractApiMessages(result);
   const fallback = messages[0] || "A API Full não confirmou o envio da mensagem";
-  const boolFlags = [result?.success, result?.sucesso, result?.data?.success].filter((v) => typeof v === "boolean");
+  const boolFlags = [
+    result?.success,
+    result?.sucesso,
+    result?.data?.success,
+    result?.data?.sucesso,
+  ].filter((v) => typeof v === "boolean");
 
   if (!responseOk) return { ok: false, errorMessage: fallback };
   if (boolFlags.includes(false)) return { ok: false, errorMessage: fallback };
   if (includesToken(messages, ERROR_TOKENS)) return { ok: false, errorMessage: fallback };
   if (boolFlags.includes(true) || includesToken(messages, SUCCESS_TOKENS)) return { ok: true, errorMessage: null };
-  return { ok: false, errorMessage: "A API Full respondeu sem confirmar claramente que a mensagem foi enviada" };
+  // API Full costuma responder HTTP 200 com formatos variados (dados, id, etc.)
+  if (responseOk) return { ok: true, errorMessage: null };
+  return { ok: false, errorMessage: fallback };
+}
+
+function summarizeApiPayload(result: any, maxLen = 400): string {
+  try {
+    const s = JSON.stringify(result ?? {});
+    return s.length > maxLen ? `${s.slice(0, maxLen)}…` : s;
+  } catch {
+    return String(result ?? "");
+  }
 }
 
 async function sendMessage(session: string, apiKey: string, phone: string, text: string, imageUrl?: string | null) {
@@ -129,7 +146,8 @@ async function sendMessage(session: string, apiKey: string, phone: string, text:
   const responseText = await response.text();
   let result: any = null;
   try { result = responseText ? JSON.parse(responseText) : null; } catch { result = { raw: responseText }; }
-  return resolveSendResult(response.ok, result);
+  const resolved = resolveSendResult(response.ok, result);
+  return { ...resolved, raw: result, httpStatus: response.status };
 }
 
 // Delay between WhatsApp sends to avoid being banned (default 30s, configurable via system_settings)
@@ -250,9 +268,13 @@ async function resolveSession(supabase: any, instanceId: string | null): Promise
       .from("whatsapp_instances")
       .select("session, is_active")
       .eq("id", instanceId)
-      .single();
-    if (data?.is_active) return data.session;
-    return null;
+      .maybeSingle();
+    if (!data?.session) return null;
+    // is_active no CRM pode estar desatualizado; a sessão ainda é usada se existir
+    if (data.is_active === false) {
+      console.warn(`[send-whatsapp] instância ${instanceId} marcada inativa, tentando sessão mesmo assim`);
+    }
+    return data.session;
   }
   const { data } = await supabase
     .from("system_settings")
@@ -439,7 +461,10 @@ serve(async (req) => {
 
   try {
     const APIFULL_API_KEY = Deno.env.get("APIFULL_API_KEY");
-    if (!APIFULL_API_KEY) throw new Error("APIFULL_API_KEY is not configured");
+    if (!APIFULL_API_KEY) {
+      console.error("[send-whatsapp] APIFULL_API_KEY ausente no container supabase-edge-functions — configure no .env da VPS e reinicie o serviço");
+      throw new Error("APIFULL_API_KEY is not configured");
+    }
 
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -1043,7 +1068,14 @@ serve(async (req) => {
                     event_type: "gatilho_falhou",
                     whatsapp_trigger_campaign_id: tc.id,
                     whatsapp_trigger_campaign_name: tc.name,
-                    details: { phone: cp, session, instance_name: instanceName, step_position: step.position, error: errMsg },
+                    details: {
+                      phone: cp,
+                      session,
+                      instance_name: instanceName,
+                      step_position: step.position,
+                      error: errMsg,
+                      api_response: summarizeApiPayload(result.raw),
+                    },
                   });
                 }
               }
@@ -1087,7 +1119,13 @@ serve(async (req) => {
                   event_type: "gatilho_falhou",
                   whatsapp_trigger_campaign_id: tc.id,
                   whatsapp_trigger_campaign_name: tc.name,
-                  details: { phone: cp, session, instance_name: instanceName, step_position: step.position, error: errMsg },
+                  details: {
+                    phone: cp,
+                    session,
+                    instance_name: instanceName,
+                    step_position: step.position,
+                    error: errMsg,
+                  },
                 });
               }
             }
