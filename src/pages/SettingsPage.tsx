@@ -130,38 +130,52 @@ export default function SettingsPage() {
   };
 
 
+  const fileToBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.includes(",") ? result.split(",")[1] : result);
+      };
+      reader.onerror = () => reject(new Error("Falha ao ler o arquivo"));
+      reader.readAsDataURL(file);
+    });
+
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setUploading(true);
-    const ext = file.name.split(".").pop();
-    const fileName = `logo_${Date.now()}.${ext}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("logos")
-      .upload(fileName, file, { upsert: true });
-
-    if (uploadError) {
-      toast.error("Erro ao enviar logo");
-      setUploading(false);
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Arquivo muito grande (máx. 5 MB)");
+      e.target.value = "";
       return;
     }
 
-    const { data: urlData } = supabase.storage.from("logos").getPublicUrl(fileName);
-    const publicUrl = urlData.publicUrl;
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+      const fileName = `logo_${Date.now()}.${ext}`;
+      const data = await fileToBase64(file);
+      const contentType = file.type || "image/png";
 
-    setValues((prev) => ({ ...prev, logo_url: publicUrl }));
+      const { data: result, error } = await supabase.functions.invoke("upload-system-logo", {
+        body: { fileName, contentType, data },
+      });
 
-    // Save immediately
-    await supabase
-      .from("system_settings")
-      .update({ setting_value: publicUrl, updated_at: new Date().toISOString() })
-      .eq("setting_key", "logo_url");
+      if (error) throw new Error(error.message);
+      if (result?.error) throw new Error(result.error);
 
-    await refresh();
-    toast.success("Logo atualizada!");
-    setUploading(false);
+      const publicUrl = resolveStoragePublicUrl(result.publicUrl as string);
+      setValues((prev) => ({ ...prev, logo_url: publicUrl }));
+      await refresh();
+      toast.success("Logo atualizada!");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao enviar logo";
+      toast.error(msg);
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
   };
 
   const handleRemoveLogo = async () => {
