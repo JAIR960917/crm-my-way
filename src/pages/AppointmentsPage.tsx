@@ -456,7 +456,7 @@ export default function AppointmentsPage() {
                 if (cpaga === false) {
                   rowColor = "bg-red-700/30 hover:bg-red-700/40";
                 } else if (cpaga === true) {
-                  if (car === "pagamento_no_dia") rowColor = "bg-green-400/15 hover:bg-green-400/25";
+                  if (car === "pagamento_no_dia") rowColor = "bg-cyan-600/30 hover:bg-cyan-600/40";
                   else rowColor = "bg-green-700/40 hover:bg-green-700/50";
                 }
                 return (
