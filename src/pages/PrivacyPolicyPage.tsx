@@ -7,13 +7,13 @@ export default function PrivacyPolicyPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-3xl mx-auto px-4 py-10 prose prose-sm dark:prose-invert">
-        <h1>Política de Privacidade — CRM MyWay</h1>
+        <h1>Política de Privacidade — Óticas Joonker</h1>
         <p className="text-muted-foreground">Última atualização: maio de 2026</p>
 
         <h2>1. Quem somos</h2>
         <p>
-          O CRM MyWay é um sistema de gestão de relacionamento com clientes (CRM) utilizado por empresas
-          do varejo óptico para organizar leads, cobranças, renovações e comunicação com clientes,
+          A Óticas Joonker utiliza um sistema de gestão de relacionamento com clientes (CRM)
+          para organizar leads, cobranças, renovações e comunicação com clientes do varejo óptico,
           incluindo mensagens pelo WhatsApp Business API quando autorizado pelo titular.
         </p>
 
@@ -27,8 +27,8 @@ export default function PrivacyPolicyPage() {
 
         <h2>3. Finalidade do uso</h2>
         <p>
-          Os dados são usados exclusivamente para operação do CRM: atendimento, cobrança, renovação de contratos,
-          campanhas autorizadas e cumprimento de obrigações contratuais entre a empresa usuária e seus clientes.
+          Os dados são usados exclusivamente para operação do CRM da Óticas Joonker: atendimento, cobrança,
+          renovação de contratos, campanhas autorizadas e cumprimento de obrigações contratuais com nossos clientes.
         </p>
 
         <h2>4. WhatsApp e Meta</h2>
@@ -53,14 +53,14 @@ export default function PrivacyPolicyPage() {
         <h2>7. Direitos do titular</h2>
         <p>
           O titular dos dados pessoais pode solicitar acesso, correção ou exclusão entrando em contato com a
-          empresa que o cadastrou no CRM ou pelo canal indicado em{" "}
+          Óticas Joonker ou pelo canal indicado em{" "}
           <a href={`${site}/exclusao-dados`}>Solicitação de exclusão de dados</a>.
         </p>
 
         <h2>8. Contato</h2>
         <p>
-          Para dúvidas sobre esta política, utilize o canal de suporte da sua empresa ou o administrador
-          do sistema CRM MyWay na sua organização.
+          Para dúvidas sobre esta política, entre em contato com a Óticas Joonker pelo canal de atendimento
+          indicado em sua loja ou com o administrador do sistema na organização.
         </p>
       </div>
     </div>

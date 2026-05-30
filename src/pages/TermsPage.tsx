@@ -5,19 +5,20 @@ export default function TermsPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-3xl mx-auto px-4 py-10 prose prose-sm dark:prose-invert">
-        <h1>Termos de Uso — CRM MyWay</h1>
+        <h1>Termos de Uso — Óticas Joonker</h1>
         <p className="text-muted-foreground">Última atualização: maio de 2026</p>
 
         <h2>1. Aceite</h2>
         <p>
-          Ao acessar o CRM MyWay, o usuário declara ter lido e aceito estes termos em nome da empresa
-          contratante do serviço.
+          Ao acessar o sistema CRM da Óticas Joonker, o usuário declara ter lido e aceito estes termos
+          em nome da organização autorizada a utilizar o serviço.
         </p>
 
         <h2>2. Serviço</h2>
         <p>
-          O CRM MyWay oferece ferramentas de gestão de leads, kanban, cobranças, relatórios e, opcionalmente,
-          envio de mensagens via WhatsApp Business API após configuração e aprovação junto à Meta.
+          A Óticas Joonker oferece, por meio de seu CRM, ferramentas de gestão de leads, kanban, cobranças,
+          relatórios e, opcionalmente, envio de mensagens via WhatsApp Business API após configuração e
+          aprovação junto à Meta.
         </p>
 
         <h2>3. Responsabilidades da empresa usuária</h2>
@@ -45,7 +46,7 @@ export default function TermsPage() {
         <p>
           O software é fornecido &quot;como está&quot;, dentro dos limites permitidos pela lei aplicável.
           Danos indiretos decorrentes de mau uso ou de terceiros (incluindo Meta) não são indenizáveis pelo
-          provedor do CRM além do acordado contratualmente com a empresa cliente.
+          provedor do CRM além do acordado contratualmente com a Óticas Joonker.
         </p>
 
         <h2>7. Alterações</h2>

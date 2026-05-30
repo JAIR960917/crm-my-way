@@ -5,26 +5,25 @@ export default function DataDeletionPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-3xl mx-auto px-4 py-10 prose prose-sm dark:prose-invert">
-        <h1>Exclusão de dados — CRM MyWay</h1>
+        <h1>Exclusão de dados — Óticas Joonker</h1>
         <p className="text-muted-foreground">Última atualização: maio de 2026</p>
 
         <h2>Como solicitar a exclusão</h2>
         <p>
-          Se você é cliente final de uma ótica que usa o CRM MyWay e deseja que seus dados pessoais
-          sejam removidos:
+          Se você é cliente da Óticas Joonker e deseja que seus dados pessoais
+          sejam removidos do nosso CRM:
         </p>
         <ol>
           <li>
-            Entre em contato diretamente com a empresa (ótica) que possui seus dados — ela é a
-            controladora dos dados no CRM.
+            Entre em contato diretamente com a Óticas Joonker — somos a controladora dos dados
+            cadastrados no sistema.
           </li>
           <li>
-            Se não souber o contato, envie e-mail ao administrador do CRM da empresa informando nome
-            completo e telefone cadastrado.
+            Informe nome completo e telefone cadastrado para localizarmos seu registro.
           </li>
           <li>
-            A empresa usuária do CRM deverá excluir ou anonimizar o cadastro nas telas de Leads,
-            Cobranças ou Renovação, conforme o módulo onde você aparece.
+            Excluiremos ou anonimizaremos o cadastro nas áreas de Leads, Cobranças ou Renovação,
+            conforme o módulo onde você aparece.
           </li>
         </ol>
 
