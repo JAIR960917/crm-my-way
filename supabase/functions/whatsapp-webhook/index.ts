@@ -13,7 +13,7 @@ const corsHeaders = {
 };
 
 async function verifySignature(payload: string, signatureHeader: string | null, appSecret: string): Promise<boolean> {
-  if (!signatureHeader || !appSecret) return !appSecret;
+  if (!appSecret || !signatureHeader) return false;
   const expected = signatureHeader.replace(/^sha256=/, "");
   const key = await crypto.subtle.importKey(
     "raw",
@@ -67,18 +67,24 @@ serve(async (req) => {
     return new Response("Method not allowed", { status: 405, headers: corsHeaders });
   }
 
+  if (!APP_SECRET) {
+    console.error("[whatsapp-webhook] WHATSAPP_APP_SECRET não configurado");
+    return new Response(JSON.stringify({ error: "Webhook not configured" }), {
+      status: 503,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const rawBody = await req.text();
   const signature = req.headers.get("x-hub-signature-256");
 
-  if (APP_SECRET) {
-    const valid = await verifySignature(rawBody, signature, APP_SECRET);
-    if (!valid) {
-      console.warn("[whatsapp-webhook] assinatura inválida");
-      return new Response(JSON.stringify({ error: "Invalid signature" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+  const valid = await verifySignature(rawBody, signature, APP_SECRET);
+  if (!valid) {
+    console.warn("[whatsapp-webhook] assinatura inválida ou ausente");
+    return new Response(JSON.stringify({ error: "Invalid signature" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
   let body: Record<string, unknown>;

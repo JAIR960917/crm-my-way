@@ -98,7 +98,7 @@ export default function AppSidebar({ onNavigate }: Props) {
     // /notificacoes é sempre liberado pelo AuthContext
     if (item.path === "/notificacoes") return true;
     // Item sem chave catalogada → sempre exibe
-    if (!pageKeyForPath(item.path)) return true;
+    if (!pageKeyForPath(item.path)) return false;
     return canAccessPath(item.path);
   };
 

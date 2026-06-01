@@ -228,6 +228,9 @@ services:
              kong.service.request.clear_header("authorization")
            end
 
+ # Edge functions: JWT/role validados em supabase/functions/main (bloqueio anon).
+ # whatsapp-webhook e seed-admin são exceções (Meta / bootstrap com x-bootstrap-secret).
+ # key-auth aqui quebraria o webhook da Meta (sem apikey).
  - name: functions-v1
    url: http://supabase-edge-functions:9000/
    read_timeout: 150000

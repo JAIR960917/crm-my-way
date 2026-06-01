@@ -1,4 +1,5 @@
 import * as jose from 'https://deno.land/x/jose@v4.14.4/index.ts';
+import { JWT_EXEMPT_SERVICES, rejectAnonJwt } from '../_shared/jwtGate.ts';
 
 console.log('main function started');
 
@@ -62,13 +63,15 @@ async function isValidHybridJWT(jwt: string): Promise<boolean> {
   return false;
 }
 
-/** Funções chamadas pela Meta (webhook) ou sem JWT de usuário. */
-const JWT_EXEMPT_SERVICES = new Set(['whatsapp-webhook']);
-
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const serviceName = url.pathname.split('/')[1] || '';
   const skipJwt = JWT_EXEMPT_SERVICES.has(serviceName);
+
+  if (req.method !== 'OPTIONS' && !skipJwt) {
+    const anonBlock = rejectAnonJwt(req, serviceName);
+    if (anonBlock) return anonBlock;
+  }
 
   if (req.method !== 'OPTIONS' && VERIFY_JWT && !skipJwt) {
     try {

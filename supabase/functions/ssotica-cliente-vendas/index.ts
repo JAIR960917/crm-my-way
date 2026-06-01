@@ -2,6 +2,11 @@
 // Busca o histórico completo de vendas (com itens/produtos) de um cliente SSótica
 // em UMA OU MAIS lojas (integrações).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import {
+  companyAllowed,
+  getAllowedCompanyIds,
+  getUserFromRequest,
+} from "../_shared/staffAuth.ts";
 
 const SSOTICA_BASE = "https://app.ssotica.com.br/api/v1/integracoes";
 const corsHeaders = {
@@ -85,24 +90,18 @@ Deno.serve(async (req) => {
       );
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const admin = createClient(supabaseUrl, serviceKey);
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Não autenticado" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const { data: { user } } = await supabase.auth.getUser(
-      authHeader.replace("Bearer ", ""),
-    );
-    if (!user) {
-      return new Response(JSON.stringify({ error: "Não autenticado" }), {
-        status: 401,
+    const { user, response: authResp } = await getUserFromRequest(req, supabaseUrl, serviceKey);
+    if (authResp) return authResp;
+
+    const allowedCompanies = await getAllowedCompanyIds(admin, user!.id);
+    const mainCompanyId = String(ssoticaCompanyId);
+    if (!companyAllowed(allowedCompanies, mainCompanyId)) {
+      return new Response(JSON.stringify({ error: "Sem permissão para esta loja" }), {
+        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -122,7 +121,7 @@ Deno.serve(async (req) => {
       const tables = ["crm_cobrancas", "crm_renovacoes"];
       const results = await Promise.all(
         tables.map((t) =>
-          supabase
+          admin
             .from(t)
             .select("ssotica_cliente_id, ssotica_company_id")
             .not("ssotica_cliente_id", "is", null)
@@ -134,11 +133,13 @@ Deno.serve(async (req) => {
       for (const { data } of results) {
         for (const r of (data ?? []) as any[]) {
           if (!r.ssotica_cliente_id || !r.ssotica_company_id) continue;
-          const key = `${r.ssotica_company_id}:${r.ssotica_cliente_id}`;
+          const cid = String(r.ssotica_company_id);
+          if (!companyAllowed(allowedCompanies, cid)) continue;
+          const key = `${cid}:${r.ssotica_cliente_id}`;
           if (!targetSet.has(key)) {
             targetSet.set(key, {
               ssoticaClienteId: Number(r.ssotica_cliente_id),
-              ssoticaCompanyId: String(r.ssotica_company_id),
+              ssoticaCompanyId: cid,
             });
           }
         }
@@ -147,11 +148,11 @@ Deno.serve(async (req) => {
 
     const companyIds = Array.from(new Set(Array.from(targetSet.values()).map((t) => t.ssoticaCompanyId)));
     const [{ data: integs }, { data: companiesRows }] = await Promise.all([
-      supabase
+      admin
         .from("ssotica_integrations")
         .select("company_id, cnpj, bearer_token, is_active")
         .in("company_id", companyIds),
-      supabase.from("companies").select("id, name").in("id", companyIds),
+      admin.from("companies").select("id, name").in("id", companyIds),
     ]);
     const companyName = new Map<string, string>(
       ((companiesRows ?? []) as any[]).map((c) => [String(c.id), String(c.name)]),
@@ -160,7 +161,7 @@ Deno.serve(async (req) => {
     for (const i of (integs ?? []) as any[]) {
       if (!i.is_active) continue;
       if (i.bearer_token && String(i.bearer_token).startsWith("enc:")) {
-        const { data: dec } = await supabase.rpc("decrypt_secret", { _ciphertext: i.bearer_token });
+        const { data: dec } = await admin.rpc("decrypt_secret", { _ciphertext: i.bearer_token });
         if (typeof dec === "string") i.bearer_token = dec;
       }
       integByCompany.set(String(i.company_id), i);

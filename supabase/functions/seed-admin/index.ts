@@ -1,8 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-bootstrap-secret",
 };
 
 Deno.serve(async (req) => {
@@ -10,9 +11,18 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  const bootstrapSecret = Deno.env.get("SEED_ADMIN_SECRET") || "";
+  const provided = req.headers.get("x-bootstrap-secret") || "";
+  if (!bootstrapSecret || bootstrapSecret.length < 16 || provided !== bootstrapSecret) {
+    return new Response(JSON.stringify({ error: "Bootstrap não autorizado" }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const supabaseAdmin = createClient(
     Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
   const { email, password, full_name } = await req.json();
@@ -24,7 +34,6 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Check if any admin already exists — this is the ONLY time this function works
   const { data: existingAdmins } = await supabaseAdmin
     .from("user_roles")
     .select("id")
@@ -38,7 +47,6 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Validate input lengths to prevent abuse
   if (email.length > 254 || password.length < 8 || password.length > 128) {
     return new Response(JSON.stringify({ error: "Email ou senha inválidos" }), {
       status: 400,
@@ -46,7 +54,6 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Create admin user
   const { data: user, error } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
@@ -61,7 +68,6 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Assign admin role
   await supabaseAdmin.from("user_roles").insert({
     user_id: user.user.id,
     role: "admin",

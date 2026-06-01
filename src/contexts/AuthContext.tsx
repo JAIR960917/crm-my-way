@@ -169,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (ALWAYS_ALLOWED_PATHS.has(path)) return true;
     if (roleKey === "admin") return true;
     const key = pageKeyForPath(path);
-    if (!key) return true; // rota não catalogada → não bloqueia (ex: dialogs)
+    if (!key) return false; // rota não catalogada → negada (exceto ALWAYS_ALLOWED_PATHS)
     return allowedPages.has(key);
   };
 

@@ -2,6 +2,11 @@
 // Faz uma chamada simples na API SSótica para validar token + CNPJ/Código
 // e retorna a URL exata + resposta crua para debug.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import {
+  assertAdminOrGerente,
+  assertCanAccessIntegration,
+  getUserFromRequest,
+} from "../_shared/staffAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,12 +32,23 @@ Deno.serve(async (req) => {
       });
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const admin = createClient(supabaseUrl, serviceKey);
 
-    const { data: integ, error } = await supabase
+    const { user, response: authResp } = await getUserFromRequest(req, supabaseUrl, serviceKey);
+    if (authResp) return authResp;
+    const staffBlock = await assertAdminOrGerente(admin, user!.id, corsHeaders);
+    if (staffBlock) return staffBlock;
+    const { response: integBlock } = await assertCanAccessIntegration(
+      admin,
+      user!.id,
+      integrationId,
+      corsHeaders,
+    );
+    if (integBlock) return integBlock;
+
+    const { data: integ, error } = await admin
       .from("ssotica_integrations")
       .select("id, cnpj, license_code, bearer_token")
       .eq("id", integrationId)
@@ -48,11 +64,11 @@ Deno.serve(async (req) => {
 
     // Descriptografa tokens criptografados em repouso
     if (integ.bearer_token && integ.bearer_token.startsWith("enc:")) {
-      const { data: dec } = await supabase.rpc("decrypt_secret", { _ciphertext: integ.bearer_token });
+      const { data: dec } = await admin.rpc("decrypt_secret", { _ciphertext: integ.bearer_token });
       if (typeof dec === "string") integ.bearer_token = dec;
     }
     if (integ.license_code && integ.license_code.startsWith("enc:")) {
-      const { data: dec } = await supabase.rpc("decrypt_secret", { _ciphertext: integ.license_code });
+      const { data: dec } = await admin.rpc("decrypt_secret", { _ciphertext: integ.license_code });
       if (typeof dec === "string") integ.license_code = dec;
     }
 
