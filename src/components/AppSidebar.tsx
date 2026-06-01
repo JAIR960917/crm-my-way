@@ -42,11 +42,11 @@ type NavItem = {
 const mainNavItemsBeforeConfig: NavItem[] = [
   { path: "/dashboard",            label: "Dashboard",              icon: BarChart3 },
   { path: "/meu-dashboard",        label: "Meu Dashboard",          icon: LayoutDashboard },
+  { path: "/meu-dashboard-cobranca", label: "Dashboard Cobrança",   icon: LayoutDashboard },
   { path: "/relatorio-vendas",     label: "Relatório de Vendas",    icon: FileBarChart },
   { path: "/",                     label: "Leads",                  icon: LayoutDashboard },
   { path: "/cobrancas",            label: "Cobranças",              icon: Receipt },
   { path: "/cobrancas/fluxo",      label: "Fluxo Cobrança",         icon: Workflow },
-  { path: "/meu-dashboard-cobranca", label: "Dashboard Cobrança",   icon: LayoutDashboard },
   { path: "/agendamentos",         label: "Agendamentos",           icon: CalendarCheck },
   { path: "/orcamentos",           label: "Orçamentos",             icon: Receipt },
   { path: "/clientes-ativos",      label: "Renovação",              icon: UserCheck },
