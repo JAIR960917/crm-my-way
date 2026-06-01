@@ -1419,7 +1419,8 @@ async function syncContasReceber(
               ? statusKeyForRenovacao(dias)
               : DIRECIONAMENTO_STATUS;
           } else {
-            renStatusKey = resolvedAssignedTo ? DIRECIONAMENTO_STATUS : "novo";
+            // Com responsável mas sem data de compra → "novo" (não ficar em direcionamento).
+            renStatusKey = resolvedAssignedTo ? "novo" : DIRECIONAMENTO_STATUS;
           }
 
           const { data: insertedRen } = await supabase
@@ -1823,13 +1824,15 @@ async function syncVendas(
           : flowStatus;
       // Atualiza se a data de referência é mais recente OU se o status precisa mudar de coluna pelo tempo
       const dataMaisRecente = !existingRenovacao.data_ultima_compra || existingRenovacao.data_ultima_compra < dataReferencia;
+      const stuckInDirecionamento =
+        hasAssignedVendedor && existingRenovacao.status === DIRECIONAMENTO_STATUS && !isManualStatus;
       const statusMudou = existingRenovacao.status !== newStatus;
       const assignedMudou = (existingRenovacao.assigned_to ?? null) !== resolvedAssignedTo;
       const renovacaoDataMudou = stableStringify(existingRenovacao.data ?? null) !== stableStringify(renovacaoData);
       const vendaMudou = Number(existingRenovacao.ssotica_venda_id ?? 0) !== Number(info.vendaId ?? 0);
       const valorMudou = Number(existingRenovacao.valor ?? 0) !== Number(info.valor ?? 0);
       const scheduledMudou = (existingRenovacao.scheduled_date ?? null) !== (dataReferencia ?? null);
-      if (dataMaisRecente || statusMudou || assignedMudou || renovacaoDataMudou || vendaMudou || valorMudou || scheduledMudou) {
+      if (dataMaisRecente || statusMudou || assignedMudou || stuckInDirecionamento || renovacaoDataMudou || vendaMudou || valorMudou || scheduledMudou) {
         await supabase
           .from("crm_renovacoes")
           .update({

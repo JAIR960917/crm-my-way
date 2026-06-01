@@ -354,7 +354,11 @@ export default function ActiveClientsPage() {
       const { data, error } = await supabase.functions.invoke("auto-assign-renovacoes", { body });
       if (error) throw error;
       const total = (data as any)?.total_assigned ?? 0;
-      toast.success(`${total} lead${total !== 1 ? "s" : ""} distribuído${total !== 1 ? "s" : ""} entre os vendedores`);
+      const fixed = (data as any)?.total_flow_fixed ?? 0;
+      const parts: string[] = [];
+      if (total > 0) parts.push(`${total} lead${total !== 1 ? "s" : ""} distribuído${total !== 1 ? "s" : ""}`);
+      if (fixed > 0) parts.push(`${fixed} movido${fixed !== 1 ? "s" : ""} para o fluxo normal`);
+      toast.success(parts.length > 0 ? parts.join("; ") : "Nenhum lead pendente de distribuição ou correção");
       setRefreshKey((k) => k + 1);
     } catch (e: any) {
       toast.error(e?.message || "Erro ao distribuir leads");

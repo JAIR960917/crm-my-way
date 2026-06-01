@@ -88,6 +88,8 @@ type Props = {
   statusLabels: Record<string, string>;
   leadId?: string | null;
   onActivityChange?: () => void;
+  /** Atualiza o kanban quando a tratativa move o lead de coluna (ex.: Recomendação → fluxo normal). */
+  onLeadStatusChange?: (fromStatus: string, toStatus: string, lead: Record<string, unknown>) => void;
 };
 
 const normalizeKey = (value: string) =>
@@ -279,7 +281,7 @@ export default function LeadFormDialog({
   open, onOpenChange, profiles, companies, currentUserName,
   formData, setFormData, formStatus, setFormStatus, formAssigned,
   setFormAssigned, saving, isEditing, canReassign, onSubmit, statusOptions, statusLabels,
-  leadId, onActivityChange,
+  leadId, onActivityChange, onLeadStatusChange,
 }: Props) {
   const { user, isAdmin } = useAuth();
   const [fields, setFields] = useState<FormField[]>([]);
@@ -927,7 +929,8 @@ export default function LeadFormDialog({
                     setTratativaRegistrada(true);
                     setContactDirty(false);
                     fetchNotes();
-                    onActivityChange?.();
+
+                    const previousStatus = formStatus;
 
                     // Após registrar uma tratativa, se o lead está em uma coluna
                     // definida pela "Forma de captação" (ex.: Recomendação), reavalia
@@ -935,36 +938,47 @@ export default function LeadFormDialog({
                     // do campo de captação no formulário.
                     try {
                       if (!leadId) return;
+
                       let newStatus = resolveLeadStatusFromData(
                         formData,
                         fields as any,
-                        { excludeFieldsMappingTo: [formStatus], fallbackStatus: undefined },
+                        { excludeFieldsMappingTo: [previousStatus], fallbackStatus: undefined },
                       );
 
-                      // Se nenhuma regra resolveu, move para a primeira coluna do funil
-                      // que não seja a atual (evita lead "preso" em Recomendação).
                       if (!newStatus) {
                         const { data: statuses } = await supabase
                           .from("crm_statuses")
                           .select("key, position")
                           .order("position", { ascending: true });
-                        const first = (statuses ?? []).find((s: any) => s.key !== formStatus);
+                        const first = (statuses ?? []).find((s: any) => s.key !== previousStatus);
                         if (first) newStatus = (first as any).key;
                       }
 
-                      if (newStatus && newStatus !== formStatus) {
+                      if (newStatus && newStatus !== previousStatus) {
                         const { error: upErr } = await supabase
                           .from("crm_leads")
                           .update({ status: newStatus })
                           .eq("id", leadId);
-                        if (!upErr) {
-                          setFormStatus(newStatus);
-                          onActivityChange?.();
+                        if (!upErr) setFormStatus(newStatus);
+                      }
+
+                      const { data: fresh } = await supabase
+                        .from("crm_leads")
+                        .select("id, data, status, assigned_to, created_by, created_at, scheduled_date, comprou")
+                        .eq("id", leadId)
+                        .maybeSingle();
+
+                      if (fresh) {
+                        const resolvedStatus = (fresh.status as string) || newStatus || previousStatus;
+                        if (resolvedStatus !== previousStatus) {
+                          onLeadStatusChange?.(previousStatus, resolvedStatus, fresh as Record<string, unknown>);
                         }
                       }
                     } catch (e) {
                       console.error("[tratativa] falha ao reavaliar status:", e);
                     }
+
+                    onActivityChange?.();
                   }}
                   onDirtyChange={setContactDirty}
                 />

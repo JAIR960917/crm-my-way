@@ -641,6 +641,44 @@ export default function LeadsPage() {
     else toast.success(value ? "Marcado como cliente ativo" : "Marcação removida");
   };
 
+  const refreshLeadSecondaryMeta = useCallback(async () => {
+    try {
+      const [{ data: activeAppts }, { data: actData }, { data: noteData }] = await Promise.all([
+        supabase.from("crm_appointments").select("lead_id").eq("status", "agendado"),
+        supabase.from("lead_activities").select("id, lead_id, title, scheduled_date, completed_at"),
+        supabase.from("crm_lead_notes").select("lead_id"),
+      ]);
+      setAppointedLeadIds(new Set((activeAppts || []).map((a: { lead_id: string }) => a.lead_id)));
+      setLeadActivities((actData || []) as LeadActivity[]);
+      setLeadNoteIds(new Set((noteData || []).map((n: { lead_id: string }) => n.lead_id)));
+    } catch {
+      /* notas/atividades são secundárias */
+    }
+  }, []);
+
+  const handleLeadStatusChange = useCallback(
+    (fromStatus: string, toStatus: string, raw: Record<string, unknown>) => {
+      const lead = raw as Lead;
+      if (!lead?.id) return;
+
+      if (fromStatus === toStatus) {
+        patchItem(lead.id, { data: lead.data } as Partial<Lead>);
+        setEditingLead((prev) => (prev?.id === lead.id ? { ...prev, data: lead.data } : prev));
+        setLeadNoteIds((prev) => new Set([...prev, lead.id]));
+        void refreshLeadSecondaryMeta();
+        return;
+      }
+
+      const fromColItem = paginatedColumns[fromStatus]?.items.find((it) => it.id === lead.id);
+      const merged: Lead = { ...(fromColItem || editingLead || lead), ...lead, status: toStatus };
+      updateItemStatus(lead.id, fromStatus, toStatus, merged);
+      setEditingLead((prev) => (prev?.id === lead.id ? merged : prev));
+      setFormStatus(toStatus);
+      setLeadNoteIds((prev) => new Set([...prev, lead.id]));
+      void refreshLeadSecondaryMeta();
+    },
+    [paginatedColumns, editingLead, updateItemStatus, patchItem, refreshLeadSecondaryMeta],
+  );
 
   const onDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
@@ -1045,7 +1083,8 @@ export default function LeadsPage() {
         statusOptions={statusOptions}
         statusLabels={statusLabels}
         leadId={editingLead?.id}
-        onActivityChange={fetchAll}
+        onActivityChange={refreshLeadSecondaryMeta}
+        onLeadStatusChange={handleLeadStatusChange}
       />
 
       <ScheduleLeadDialog

@@ -211,10 +211,37 @@ Deno.serve(async (req) => {
       totalAssigned += assignedHere;
     }
 
+    // Cards já com responsável presos na coluna de direcionamento → fluxo por data.
+    let totalFlowFixed = 0;
+    let fixFrom = 0;
+    const FIX_PAGE = 500;
+    while (true) {
+      let fixQ = admin
+        .from("crm_renovacoes")
+        .select("id, data_ultima_compra, ssotica_company_id")
+        .eq("status", DIRECIONAMENTO_STATUS)
+        .not("assigned_to", "is", null)
+        .range(fixFrom, fixFrom + FIX_PAGE - 1);
+      if (targetCompany) fixQ = fixQ.eq("ssotica_company_id", targetCompany);
+      const { data: stuckPage } = await fixQ;
+      const stuck = (stuckPage ?? []) as { id: string; data_ultima_compra: string | null; ssotica_company_id: string | null }[];
+      for (const row of stuck) {
+        if (allowedCompanies && row.ssotica_company_id && !allowedCompanies.includes(row.ssotica_company_id)) {
+          continue;
+        }
+        const newStatus = flowStatusFromDate(row.data_ultima_compra);
+        const { error } = await admin.from("crm_renovacoes").update({ status: newStatus }).eq("id", row.id);
+        if (!error) totalFlowFixed++;
+      }
+      if (stuck.length < FIX_PAGE) break;
+      fixFrom += FIX_PAGE;
+    }
+
     return new Response(
       JSON.stringify({
         ok: true,
         total_assigned: totalAssigned,
+        total_flow_fixed: totalFlowFixed,
         companies: perCompany,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },

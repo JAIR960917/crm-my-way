@@ -39,6 +39,27 @@ type MetaStatus = {
 
 type TemplateRow = { name: string; status: string; category: string; language: string };
 
+/** Extrai mensagem legível quando a edge function responde 4xx/5xx. */
+async function parseEdgeFunctionError(
+  data: unknown,
+  error: { message?: string; context?: { json?: () => Promise<unknown> } } | null,
+): Promise<string> {
+  const fromData = (data as { error?: string } | null)?.error;
+  if (fromData) return fromData;
+  if (error?.context?.json) {
+    try {
+      const body = (await error.context.json()) as { error?: string };
+      if (body?.error) return body.error;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (error?.message?.includes("non-2xx")) {
+    return "Falha na API Meta ou credenciais no servidor. Verifique WHATSAPP_ACCESS_TOKEN (token completo) e WHATSAPP_WABA_ID no .env da VPS.";
+  }
+  return error?.message || "Erro desconhecido";
+}
+
 export default function WhatsAppMetaSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -57,7 +78,7 @@ export default function WhatsAppMetaSettings() {
 
   const invokeMeta = async (body: Record<string, unknown>) => {
     const { data, error } = await supabase.functions.invoke("meta-whatsapp", { body });
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(await parseEdgeFunctionError(data, error));
     if (data?.error) throw new Error(data.error);
     return data;
   };
