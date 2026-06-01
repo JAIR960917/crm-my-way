@@ -55,8 +55,6 @@ const mainNavItemsBeforeConfig: NavItem[] = [
 const mainNavItemsAfterConfig: NavItem[] = [
   { path: "/whatsapp",             label: "WhatsApp",               icon: MessageSquare },
   { path: "/whatsapp-inbox-demo",  label: "Inbox WhatsApp (demo)",  icon: MessageSquare },
-  { path: "/status-ssotica",       label: "Status SSótica",         icon: Activity },
-  { path: "/logs-movimentacao",    label: "Logs Movimentação",      icon: History },
 ];
 
 /** Submenu Configuração (cadastros, formulários, integrações). */
@@ -70,6 +68,8 @@ const configNavItems: NavItem[] = [
   { path: "/notificacoes",         label: "Notificações",           icon: Bell },
   { path: "/importar",             label: "Importar Leads",         icon: Upload },
   { path: "/integracoes-ssotica",  label: "Integrações SSótica",    icon: Plug },
+  { path: "/status-ssotica",       label: "Status SSótica",         icon: Activity },
+  { path: "/logs-movimentacao",    label: "Logs Movimentação",      icon: History },
 ];
 
 const CONFIG_PATHS = new Set(configNavItems.map((i) => i.path));
