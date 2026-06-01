@@ -80,6 +80,20 @@ export function companyAllowed(
   return allowed.has(companyId);
 }
 
+/** Somente administrador. */
+export async function assertAdmin(
+  admin: SupabaseClient,
+  userId: string,
+  corsHeaders: Record<string, string>,
+): Promise<Response | null> {
+  const roles = await getUserRoles(admin, userId);
+  if (roles.includes("admin")) return null;
+  return new Response(JSON.stringify({ error: "Acesso negado" }), {
+    status: 403,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 /** Admin ou gerente (painel SSótica). */
 export async function assertAdminOrGerente(
   admin: SupabaseClient,

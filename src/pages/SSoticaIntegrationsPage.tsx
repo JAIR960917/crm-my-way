@@ -46,13 +46,6 @@ import {
   StopCircle,
 } from "lucide-react";
 import { UserMappingDialog } from "@/components/ssotica/UserMappingDialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -171,8 +164,6 @@ export default function SSoticaIntegrationsPage() {
   const [testResult, setTestResult] = useState<any | null>(null);
   const [logsFor, setLogsFor] = useState<Integration | null>(null);
   const [logs, setLogs] = useState<SyncLog[]>([]);
-  const [syncHour, setSyncHour] = useState<string>("6");
-  const [savingHour, setSavingHour] = useState(false);
   const [mappingFor, setMappingFor] = useState<Company | null>(null);
   const [stoppingAll, setStoppingAll] = useState(false);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
@@ -277,42 +268,13 @@ export default function SSoticaIntegrationsPage() {
 
   async function fetchAll() {
     setLoading(true);
-    const [{ data: comps }, { data: integs }, { data: setting }] = await Promise.all([
+    const [{ data: comps }, { data: integs }] = await Promise.all([
       supabase.from("companies").select("id, name, cnpj").order("name"),
       supabase.from("ssotica_integrations").select("*"),
-      supabase.from("system_settings").select("setting_value").eq("setting_key", "ssotica_sync_hour").maybeSingle(),
     ]);
     setCompanies(comps ?? []);
     setIntegrations(integs ?? []);
-    if (setting?.setting_value) setSyncHour(setting.setting_value);
     setLoading(false);
-  }
-
-  async function handleSaveHour() {
-    setSavingHour(true);
-    try {
-      const { data: existing } = await supabase
-        .from("system_settings")
-        .select("id")
-        .eq("setting_key", "ssotica_sync_hour")
-        .maybeSingle();
-      if (existing) {
-        await supabase.from("system_settings").update({ setting_value: syncHour }).eq("id", existing.id);
-      } else {
-        await supabase.from("system_settings").insert({ setting_key: "ssotica_sync_hour", setting_value: syncHour });
-      }
-      const { error } = await supabase.rpc("manage_ssotica_cron" as any);
-      if (error) throw error;
-      const h = parseInt(syncHour, 10);
-      const horarios = [h, (h + 6) % 24, (h + 12) % 24, (h + 18) % 24]
-        .map((x) => String(x).padStart(2, "0") + "h")
-        .join(", ");
-      toast({ title: "Horário salvo", description: `Sincronização agendada a cada 6h: ${horarios} (Brasília).` });
-    } catch (e: any) {
-      toast({ title: "Erro ao salvar horário", description: e.message, variant: "destructive" });
-    } finally {
-      setSavingHour(false);
-    }
   }
 
   useEffect(() => {
@@ -349,11 +311,26 @@ export default function SSoticaIntegrationsPage() {
 
     // Por segurança o bearer_token NUNCA é trazido para o navegador (fica criptografado no banco).
     // O admin deixa em branco para manter o atual ou digita um novo para substituir.
-    // O license_code é descriptografado via RPC apenas para edição.
     let licenseDecrypted = integration?.license_code ?? "";
-    if (integration && licenseDecrypted.startsWith("enc:")) {
-      const { data } = await supabase.rpc("admin_decrypt_license", { _integration_id: integration.id });
-      if (typeof data === "string") licenseDecrypted = data;
+    if (integration?.license_code?.startsWith("enc:")) {
+      const { data, error } = await supabase.functions.invoke("ssotica-decrypt-license", {
+        body: { integration_id: integration.id },
+      });
+      if (error) {
+        toast({
+          title: "Não foi possível ler a licença",
+          description: error.message,
+          variant: "destructive",
+        });
+      } else if (data?.error) {
+        toast({
+          title: "Não foi possível ler a licença",
+          description: String(data.error),
+          variant: "destructive",
+        });
+      } else if (typeof data?.license_code === "string") {
+        licenseDecrypted = data.license_code;
+      }
     }
 
     setForm({
