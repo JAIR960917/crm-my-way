@@ -277,6 +277,7 @@ async function enqueueSsoticaSyncDispatch(
     _auth: dispatchConfig.auth,
     _integration_id: integrationId,
     _force_full: payload.force_full === true,
+    _continue_backfill: payload.continue_backfill === true,
   });
   if (dispatchErr) throw dispatchErr;
   return "rpc";
@@ -2276,7 +2277,7 @@ async function runBackfillChunk(
         const dispatchMethod = await enqueueSsoticaSyncDispatch(
           supabase,
           dispatchConfig,
-          { integration_id: integ.id, force_full: false },
+          { integration_id: integ.id, force_full: false, continue_backfill: true },
           `continuar backfill empresa=${integ.company_id}`,
         );
         console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} próxima execução enfileirada via ${dispatchMethod}`);
@@ -2517,6 +2518,20 @@ Deno.serve(async (req) => {
 
       if (unlockError) throw unlockError;
 
+      if (hasPendingBackfill) {
+        await setManualBackfillOwner(supabase, onlyIntegrationId);
+        try {
+          await enqueueSsoticaSyncDispatch(
+            supabase,
+            dispatchConfig,
+            { integration_id: onlyIntegrationId, force_full: false, continue_backfill: true },
+            "retomar após destravar",
+          );
+        } catch (dispatchError) {
+          console.error("[ssotica-sync][force_unlock] falha ao enfileirar retomada:", dispatchError);
+        }
+      }
+
       return new Response(JSON.stringify({
         ok: true,
         mode: "force_unlock",
@@ -2601,7 +2616,7 @@ Deno.serve(async (req) => {
       await enqueueSsoticaSyncDispatch(
         supabase,
         dispatchConfig,
-        { integration_id: onlyIntegrationId, force_full: false },
+        { integration_id: onlyIntegrationId, force_full: false, continue_backfill: true },
         "enfileirar o backfill",
       );
 
@@ -2689,7 +2704,7 @@ Deno.serve(async (req) => {
       await enqueueSsoticaSyncDispatch(
         supabase,
         dispatchConfig,
-        { integration_id: onlyIntegrationId, force_full: false },
+        { integration_id: onlyIntegrationId, force_full: false, continue_backfill: true },
         "retomar o backfill",
       );
 
@@ -2893,7 +2908,13 @@ Deno.serve(async (req) => {
 
     const manualOwnerIntegrationId = await getManualBackfillOwner(supabase);
     const isManualSingle = !!onlyIntegrationId && manualRecent;
-    const isOwnerContinuation = !!manualOwnerIntegrationId && manualOwnerIntegrationId === onlyIntegrationId;
+    const continueBackfill = body.continue_backfill === true;
+    if (continueBackfill && onlyIntegrationId) {
+      await setManualBackfillOwner(supabase, onlyIntegrationId);
+    }
+    const isOwnerContinuation =
+      (!!manualOwnerIntegrationId && manualOwnerIntegrationId === onlyIntegrationId) ||
+      continueBackfill;
 
     if (!isManualSingle && !isOwnerContinuation) {
       return automaticSyncDisabledResponse(manualOwnerIntegrationId);
@@ -2948,14 +2969,27 @@ Deno.serve(async (req) => {
       const { data: staleIntegs } = await staleQuery;
       if (staleIntegs && staleIntegs.length > 0) {
         const staleIds = staleIntegs.map((s: any) => s.id);
-        await supabase
+        const staleNow = new Date().toISOString();
+        const { data: staleRows } = await supabase
           .from("ssotica_integrations")
-          .update({
-            sync_status: "idle",
-            last_error: `Destravado automaticamente — execução excedeu ${RUNNING_SYNC_STALE_MINUTES} min sem finalizar.`,
-            updated_at: new Date().toISOString(),
-          })
+          .select("id, backfill_status, backfill_chunk_index, backfill_total_chunks")
           .in("id", staleIds);
+        for (const row of staleRows ?? []) {
+          const total = row.backfill_total_chunks ?? BACKFILL_TOTAL_CHUNKS;
+          const idx = row.backfill_chunk_index ?? 0;
+          const pendingBackfill =
+            row.backfill_status !== "done" && (total === 0 || idx < total);
+          await supabase
+            .from("ssotica_integrations")
+            .update({
+              sync_status: "idle",
+              backfill_status: pendingBackfill ? "scheduled" : row.backfill_status,
+              backfill_next_run_at: pendingBackfill ? staleNow : null,
+              last_error: `Destravado automaticamente — execução excedeu ${RUNNING_SYNC_STALE_MINUTES} min sem finalizar.`,
+              updated_at: staleNow,
+            })
+            .eq("id", row.id);
+        }
         await supabase
           .from("ssotica_sync_logs")
           .update({

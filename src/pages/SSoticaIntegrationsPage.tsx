@@ -128,22 +128,33 @@ function getLogSubtitle(log: SyncLog) {
   return parts.length > 0 ? parts.join(" · ") : "Backfill";
 }
 
-function getBackfillVisualProgress(integration?: Pick<Integration, "backfill_status" | "backfill_chunk_index" | "backfill_total_chunks"> | null) {
+function getBackfillVisualProgress(
+  integration?: Pick<
+    Integration,
+    "backfill_status" | "backfill_chunk_index" | "backfill_total_chunks" | "backfill_phase" | "sync_status"
+  > | null,
+) {
   const total = integration?.backfill_total_chunks ?? 32;
   const completed = integration?.backfill_chunk_index ?? 0;
   const status = integration?.backfill_status ?? "idle";
+  const phase = integration?.backfill_phase === "vendas" ? "renovações" : "cobranças";
   const isActive = status === "running" || status === "scheduled";
   const isDone = status === "done";
   const currentChunk = isActive && completed < total ? completed + 1 : completed;
+  const waiting =
+    status === "scheduled" && integration?.sync_status !== "running";
 
   return {
     total,
     completed,
     status,
+    phase,
     isActive,
     isDone,
+    waiting,
     currentChunk,
-    percent: total > 0 ? Math.round((currentChunk / total) * 100) : 0,
+    percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+    percentInChunk: total > 0 ? Math.round((currentChunk / total) * 100) : 0,
   };
 }
 
@@ -295,6 +306,39 @@ export default function SSoticaIntegrationsPage() {
     setLoading(false);
   }
 
+  async function handleResumeBackfill(integ: Integration) {
+    setSyncingId(integ.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("ssotica-sync", {
+        body: { mode: "resume_backfill", integration_id: integ.id },
+      });
+      if (data && (data as { error?: string }).error === "another_store_busy") {
+        toast({
+          title: "Outra loja está sincronizando",
+          description: (data as { message?: string }).message,
+          variant: "destructive",
+        });
+        return;
+      }
+      if (error) throw error;
+      if (data && !(data as { ok?: boolean }).ok && (data as { error?: string }).error) {
+        throw new Error((data as { error?: string }).error);
+      }
+      toast({
+        title: "Backfill retomado",
+        description:
+          (data as { message?: string })?.message ??
+          "O próximo lote será processado em background.",
+      });
+      await fetchAll();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Erro ao retomar";
+      toast({ title: "Erro", description: msg, variant: "destructive" });
+    } finally {
+      setSyncingId(null);
+    }
+  }
+
   useEffect(() => {
     if (!isAdmin) return;
 
@@ -317,6 +361,35 @@ export default function SSoticaIntegrationsPage() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [isAdmin]);
+
+  // Retoma lotes agendados (cron do backfill foi desligado; continuação é via edge + esta tela).
+  useEffect(() => {
+    if (!isAdmin || loading) return;
+    const waiting = integrations.filter(
+      (i) =>
+        i.is_active &&
+        i.backfill_status === "scheduled" &&
+        i.sync_status !== "running",
+    );
+    if (waiting.length === 0) return;
+
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled || document.visibilityState !== "visible") return;
+      const integ = waiting[0];
+      await supabase.functions.invoke("ssotica-sync", {
+        body: { mode: "resume_backfill", integration_id: integ.id },
+      });
+      if (!cancelled) await fetchAll();
+    };
+
+    void tick();
+    const resumeInterval = window.setInterval(() => void tick(), 90_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(resumeInterval);
+    };
+  }, [isAdmin, loading, integrations]);
 
   if (authLoading) return <div className="p-8">Carregando...</div>;
   if (!isAdmin) return <Navigate to="/" replace />;
@@ -461,7 +534,8 @@ export default function SSoticaIntegrationsPage() {
         const scopeLabel = scope === "renovacoes" ? "renovações" : scope === "cobrancas" ? "cobranças" : "completo";
         toast({
           title: `Backfill de 96 meses (${scopeLabel}) iniciado`,
-          description: "O progresso será atualizado automaticamente nesta tela conforme os próximos lotes forem concluídos.",
+          description:
+            "Mantenha esta página aberta ou use «Continuar backfill» se o lote parar. Cada loja processa um lote por vez.",
         });
       } else {
         const result = data?.results?.[0];
@@ -680,8 +754,6 @@ export default function SSoticaIntegrationsPage() {
                           const total = progress.total;
                           const done = progress.completed;
                           const status = progress.status;
-                          const phase = (integ as any).backfill_phase === "vendas" ? "vendas" : "cobranças";
-                          const remaining = Math.max(0, total - done);
                           const pct = progress.percent;
                           const isActive = progress.isActive;
                           const isDone = progress.isDone;
@@ -690,9 +762,19 @@ export default function SSoticaIntegrationsPage() {
                             <div className="pt-1 space-y-1">
                               <div className="flex items-center justify-between text-foreground">
                                 <span className="font-medium">
-                                  Backfill: {isActive ? progress.currentChunk : done}/{total}
-                                  {isActive && remaining > 0 && (
-                                    <span className="text-muted-foreground font-normal"> · {status === "running" ? `processando ${phase}` : `na fila`} · {done} concluídos</span>
+                                  Backfill: lote {progress.currentChunk}/{total}
+                                  {isActive && !isDone && (
+                                    <span className="text-muted-foreground font-normal">
+                                      {" "}
+                                      ·{" "}
+                                      {status === "running"
+                                        ? `processando ${progress.phase}`
+                                        : progress.waiting
+                                          ? "aguardando próximo lote"
+                                          : "na fila"}
+                                      {" "}
+                                      · {done} lote(s) concluído(s)
+                                    </span>
                                   )}
                                   {isDone && <span className="text-emerald-600 font-normal"> · concluído</span>}
                                 </span>
@@ -760,7 +842,23 @@ export default function SSoticaIntegrationsPage() {
                             <RefreshCw className="h-3 w-3 mr-1" />
                             Backfill Renovações
                           </Button>
-                          {((integ as any).backfill_status === "running" || (integ as any).backfill_status === "scheduled") && (
+                          {integ.backfill_status === "scheduled" && integ.sync_status !== "running" && (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              onClick={() => handleResumeBackfill(integ)}
+                              disabled={syncingId === integ.id}
+                              title="Disparar o próximo lote do backfill agora"
+                            >
+                              {syncingId === integ.id ? (
+                                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-3 w-3 mr-1" />
+                              )}
+                              Continuar backfill
+                            </Button>
+                          )}
+                          {(integ.backfill_status === "running" || integ.backfill_status === "scheduled") && (
                             <Button
                               size="sm"
                               variant="destructive"
