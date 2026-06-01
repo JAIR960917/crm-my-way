@@ -168,6 +168,24 @@ export default function SSoticaIntegrationsPage() {
   const [stoppingAll, setStoppingAll] = useState(false);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
   const [resyncingAll, setResyncingAll] = useState(false);
+  const [licenseLoading, setLicenseLoading] = useState(false);
+
+  async function parseEdgeFunctionError(
+    data: unknown,
+    error: { message?: string; context?: { json?: () => Promise<unknown> } } | null,
+  ): Promise<string> {
+    const fromData = (data as { error?: string } | null)?.error;
+    if (fromData) return fromData;
+    if (error?.context?.json) {
+      try {
+        const body = (await error.context.json()) as { error?: string };
+        if (body?.error) return body.error;
+      } catch {
+        /* ignore */
+      }
+    }
+    return error?.message || "Erro desconhecido";
+  }
 
   async function handleResyncAll() {
     const active = integrations.filter((i) => i.is_active);
@@ -308,37 +326,50 @@ export default function SSoticaIntegrationsPage() {
   async function openEdit(company: Company) {
     const integration = integrationByCompany.get(company.id);
     setEditing({ company, integration });
+    setForm({
+      cnpj: integration?.cnpj ?? company.cnpj ?? "",
+      license_code: "",
+      bearer_token: "",
+      is_active: integration?.is_active ?? true,
+    });
 
-    // Por segurança o bearer_token NUNCA é trazido para o navegador (fica criptografado no banco).
-    // O admin deixa em branco para manter o atual ou digita um novo para substituir.
-    let licenseDecrypted = integration?.license_code ?? "";
-    if (integration?.license_code?.startsWith("enc:")) {
+    const rawLicense = integration?.license_code ?? "";
+    if (!integration || !rawLicense.startsWith("enc:")) {
+      setForm((prev) => ({
+        ...prev,
+        license_code: rawLicense.startsWith("enc:") ? "" : rawLicense,
+      }));
+      return;
+    }
+
+    setLicenseLoading(true);
+    try {
       const { data, error } = await supabase.functions.invoke("ssotica-decrypt-license", {
         body: { integration_id: integration.id },
       });
       if (error) {
-        toast({
-          title: "Não foi possível ler a licença",
-          description: error.message,
-          variant: "destructive",
-        });
-      } else if (data?.error) {
-        toast({
-          title: "Não foi possível ler a licença",
-          description: String(data.error),
-          variant: "destructive",
-        });
-      } else if (typeof data?.license_code === "string") {
-        licenseDecrypted = data.license_code;
+        throw new Error(await parseEdgeFunctionError(data, error));
       }
+      if (data?.error) {
+        throw new Error(String(data.error));
+      }
+      if (typeof data?.license_code === "string") {
+        setForm((prev) => ({ ...prev, license_code: data.license_code }));
+        return;
+      }
+      throw new Error("Resposta inválida ao descriptografar licença");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Erro desconhecido";
+      toast({
+        title: "Não foi possível ler a licença salva",
+        description:
+          `${msg}. Os dados continuam no servidor — não salve este formulário com enc:.... ` +
+          "Faça deploy da função ssotica-decrypt-license na VPS ou digite o código manualmente uma vez.",
+        variant: "destructive",
+      });
+    } finally {
+      setLicenseLoading(false);
     }
-
-    setForm({
-      cnpj: integration?.cnpj ?? company.cnpj ?? "",
-      license_code: licenseDecrypted,
-      bearer_token: "",
-      is_active: integration?.is_active ?? true,
-    });
   }
 
   async function handleSave() {
@@ -346,6 +377,15 @@ export default function SSoticaIntegrationsPage() {
     const isNewIntegration = !editing.integration;
     if (!form.cnpj.trim() || (isNewIntegration && !form.bearer_token.trim())) {
       toast({ title: "Preencha CNPJ e Token", variant: "destructive" });
+      return;
+    }
+    if (form.license_code.trim().startsWith("enc:")) {
+      toast({
+        title: "Licença inválida no formulário",
+        description:
+          "O valor criptografado (enc:...) não deve ser salvo. Aguarde o carregamento ou digite o código legível do SSótica.",
+        variant: "destructive",
+      });
       return;
     }
     setSaving(true);
@@ -816,7 +856,8 @@ export default function SSoticaIntegrationsPage() {
                 id="license_code"
                 value={form.license_code}
                 onChange={(e) => setForm({ ...form, license_code: e.target.value })}
-                placeholder="Ex: SXGP-CQM3"
+                placeholder={licenseLoading ? "Carregando licença salva..." : "Ex: SXGP-CQM3"}
+                disabled={licenseLoading}
               />
               <p className="text-xs text-muted-foreground mt-1">
                 Código alfanumérico fornecido pelo SSótica. Usado no endpoint de <strong>Contas a Receber</strong>. Se vazio, usa o CNPJ.
