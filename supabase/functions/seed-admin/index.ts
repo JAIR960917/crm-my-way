@@ -41,10 +41,13 @@ Deno.serve(async (req) => {
     .limit(1);
 
   if (existingAdmins && existingAdmins.length > 0) {
-    return new Response(JSON.stringify({ error: "Acesso negado" }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        error: "Admin já existe",
+        detail: "Use o login normal no CRM. seed-admin só cria o primeiro administrador.",
+      }),
+      { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 
   if (email.length > 254 || password.length < 8 || password.length > 128) {

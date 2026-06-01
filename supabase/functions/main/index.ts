@@ -63,9 +63,17 @@ async function isValidHybridJWT(jwt: string): Promise<boolean> {
   return false;
 }
 
+function resolveServiceName(pathname: string): string {
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts.length >= 3 && parts[0] === 'functions' && parts[1] === 'v1') {
+    return parts[2] ?? '';
+  }
+  return parts[0] ?? '';
+}
+
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
-  const serviceName = url.pathname.split('/')[1] || '';
+  const serviceName = resolveServiceName(url.pathname);
   const skipJwt = JWT_EXEMPT_SERVICES.has(serviceName);
 
   if (req.method !== 'OPTIONS' && !skipJwt) {
