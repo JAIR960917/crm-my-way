@@ -65,6 +65,9 @@ type Instance = {
   session: string;
   company_id: string | null;
   is_active: boolean;
+  provider?: string | null;
+  meta_default_template?: string | null;
+  meta_template_language?: string | null;
 };
 
 type Company = { id: string; name: string };
@@ -222,11 +225,27 @@ export default function TriggerCampaigns({ instances }: Props) {
       return;
     }
     if (!user) return;
+
+    const effectiveInstanceIds = instanceIds.filter(Boolean);
+    const effectiveInstanceId = effectiveInstanceIds.length === 1 ? effectiveInstanceIds[0] : (instanceId || null);
+    const primaryInstance = effectiveInstanceId
+      ? instances.find((i) => i.id === effectiveInstanceId)
+      : effectiveInstanceIds.length === 1
+        ? instances.find((i) => i.id === effectiveInstanceIds[0])
+        : null;
+    if (primaryInstance?.provider === "meta" && !primaryInstance.meta_default_template?.trim()) {
+      toast.error(
+        "A instância Meta selecionada não tem template padrão. Configure em WhatsApp → API Meta antes de usar o gatilho.",
+      );
+      return;
+    }
+
     setSaving(true);
 
     try {
-      const effectiveInstanceIds = instanceIds.filter(Boolean);
-      const effectiveInstanceId = effectiveInstanceIds.length === 1 ? effectiveInstanceIds[0] : (instanceId || null);
+      const stepMetaTemplate =
+        primaryInstance?.provider === "meta" ? primaryInstance.meta_default_template?.trim() || null : null;
+      const stepMetaLang = primaryInstance?.meta_template_language?.trim() || "pt_BR";
 
       const basePayload: any = {
         name: name.trim(),
@@ -246,6 +265,8 @@ export default function TriggerCampaigns({ instances }: Props) {
           delay_days: s.delay_days,
           message: s.message.trim(),
           image_url: s.image_url || null,
+          meta_template_name: stepMetaTemplate,
+          meta_template_language: stepMetaLang,
         }));
 
       const resolveCompanyId = (val: string) =>
@@ -518,6 +539,17 @@ export default function TriggerCampaigns({ instances }: Props) {
                       ? "🌐 Se nenhuma marcada, usa a instância da empresa de cada lead."
                       : "Marque 2 ou mais para intercalar (alternar) os envios entre elas."}
                 </p>
+                {(instanceId || instanceIds.length > 0) &&
+                instances.some(
+                  (i) =>
+                    (instanceIds.includes(i.id) || i.id === instanceId) &&
+                    i.provider === "meta" &&
+                    !i.meta_default_template?.trim(),
+                ) ? (
+                  <p className="text-[10px] text-amber-700 dark:text-amber-300">
+                    Instância Meta sem template padrão — gatilho não envia para leads novos. Configure em WhatsApp → API Meta.
+                  </p>
+                ) : null}
               </>
             </div>
             <div className="space-y-2">

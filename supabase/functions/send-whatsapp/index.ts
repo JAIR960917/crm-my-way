@@ -491,10 +491,14 @@ serve(async (req) => {
   if (authDenied) return authDenied;
 
   try {
-    const APIFULL_API_KEY = Deno.env.get("APIFULL_API_KEY");
+    const APIFULL_API_KEY = Deno.env.get("APIFULL_API_KEY") || "";
+    const WHATSAPP_ACCESS_TOKEN = Deno.env.get("WHATSAPP_ACCESS_TOKEN") || "";
+    if (!APIFULL_API_KEY && !WHATSAPP_ACCESS_TOKEN) {
+      console.error("[send-whatsapp] Configure APIFULL_API_KEY ou WHATSAPP_ACCESS_TOKEN no servidor");
+      throw new Error("Nenhum provedor WhatsApp configurado (API Full ou Meta)");
+    }
     if (!APIFULL_API_KEY) {
-      console.error("[send-whatsapp] APIFULL_API_KEY ausente no container supabase-edge-functions — configure no .env da VPS e reinicie o serviço");
-      throw new Error("APIFULL_API_KEY is not configured");
+      console.warn("[send-whatsapp] APIFULL_API_KEY ausente — apenas instâncias Meta serão usadas");
     }
 
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
