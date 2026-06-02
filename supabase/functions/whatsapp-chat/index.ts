@@ -6,6 +6,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getUserFromRequest, getUserRoles } from "../_shared/staffAuth.ts";
 import { cleanPhone, resolveSendTargetByInstanceId, sendWhatsAppMessage, translateWhatsAppError } from "../_shared/whatsappSend.ts";
+import { insertWhatsAppMessageRow, normalizeMetaUploadMime } from "../_shared/whatsappInboxMedia.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -51,11 +52,123 @@ serve(async (req) => {
       });
     }
 
-    if (action !== "send-text" && action !== "send-template" && action !== "send-media") {
+    const GRAPH_API_VERSION = "v21.0";
+
+    if (
+      action !== "send-text" && action !== "send-template" && action !== "send-media" && action !== "get-media"
+    ) {
       return new Response(JSON.stringify({ error: `Ação desconhecida: ${action}` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    const isPrivileged = roles.some((r) => r === "admin" || r === "gerente");
+
+    async function assertConversationAccess(conversationId: string) {
+      const { data: conv, error: convErr } = await admin
+        .from("whatsapp_conversations")
+        .select("id, instance_id, wa_id")
+        .eq("id", conversationId.trim())
+        .maybeSingle();
+      if (convErr) throw convErr;
+      if (!conv) {
+        return { error: "Conversa não encontrada", status: 404, conv: null as null };
+      }
+      if (!isPrivileged && conv.instance_id) {
+        const { data: allowed, error: aErr } = await admin
+          .from("whatsapp_instance_assignments")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("instance_id", conv.instance_id)
+          .maybeSingle();
+        if (!aErr && !allowed?.id) {
+          return { error: "Você não tem acesso a este número WhatsApp", status: 403, conv: null as null };
+        }
+      }
+      return { conv, error: null as string | null, status: 200 };
+    }
+
+    if (action === "get-media") {
+      const { message_id } = body as { message_id?: string };
+      if (!message_id?.trim()) {
+        return new Response(JSON.stringify({ error: "message_id é obrigatório" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: msg, error: msgErr } = await admin
+        .from("whatsapp_messages")
+        .select("id, conversation_id, media_id, media_type, media_mime, body")
+        .eq("id", message_id.trim())
+        .maybeSingle();
+      if (msgErr) throw msgErr;
+      if (!msg) {
+        return new Response(JSON.stringify({ error: "Mensagem não encontrada" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!msg.media_id) {
+        return new Response(JSON.stringify({ error: "Mensagem sem mídia" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const access = await assertConversationAccess(String(msg.conversation_id));
+      if (!access.conv) {
+        return new Response(JSON.stringify({ error: access.error }), {
+          status: access.status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const metaRes = await fetch(
+        `https://graph.facebook.com/${GRAPH_API_VERSION}/${msg.media_id}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      const metaJson = await metaRes.json().catch(() => ({}));
+      if (!metaRes.ok) {
+        const err = (metaJson as { error?: { message?: string } })?.error?.message || "Falha ao obter URL da mídia";
+        return new Response(JSON.stringify({ error: translateWhatsAppError(err) }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const mediaUrl = String((metaJson as { url?: string }).url || "");
+      if (!mediaUrl) {
+        return new Response(JSON.stringify({ error: "Meta não retornou URL da mídia" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const fileRes = await fetch(mediaUrl);
+      if (!fileRes.ok) {
+        return new Response(JSON.stringify({ error: `Falha ao baixar mídia (${fileRes.status})` }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const buf = new Uint8Array(await fileRes.arrayBuffer());
+      let binary = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < buf.length; i += chunk) {
+        binary += String.fromCharCode(...buf.subarray(i, i + chunk));
+      }
+      const base64 = btoa(binary);
+      const mime = String((metaJson as { mime_type?: string }).mime_type || msg.media_mime || "application/octet-stream");
+
+      return new Response(JSON.stringify({
+        ok: true,
+        base64,
+        mime_type: mime,
+        media_type: msg.media_type,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const { conversation_id } = body as { conversation_id?: string };
@@ -66,39 +179,20 @@ serve(async (req) => {
       });
     }
 
-    const { data: conv, error: convErr } = await admin
-      .from("whatsapp_conversations")
-      .select("id, instance_id, wa_id")
-      .eq("id", conversation_id.trim())
-      .maybeSingle();
-    if (convErr) throw convErr;
-    if (!conv) {
-      return new Response(JSON.stringify({ error: "Conversa não encontrada" }), {
-        status: 404,
+    const access = await assertConversationAccess(conversation_id.trim());
+    if (!access.conv) {
+      return new Response(JSON.stringify({ error: access.error }), {
+        status: access.status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const conv = access.conv;
+
     if (!conv.instance_id) {
       return new Response(JSON.stringify({ error: "Conversa sem instance_id — não é possível enviar" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-    }
-
-    const isPrivileged = roles.some((r) => r === "admin" || r === "gerente");
-    if (!isPrivileged) {
-      const { data: allowed } = await admin
-        .from("whatsapp_instance_assignments")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("instance_id", conv.instance_id)
-        .maybeSingle();
-      if (!allowed?.id) {
-        return new Response(JSON.stringify({ error: "Você não tem acesso a este número WhatsApp" }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
     }
 
     const target = await resolveSendTargetByInstanceId(admin as any, String(conv.instance_id));
@@ -121,8 +215,6 @@ serve(async (req) => {
     let metaTemplateName: string | null = null;
     let metaTemplateLanguage: string | null = null;
     let isTemplate = false;
-
-    const GRAPH_API_VERSION = "v21.0";
 
     async function uploadMediaToMeta(params: {
       phoneNumberId: string;
@@ -263,15 +355,18 @@ serve(async (req) => {
           });
         }
 
+        const normalized = normalizeMetaUploadMime(mediaType, mimeType, fileName);
+
         const uploaded = await uploadMediaToMeta({
           phoneNumberId: target.phoneNumberId,
           accessToken,
-          mimeType,
-          filename: fileName,
+          mimeType: normalized.mime,
+          filename: normalized.filename,
           bytes,
         });
         if (!uploaded.ok) {
-          return new Response(JSON.stringify({ error: uploaded.error, raw: uploaded.raw }), {
+          const hint = normalized.error ? ` ${normalized.error}` : "";
+          return new Response(JSON.stringify({ error: uploaded.error + hint, raw: uploaded.raw }), {
             status: 400,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
@@ -302,7 +397,8 @@ serve(async (req) => {
           ? "🎬 Vídeo"
           : "📄 Documento";
 
-        await admin.from("whatsapp_messages").insert({
+        const cap = typeof caption === "string" ? caption.trim() || null : null;
+        const saved = await insertWhatsAppMessageRow(admin, {
           conversation_id: conv.id,
           direction: "out",
           body: null,
@@ -313,12 +409,18 @@ serve(async (req) => {
           created_at: now,
           message_type: "media",
           media_type: mediaType,
-          media_mime: mimeType,
-          media_filename: fileName,
+          media_mime: normalized.mime,
+          media_filename: normalized.filename,
           media_size: bytes.length,
           media_id: uploaded.id,
-          caption: typeof caption === "string" ? caption.trim() || null : null,
-        } as any);
+          caption: cap,
+        });
+        if (!saved.ok) {
+          return new Response(JSON.stringify({ error: saved.error || "Falha ao salvar mensagem no banco" }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
 
         await admin.from("whatsapp_conversations").update({
           last_message_at: now,

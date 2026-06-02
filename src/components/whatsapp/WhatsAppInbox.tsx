@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import WhatsAppMediaMessage from "@/components/whatsapp/WhatsAppMediaMessage";
 import {
   AlertCircle,
   Check,
@@ -105,6 +106,24 @@ function StatusIcon({ status }: { status?: string | null }) {
   if (s === "delivered") return <CheckCheck className="h-3.5 w-3.5 text-muted-foreground" />;
   if (s === "read") return <CheckCheck className="h-3.5 w-3.5 text-sky-500" />;
   return null;
+}
+
+async function parseSendError(
+  data: unknown,
+  error: { message?: string; context?: { json?: () => Promise<unknown> } } | null,
+): Promise<string> {
+  const fromData = (data as { error?: string } | null)?.error;
+  if (fromData) return fromData;
+  if (error?.context?.json) {
+    try {
+      const body = (await error.context.json()) as { error?: string };
+      if (body?.error) return body.error;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (error?.message?.includes("non-2xx")) return "Falha ao enviar (verifique migration de anexos e formato do áudio)";
+  return error?.message || "Erro ao enviar";
 }
 
 function sortConversations(rows: ConversationRow[]): ConversationRow[] {
@@ -227,13 +246,29 @@ export default function WhatsAppInbox() {
   }, []);
 
   const loadMessages = useCallback(async (conversationId: string) => {
-    const { data, error } = await supabase
+    const extendedCols =
+      "id, conversation_id, direction, body, status, is_template, meta_template_name, message_type, media_type, media_mime, media_filename, media_size, media_id, caption, created_at";
+    const basicCols =
+      "id, conversation_id, direction, body, status, is_template, meta_template_name, created_at";
+
+    let { data, error } = await supabase
       .from("whatsapp_messages")
-      .select("id, conversation_id, direction, body, status, is_template, meta_template_name, message_type, media_type, media_mime, media_filename, media_size, media_id, caption, created_at")
+      .select(extendedCols)
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true })
       .limit(500);
-    if (error) throw error;
+
+    if (error) {
+      const fallback = await supabase
+        .from("whatsapp_messages")
+        .select(basicCols)
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true })
+        .limit(500);
+      if (fallback.error) throw fallback.error;
+      data = fallback.data;
+    }
+
     setMessages((data || []) as MessageRow[]);
   }, []);
 
@@ -449,11 +484,13 @@ export default function WhatsAppInbox() {
           caption: draft.trim() || undefined,
         },
       });
-      if (error) throw error;
-      if ((data as any)?.error) throw new Error((data as any).error);
+      if (error) throw new Error(await parseSendError(data, error));
+      if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
       setDraft("");
       await loadMessages(conversation.id);
       await loadConversations();
+      setPinnedToBottom(true);
+      queueMicrotask(() => scrollToBottom("smooth"));
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Erro ao enviar anexo");
     } finally {
@@ -687,17 +724,6 @@ export default function WhatsAppInbox() {
                       {messages.map((msg) => {
                         const out = msg.direction === "out";
                         const at = new Date(msg.created_at);
-                        const isMedia = (msg.message_type || "").toLowerCase() === "media" || !!msg.media_type || !!msg.media_id;
-                        const mediaLabel =
-                          msg.media_type === "image"
-                            ? "📷 Imagem"
-                            : msg.media_type === "audio"
-                            ? "🎤 Áudio"
-                            : msg.media_type === "video"
-                            ? "🎬 Vídeo"
-                            : msg.media_type
-                            ? "📄 Documento"
-                            : null;
                         return (
                           <div key={msg.id} className={cn("flex", out ? "justify-end" : "justify-start")}>
                             <div
@@ -713,22 +739,7 @@ export default function WhatsAppInbox() {
                                   Template Meta
                                 </span>
                               )}
-                              {isMedia ? (
-                                <div className="space-y-1">
-                                  <p className="text-sm font-medium">{mediaLabel || "📎 Anexo"}</p>
-                                  {msg.media_filename ? (
-                                    <p className="text-[11px] text-muted-foreground font-mono truncate">{msg.media_filename}</p>
-                                  ) : null}
-                                  {msg.caption ? (
-                                    <p className="whitespace-pre-wrap leading-relaxed">{msg.caption}</p>
-                                  ) : null}
-                                  <p className="text-[10px] text-muted-foreground">
-                                    (Prévia/download do anexo será adicionado em seguida.)
-                                  </p>
-                                </div>
-                              ) : (
-                                <p className="whitespace-pre-wrap leading-relaxed">{msg.body || "—"}</p>
-                              )}
+                              <WhatsAppMediaMessage message={msg} />
                               <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
                                 <span>{format(at, "HH:mm", { locale: ptBR })}</span>
                                 {out && <StatusIcon status={msg.status} />}

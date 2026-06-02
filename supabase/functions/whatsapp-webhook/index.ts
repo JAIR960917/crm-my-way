@@ -6,6 +6,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { cleanPhone } from "../_shared/whatsappSend.ts";
+import { insertWhatsAppMessageRow, parseWhatsAppMessage } from "../_shared/whatsappInboxMedia.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,17 +31,6 @@ async function verifySignature(payload: string, signatureHeader: string | null, 
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
   return hex === expected;
-}
-
-function extractText(msg: Record<string, unknown>): string {
-  const type = msg.type as string;
-  if (type === "text") return (msg.text as { body?: string })?.body || "";
-  if (type === "button") return (msg.button as { text?: string })?.text || "";
-  if (type === "interactive") {
-    const ir = msg.interactive as { button_reply?: { title?: string }; list_reply?: { title?: string } };
-    return ir?.button_reply?.title || ir?.list_reply?.title || "";
-  }
-  return `[${type || "mensagem"}]`;
 }
 
 type WaMetadata = { phone_number_id?: string; display_phone_number?: string };
@@ -157,14 +147,21 @@ async function upsertConversationMessage(
     contactName: string | null;
     direction: "in" | "out";
     text: string;
+    preview: string;
     waMessageId: string;
+    messageType?: "text" | "media";
+    mediaType?: string;
+    mediaId?: string;
+    mediaMime?: string;
+    mediaFilename?: string;
+    caption?: string;
     isTemplate?: boolean;
     metaTemplateName?: string | null;
     initialStatus: string;
     incrementUnread: boolean;
   },
 ): Promise<boolean> {
-  const { instanceId, waId, contactName, direction, text, waMessageId, initialStatus, incrementUnread } = opts;
+  const { instanceId, waId, contactName, direction, text, preview, waMessageId, initialStatus, incrementUnread } = opts;
   if (!waId) {
     console.warn("[whatsapp-webhook] wa_id vazio — mensagem ignorada");
     return false;
@@ -172,14 +169,14 @@ async function upsertConversationMessage(
 
   const now = new Date();
   const windowExpires = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-  const preview = text.slice(0, 200);
+  const previewText = preview.slice(0, 200);
 
   let conversationId = await findConversationId(supabase, waId, instanceId);
 
   if (conversationId) {
     const patch: Record<string, unknown> = {
       last_message_at: now.toISOString(),
-      last_preview: preview,
+      last_preview: previewText,
       phone_display: waId,
       updated_at: now.toISOString(),
     };
@@ -204,7 +201,7 @@ async function upsertConversationMessage(
       phone_display: waId,
       window_expires_at: direction === "in" ? windowExpires.toISOString() : null,
       last_message_at: now.toISOString(),
-      last_preview: preview,
+      last_preview: previewText,
       unread_count: incrementUnread ? 1 : 0,
     }).select("id").single();
 
@@ -237,18 +234,24 @@ async function upsertConversationMessage(
     }
   }
 
-  const { error: msgErr } = await supabase.from("whatsapp_messages").insert({
+  const inserted = await insertWhatsAppMessageRow(supabase, {
     conversation_id: conversationId,
     direction,
-    body: text || null,
+    body: opts.messageType === "media" ? null : (text || null),
     wa_message_id: waMessageId || null,
     status: initialStatus,
     is_template: opts.isTemplate ?? false,
     meta_template_name: opts.metaTemplateName ?? null,
+    message_type: opts.messageType || "text",
+    media_type: opts.mediaType || null,
+    media_id: opts.mediaId || null,
+    media_mime: opts.mediaMime || null,
+    media_filename: opts.mediaFilename || null,
+    caption: opts.caption || null,
   });
 
-  if (msgErr) {
-    console.error("[whatsapp-webhook] erro ao inserir mensagem:", msgErr.message);
+  if (!inserted.ok) {
+    console.error("[whatsapp-webhook] erro ao inserir mensagem:", inserted.error);
     return false;
   }
 
@@ -363,11 +366,11 @@ serve(async (req) => {
         const msg = m as Record<string, unknown>;
         const waId = resolveCustomerWaId(msg, direction, contacts);
         const waMessageId = String(msg.id || "");
-        const text = extractText(msg);
+        const parsed = parseWhatsAppMessage(msg);
         const contactName = contactNameFromPayload(contacts, waId);
 
         console.log(
-          `[whatsapp-webhook] msg ${direction} from=${String(msg.from || "")} wa_id=${waId} preview=${text.slice(0, 60)}`,
+          `[whatsapp-webhook] msg ${direction} type=${String(msg.type || "")} wa_id=${waId} preview=${parsed.preview.slice(0, 60)}`,
         );
 
         const ok = await upsertConversationMessage(supabase, {
@@ -375,8 +378,15 @@ serve(async (req) => {
           waId,
           contactName,
           direction,
-          text,
+          text: parsed.text,
+          preview: parsed.preview,
           waMessageId,
+          messageType: parsed.messageType,
+          mediaType: parsed.mediaType,
+          mediaId: parsed.mediaId,
+          mediaMime: parsed.mediaMime,
+          mediaFilename: parsed.mediaFilename,
+          caption: parsed.caption,
           initialStatus: direction === "in" ? "received" : "sent",
           incrementUnread: direction === "in",
         });
