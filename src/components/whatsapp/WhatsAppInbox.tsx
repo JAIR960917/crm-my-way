@@ -15,6 +15,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import WhatsAppMediaMessage from "@/components/whatsapp/WhatsAppMediaMessage";
 import WhatsAppCreateLeadPanel from "@/components/whatsapp/WhatsAppCreateLeadPanel";
+import WhatsAppCobrancaPanel from "@/components/whatsapp/WhatsAppCobrancaPanel";
 import {
   AlertCircle,
   Check,
@@ -136,7 +137,7 @@ function sortConversations(rows: ConversationRow[]): ConversationRow[] {
 }
 
 export default function WhatsAppInbox() {
-  const { user, isAdmin, isGerente } = useAuth();
+  const { user, isAdmin, isGerente, isFinanceiro } = useAuth();
   const selectedIdRef = useRef<string | null>(null);
   const messagesAreaRef = useRef<HTMLDivElement | null>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
@@ -1017,11 +1018,19 @@ export default function WhatsAppInbox() {
                           </div>
                         </dl>
                       </div>
-                      <WhatsAppCreateLeadPanel
-                        conversation={conversation}
-                        formatPhone={formatPhoneDisplay}
-                        onLinked={handleLeadLinked}
-                      />
+                      {isFinanceiro && !isAdmin ? (
+                        <WhatsAppCobrancaPanel
+                          conversation={conversation}
+                          formatPhone={formatPhoneDisplay}
+                          onLinked={handleLeadLinked}
+                        />
+                      ) : (
+                        <WhatsAppCreateLeadPanel
+                          conversation={conversation}
+                          formatPhone={formatPhoneDisplay}
+                          onLinked={handleLeadLinked}
+                        />
+                      )}
                     </div>
                   </ScrollArea>
                 </aside>
