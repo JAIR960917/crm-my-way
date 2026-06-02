@@ -28,6 +28,7 @@ import {
   Paperclip,
   Search,
   Send,
+  Smartphone,
   Square,
 } from "lucide-react";
 
@@ -67,6 +68,25 @@ type MessageRow = {
 };
 
 type TemplateRow = { name: string; status: string; category: string; language: string };
+
+type WaInstanceRow = {
+  id: string;
+  name: string;
+  display_phone: string | null;
+  phone_number_id: string | null;
+};
+
+function formatInstanceShort(
+  inst: WaInstanceRow | undefined,
+  formatPhone: (raw: string) => string,
+): string {
+  if (!inst) return "Número não identificado";
+  const phone =
+    inst.display_phone?.trim() ||
+    (inst.phone_number_id ? formatPhone(inst.phone_number_id) : "");
+  if (phone && phone !== "—") return `${inst.name} · ${phone}`;
+  return inst.name;
+}
 
 const MODULE_STYLES: Record<ModuleKey, { label: string; className: string }> = {
   leads: { label: "Lead", className: "bg-blue-500/15 text-blue-700 dark:text-blue-300" },
@@ -163,6 +183,7 @@ export default function WhatsAppInbox() {
 
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [messages, setMessages] = useState<MessageRow[]>([]);
+  const [instancesById, setInstancesById] = useState<Record<string, WaInstanceRow>>({});
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -214,6 +235,33 @@ export default function WhatsAppInbox() {
       return name.includes(q) || wa.includes(q) || preview.includes(q);
     });
   }, [conversations, filter, search, user?.id]);
+
+  const loadInstances = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("whatsapp_instances")
+      .select("id, name, display_phone, phone_number_id")
+      .eq("is_active", true);
+    if (error) {
+      console.warn("whatsapp_instances:", error.message);
+      return;
+    }
+    const map: Record<string, WaInstanceRow> = {};
+    for (const row of data || []) {
+      map[row.id] = row as WaInstanceRow;
+    }
+    setInstancesById(map);
+  }, []);
+
+  const getInstance = useCallback(
+    (instanceId: string | null | undefined) =>
+      instanceId ? instancesById[instanceId] : undefined,
+    [instancesById],
+  );
+
+  const conversationInstanceLabel = useMemo(() => {
+    if (!conversation?.instance_id) return null;
+    return formatInstanceShort(getInstance(conversation.instance_id), formatPhoneDisplay);
+  }, [conversation?.instance_id, getInstance]);
 
   const loadConversations = useCallback(async () => {
     const { data, error } = await supabase
@@ -314,8 +362,7 @@ export default function WhatsAppInbox() {
     (async () => {
       setLoading(true);
       try {
-        await loadConversations();
-        await loadTemplates();
+        await Promise.all([loadConversations(), loadTemplates(), loadInstances()]);
       } catch (e: unknown) {
         toast.error(e instanceof Error ? e.message : "Erro ao carregar inbox");
       } finally {
@@ -637,6 +684,7 @@ export default function WhatsAppInbox() {
                 const active = c.id === selectedId;
                 const m = MODULE_STYLES[toModuleKey(c.module)];
                 const contact = c.contact_name || formatPhoneDisplay(c.phone_display || c.wa_id);
+                const lineLabel = formatInstanceShort(getInstance(c.instance_id), formatPhoneDisplay);
                 const lastAt = c.last_message_at ? new Date(c.last_message_at) : null;
                 const windowIsOpen = c.window_expires_at ? new Date(c.window_expires_at).getTime() > Date.now() : false;
                 return (
@@ -662,6 +710,10 @@ export default function WhatsAppInbox() {
                           </span>
                         </div>
                         <p className="truncate text-xs text-muted-foreground">{c.last_preview || "—"}</p>
+                        <p className="mt-0.5 truncate text-[10px] font-medium text-sky-800 dark:text-sky-300">
+                          <Smartphone className="mr-0.5 inline h-3 w-3 opacity-80" />
+                          {lineLabel}
+                        </p>
                         <div className="mt-1 flex items-center gap-1.5">
                           <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", m.className)}>
                             {m.label}
@@ -713,8 +765,14 @@ export default function WhatsAppInbox() {
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
+                    Cliente: {formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
                   </p>
+                  {conversationInstanceLabel ? (
+                    <p className="mt-1 flex items-center gap-1 text-xs font-medium text-sky-800 dark:text-sky-300">
+                      <Smartphone className="h-3.5 w-3.5 shrink-0" />
+                      Nossa linha: {conversationInstanceLabel}
+                    </p>
+                  ) : null}
                 </div>
                 {windowOpen ? (
                   <Badge variant="secondary" className="gap-1 bg-emerald-500/15 text-emerald-800 dark:text-emerald-200">
@@ -752,6 +810,16 @@ export default function WhatsAppInbox() {
                                   : "rounded-bl-none bg-white dark:bg-card",
                               )}
                             >
+                              {!out && conversationInstanceLabel ? (
+                                <span className="mb-1 block text-[10px] font-medium text-sky-800 dark:text-sky-300">
+                                  Recebido em {conversationInstanceLabel}
+                                </span>
+                              ) : null}
+                              {out && conversationInstanceLabel ? (
+                                <span className="mb-1 block text-[10px] font-medium text-emerald-800/80 dark:text-emerald-300/90">
+                                  Enviado por {conversationInstanceLabel}
+                                </span>
+                              ) : null}
                               {(msg.is_template || !!msg.meta_template_name) && (
                                 <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                                   Template Meta
@@ -1011,7 +1079,13 @@ export default function WhatsAppInbox() {
                             </dd>
                           </div>
                           <div>
-                            <dt className="text-xs text-muted-foreground">Telefone (WhatsApp)</dt>
+                            <dt className="text-xs text-muted-foreground">Nossa linha (recebe/envia)</dt>
+                            <dd className="mt-0.5 text-xs font-medium text-sky-800 dark:text-sky-300">
+                              {conversationInstanceLabel || "—"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-xs text-muted-foreground">Telefone do cliente</dt>
                             <dd className="mt-0.5 font-medium text-amber-700 dark:text-amber-300">
                               {formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
                             </dd>
