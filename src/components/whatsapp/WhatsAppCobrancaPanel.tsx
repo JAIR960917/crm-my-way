@@ -107,14 +107,11 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
         const needsLink =
           conversation.card_id !== row.id || conversation.module !== "cobrancas";
         if (needsLink) {
-          const { error } = await supabase
-            .from("whatsapp_conversations")
-            .update({
-              card_id: row.id,
-              module: "cobrancas",
-              contact_name: nome,
-            })
-            .eq("id", conversation.id);
+          const { error } = await supabase.rpc("link_whatsapp_conversation_cobranca", {
+            p_conversation_id: conversation.id,
+            p_cobranca_id: row.id,
+            p_contact_name: nome,
+          });
           if (!error) {
             onLinked(conversation.id, {
               card_id: row.id,
@@ -142,29 +139,40 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
         setCurrentUserName(me?.full_name || "");
       }
 
-      if (conversation.card_id && conversation.module === "cobrancas") {
+      if (conversation.card_id) {
         const { data: byId } = await supabase
           .from("crm_cobrancas")
           .select("id, data, status, valor, company_id")
           .eq("id", conversation.card_id)
           .maybeSingle();
         if (byId) {
-          await applyCobranca(byId as CobrancaRow, false);
+          await applyCobranca(byId as CobrancaRow, conversation.module !== "cobrancas");
           return;
         }
       }
 
-      if (nationalDigits.length < 8) {
+      const phoneCandidates = [
+        nationalDigits,
+        conversation.wa_id || "",
+        conversation.phone_display || "",
+      ].filter((p, i, arr) => p && arr.indexOf(p) === i);
+
+      if (phoneCandidates.every((p) => nationalPhoneDigits(p).length < 8)) {
         return;
       }
 
-      const { data: rpcRows, error: rpcError } = await supabase.rpc("find_cobranca_by_phone", {
-        p_phone: nationalDigits,
-      });
-
-      if (!rpcError && rpcRows?.length) {
-        await applyCobranca(rpcRows[0] as CobrancaRow, true);
-        return;
+      for (const phone of phoneCandidates) {
+        const { data: rpcRows, error: rpcError } = await supabase.rpc("find_cobranca_by_phone", {
+          p_phone: phone,
+        });
+        if (rpcError) {
+          console.warn("find_cobranca_by_phone:", rpcError.message);
+          continue;
+        }
+        if (rpcRows?.length) {
+          await applyCobranca(rpcRows[0] as CobrancaRow, true);
+          return;
+        }
       }
 
       const last8 = nationalDigits.slice(-8);
@@ -198,7 +206,7 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
     } finally {
       setLoading(false);
     }
-  }, [user?.id, conversation.card_id, conversation.module, nationalDigits, applyCobranca]);
+  }, [user?.id, conversation.card_id, conversation.module, conversation.wa_id, conversation.phone_display, nationalDigits, applyCobranca]);
 
   useEffect(() => {
     resolveCobranca();
