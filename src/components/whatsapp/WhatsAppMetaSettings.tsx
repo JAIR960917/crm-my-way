@@ -96,6 +96,7 @@ export default function WhatsAppMetaSettings() {
   const [defaultTemplate, setDefaultTemplate] = useState("");
   const [creatingInst, setCreatingInst] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [registeringId, setRegisteringId] = useState<string | null>(null);
 
   const invokeMeta = async (body: Record<string, unknown>) => {
     const { data, error } = await supabase.functions.invoke("meta-whatsapp", { body });
@@ -248,6 +249,48 @@ export default function WhatsAppMetaSettings() {
       toast.error(e instanceof Error ? e.message : "Erro ao excluir número");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleRegisterMetaPhone = async (inst: {
+    id: string;
+    name: string;
+    phone_number_id: string | null;
+  }) => {
+    const pid = inst.phone_number_id?.trim();
+    if (!pid) {
+      toast.error("Instância sem Phone Number ID");
+      return;
+    }
+    const pin = window.prompt(
+      `PIN de verificação em 2 etapas (6 dígitos) para "${inst.name}".\n\n` +
+        "Defina no Gestor WhatsApp → número → Verificação em dois passos.\n" +
+        "Se ainda não existir, escolha um PIN novo — a Meta usará esse código.",
+    );
+    if (!pin) return;
+    const pinDigits = pin.replace(/\D/g, "");
+    if (pinDigits.length !== 6) {
+      toast.error("O PIN deve ter exatamente 6 dígitos");
+      return;
+    }
+    setRegisteringId(inst.id);
+    try {
+      const data = await invokeMeta({
+        action: "register-meta-phone",
+        phone_number_id: pid,
+        pin: pinDigits,
+      });
+      const st = (data as { phone_status?: { status?: string } }).phone_status?.status;
+      toast.success(
+        st === "CONNECTED"
+          ? `Número registrado — status: ${st} (Ligado)`
+          : "Registro enviado à Meta. Atualize o Gestor WhatsApp em 1–2 minutos.",
+      );
+      await handleCheckWebhook();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao registrar na Meta");
+    } finally {
+      setRegisteringId(null);
     }
   };
 
@@ -428,10 +471,14 @@ export default function WhatsAppMetaSettings() {
             Assinale: <strong>messages</strong> (entrada do cliente). Verify token = WHATSAPP_VERIFY_TOKEN no .env.
             O botão «Teste» da Meta só valida a URL — use «Diagnosticar webhook» e «Inscrever WABA» para mensagens reais.
           </p>
-          <p className="text-[10px] text-muted-foreground">
-            App em <strong>modo desenvolvimento</strong>: adicione seus números pessoais em WhatsApp → API Setup →
-            «Adicionar número de telefone» (destinatários de teste).
-          </p>
+        <p className="text-[10px] text-muted-foreground">
+          Número <strong>Pendente</strong> no Gestor WhatsApp? Use <strong>Registrar na Meta</strong> no card do
+          número (PIN de 6 dígitos em Verificação em dois passos). Máx. 10 tentativas a cada 72h.
+        </p>
+        <p className="text-[10px] text-muted-foreground">
+          App em <strong>modo desenvolvimento</strong>: adicione seus números pessoais em WhatsApp → API Setup →
+          «Adicionar número de telefone» (destinatários de teste).
+        </p>
         </div>
       )}
 
@@ -538,7 +585,21 @@ export default function WhatsAppMetaSettings() {
                   </div>
                 </div>
 
-                <div className="flex justify-end gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleRegisterMetaPhone(i)}
+                    disabled={
+                      registeringId === i.id || deletingId === i.id || instanceEdits[i.id]?.saving
+                    }
+                    title="Obrigatório quando o número aparece Pendente no Gestor WhatsApp"
+                  >
+                    {registeringId === i.id ? (
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    ) : null}
+                    Registrar na Meta
+                  </Button>
                   <Button
                     variant="destructive"
                     size="sm"

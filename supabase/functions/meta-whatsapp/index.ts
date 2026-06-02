@@ -397,6 +397,64 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    /** Registra número na Cloud API (Pendente → CONNECTED). Exige PIN de 6 dígitos. */
+    if (action === "register-meta-phone") {
+      const { phone_number_id, pin } = body as { phone_number_id?: string; pin?: string };
+      const pid = phone_number_id?.trim();
+      const pinStr = String(pin ?? "").replace(/\D/g, "");
+      if (!pid) {
+        return new Response(JSON.stringify({ error: "Phone Number ID é obrigatório" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (pinStr.length !== 6) {
+        return new Response(JSON.stringify({ error: "Informe o PIN de verificação em 2 etapas (6 dígitos)" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!accessToken) {
+        return new Response(JSON.stringify({ error: "WHATSAPP_ACCESS_TOKEN não configurado no servidor" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const registerRes = await fetch(
+        `https://graph.facebook.com/${GRAPH_API_VERSION}/${pid}/register`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ messaging_product: "whatsapp", pin: pinStr }),
+        },
+      );
+      const registerJson = await registerRes.json();
+      if (!registerRes.ok) {
+        const msg = (registerJson as { error?: { message?: string; code?: number } })?.error?.message
+          || "Falha ao registrar número na Meta";
+        return new Response(JSON.stringify({ error: msg, raw: registerJson }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const statusRes = await fetch(
+        `https://graph.facebook.com/${GRAPH_API_VERSION}/${pid}?fields=display_phone_number,verified_name,status,code_verification_status,quality_rating`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      const statusJson = await statusRes.json();
+
+      return new Response(JSON.stringify({
+        ok: true,
+        register_result: registerJson,
+        phone_status: statusRes.ok ? statusJson : null,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     return new Response(JSON.stringify({ error: `Ação desconhecida: ${action}` }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
