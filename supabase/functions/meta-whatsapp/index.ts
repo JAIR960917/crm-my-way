@@ -76,7 +76,7 @@ serve(async (req) => {
         .maybeSingle();
       const { data: metaInstances } = await supabase
         .from("whatsapp_instances")
-        .select("id, name, phone_number_id, display_phone, is_active")
+        .select("id, name, phone_number_id, display_phone, meta_default_template, meta_template_language, is_active")
         .eq("provider", "meta");
 
       return new Response(JSON.stringify({
@@ -94,6 +94,58 @@ serve(async (req) => {
         terms_url: `${(Deno.env.get("SITE_URL") || "").replace(/\/$/, "")}/termos`,
         data_deletion_url: `${(Deno.env.get("SITE_URL") || "").replace(/\/$/, "")}/exclusao-dados`,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "update-meta-instance") {
+      const { id, meta_default_template, meta_template_language } = body as {
+        id?: string;
+        meta_default_template?: string | null;
+        meta_template_language?: string | null;
+      };
+
+      if (!id?.trim()) {
+        return new Response(JSON.stringify({ error: "ID da instância é obrigatório" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const payload: Record<string, unknown> = {};
+      if (meta_default_template === null || typeof meta_default_template === "string") {
+        payload.meta_default_template = meta_default_template?.trim() || null;
+      }
+      if (meta_template_language === null || typeof meta_template_language === "string") {
+        payload.meta_template_language = (meta_template_language?.trim() || "pt_BR");
+      }
+
+      const { data: row, error: rowErr } = await supabase
+        .from("whatsapp_instances")
+        .select("id, provider")
+        .eq("id", id.trim())
+        .maybeSingle();
+      if (rowErr) throw rowErr;
+      if (!row) {
+        return new Response(JSON.stringify({ error: "Instância não encontrada" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (row.provider !== "meta") {
+        return new Response(JSON.stringify({ error: "Apenas instâncias Meta podem ser editadas aqui" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { error } = await supabase
+        .from("whatsapp_instances")
+        .update(payload)
+        .eq("id", id.trim());
+      if (error) throw error;
+
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     if (action === "save-settings") {

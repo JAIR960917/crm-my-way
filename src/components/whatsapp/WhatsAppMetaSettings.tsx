@@ -30,6 +30,8 @@ type MetaStatus = {
     name: string;
     phone_number_id: string | null;
     display_phone: string | null;
+    meta_default_template?: string | null;
+    meta_template_language?: string | null;
     is_active: boolean;
   }[];
   privacy_url?: string;
@@ -38,6 +40,12 @@ type MetaStatus = {
 };
 
 type TemplateRow = { name: string; status: string; category: string; language: string };
+
+type MetaInstanceEditState = {
+  meta_default_template: string;
+  meta_template_language: string;
+  saving: boolean;
+};
 
 /** Extrai mensagem legível quando a edge function responde 4xx/5xx. */
 async function parseEdgeFunctionError(
@@ -69,6 +77,7 @@ export default function WhatsAppMetaSettings() {
   const [provider, setProvider] = useState<"apifull" | "meta">("apifull");
   const [metaAppId, setMetaAppId] = useState("");
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
+  const [instanceEdits, setInstanceEdits] = useState<Record<string, MetaInstanceEditState>>({});
 
   const [instName, setInstName] = useState("");
   const [phoneNumberId, setPhoneNumberId] = useState("");
@@ -87,9 +96,21 @@ export default function WhatsAppMetaSettings() {
     setLoading(true);
     try {
       const data = await invokeMeta({ action: "get-status" });
-      setStatus(data as MetaStatus);
+      const nextStatus = data as MetaStatus;
+      setStatus(nextStatus);
       setProvider((data.provider === "meta" ? "meta" : "apifull") as "apifull" | "meta");
       setMetaAppId(data.meta_app_id || "");
+
+      const edits: Record<string, MetaInstanceEditState> = {};
+      (nextStatus.meta_instances || []).forEach((i) => {
+        if (!i?.id) return;
+        edits[i.id] = {
+          meta_default_template: i.meta_default_template || "",
+          meta_template_language: i.meta_template_language || "pt_BR",
+          saving: false,
+        };
+      });
+      setInstanceEdits(edits);
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Erro ao carregar status Meta");
     } finally {
@@ -163,6 +184,32 @@ export default function WhatsAppMetaSettings() {
       toast.error(e instanceof Error ? e.message : "Erro ao cadastrar número");
     } finally {
       setCreatingInst(false);
+    }
+  };
+
+  const handleUpdateInstance = async (id: string) => {
+    const current = instanceEdits[id];
+    if (!current) return;
+    setInstanceEdits((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], saving: true },
+    }));
+    try {
+      await invokeMeta({
+        action: "update-meta-instance",
+        id,
+        meta_default_template: current.meta_default_template.trim() || null,
+        meta_template_language: current.meta_template_language.trim() || "pt_BR",
+      });
+      toast.success("Instância atualizada");
+      await loadStatus();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao atualizar instância");
+    } finally {
+      setInstanceEdits((prev) => ({
+        ...prev,
+        [id]: { ...prev[id], saving: false },
+      }));
     }
   };
 
@@ -328,10 +375,63 @@ export default function WhatsAppMetaSettings() {
           <div className="pt-2 space-y-1">
             <p className="text-xs font-medium">Números cadastrados:</p>
             {status!.meta_instances.map((i) => (
-              <div key={i.id} className="text-xs flex gap-2 items-center">
-                <Badge variant="outline">Meta</Badge>
-                <span>{i.name}</span>
-                <span className="text-muted-foreground font-mono">{i.phone_number_id}</span>
+              <div key={i.id} className="rounded-md border p-3 space-y-2">
+                <div className="text-xs flex gap-2 items-center flex-wrap">
+                  <Badge variant="outline">Meta</Badge>
+                  <span className="font-medium">{i.name}</span>
+                  <span className="text-muted-foreground font-mono">{i.phone_number_id || "—"}</span>
+                  {!i.is_active ? <Badge variant="secondary">Inativa</Badge> : null}
+                </div>
+
+                <div className="grid sm:grid-cols-3 gap-2 items-end">
+                  <div className="space-y-1 sm:col-span-2">
+                    <Label className="text-[11px] text-muted-foreground">Template padrão (fora da janela 24h)</Label>
+                    <Input
+                      value={instanceEdits[i.id]?.meta_default_template ?? ""}
+                      onChange={(e) =>
+                        setInstanceEdits((prev) => ({
+                          ...prev,
+                          [i.id]: {
+                            meta_default_template: e.target.value,
+                            meta_template_language: prev[i.id]?.meta_template_language || "pt_BR",
+                            saving: prev[i.id]?.saving || false,
+                          },
+                        }))
+                      }
+                      placeholder="lembrete_cobranca"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-[11px] text-muted-foreground">Idioma padrão</Label>
+                    <Input
+                      value={instanceEdits[i.id]?.meta_template_language ?? "pt_BR"}
+                      onChange={(e) =>
+                        setInstanceEdits((prev) => ({
+                          ...prev,
+                          [i.id]: {
+                            meta_default_template: prev[i.id]?.meta_default_template || "",
+                            meta_template_language: e.target.value,
+                            saving: prev[i.id]?.saving || false,
+                          },
+                        }))
+                      }
+                      placeholder="pt_BR"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleUpdateInstance(i.id)}
+                    disabled={instanceEdits[i.id]?.saving}
+                  >
+                    {instanceEdits[i.id]?.saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+                    Salvar
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
