@@ -24,6 +24,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertCronOrServiceRole, internalCorsHeaders } from "../_shared/internalAuth.ts";
+import { recordOutboundWhatsAppInbox } from "../_shared/whatsappInboxMedia.ts";
 import {
   resolveSendTargetBySession,
   sendWhatsAppMessage,
@@ -175,6 +176,9 @@ async function dispatchSend(
     errorMessage: result.errorMessage ? translateApiFullError(result.errorMessage) : null,
     raw: result.raw,
     httpStatus: result.httpStatus,
+    metaMessageId: result.metaMessageId ?? null,
+    usedTemplate: result.usedTemplate ?? false,
+    instanceId: target.instanceId ?? null,
   };
 }
 
@@ -739,6 +743,18 @@ serve(async (req) => {
               },
             );
             if (result.ok) {
+              await recordOutboundWhatsAppInbox(supabase, {
+                instanceId: result.instanceId,
+                phone: cp,
+                contactName: name,
+                body: messageBody,
+                waMessageId: result.metaMessageId,
+                isTemplate: result.usedTemplate || !!campaign.meta_template_name,
+                metaTemplateName: campaign.meta_template_name,
+                module: moduleKey,
+                cardId: card.id,
+                sentByName: `Campanha · ${campaign.name}`,
+              });
               await supabase.from("whatsapp_campaign_sends").insert({ campaign_id: campaign.id, lead_id: card.id, phone: cp, status: "sent", sent_at: new Date().toISOString() });
               await logWhatsappActivity(supabase, moduleKey, card, `WhatsApp enviado — ${campaign.name}`, messageBody);
               totalSent++;
@@ -1046,6 +1062,18 @@ serve(async (req) => {
               const instanceName = sessionToInstanceName.get(session!) || session!;
               if (result.ok) {
                 const sentAt = new Date().toISOString();
+                await recordOutboundWhatsAppInbox(supabase, {
+                  instanceId: result.instanceId,
+                  phone: cp,
+                  contactName: name,
+                  body: messageBody,
+                  waMessageId: result.metaMessageId,
+                  isTemplate: result.usedTemplate || !!step.meta_template_name,
+                  metaTemplateName: step.meta_template_name,
+                  module: moduleKey,
+                  cardId: card.id,
+                  sentByName: `Gatilho · ${tc.name}`,
+                });
                 await supabase.rpc("mark_whatsapp_trigger_send_sent", {
                   p_campaign_id: tc.id,
                   p_step_id: step.id,

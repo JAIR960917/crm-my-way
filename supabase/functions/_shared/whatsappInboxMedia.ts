@@ -1,5 +1,155 @@
 /** Parsing e persistência de mensagens com mídia (WhatsApp Cloud API). */
 
+import { cleanPhone } from "./whatsappSend.ts";
+
+type SupabaseAdmin = ReturnType<typeof import("https://esm.sh/@supabase/supabase-js@2").createClient>;
+
+async function findInboxConversationId(
+  admin: SupabaseAdmin,
+  waId: string,
+  instanceId: string | null,
+): Promise<string | null> {
+  if (instanceId) {
+    const { data } = await admin
+      .from("whatsapp_conversations")
+      .select("id")
+      .eq("instance_id", instanceId)
+      .eq("wa_id", waId)
+      .maybeSingle();
+    return data?.id || null;
+  }
+
+  const { data } = await admin
+    .from("whatsapp_conversations")
+    .select("id")
+    .eq("wa_id", waId)
+    .is("instance_id", null)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  return data?.id || null;
+}
+
+/** Grava mensagem enviada (campanha/gatilho/API) no Inbox WhatsApp. */
+export async function recordOutboundWhatsAppInbox(
+  admin: SupabaseAdmin,
+  opts: {
+    instanceId: string | null;
+    phone: string;
+    contactName?: string | null;
+    body: string;
+    waMessageId?: string | null;
+    isTemplate?: boolean;
+    metaTemplateName?: string | null;
+    module?: string | null;
+    cardId?: string | null;
+    sentByName?: string;
+  },
+): Promise<void> {
+  const waId = cleanPhone(opts.phone);
+  if (!waId) {
+    console.warn("[recordOutboundWhatsAppInbox] telefone inválido — ignorado");
+    return;
+  }
+
+  const now = new Date();
+  const bodyText = (opts.body || "").trim();
+  const previewText = bodyText.slice(0, 200)
+    || (opts.isTemplate ? `[Template] ${opts.metaTemplateName || "Meta"}` : "(mensagem)");
+
+  let conversationId = await findInboxConversationId(admin, waId, opts.instanceId);
+
+  const convPatch: Record<string, unknown> = {
+    last_message_at: now.toISOString(),
+    last_preview: previewText,
+    phone_display: waId,
+    updated_at: now.toISOString(),
+  };
+  if (opts.contactName) convPatch.contact_name = opts.contactName;
+  if (opts.instanceId) convPatch.instance_id = opts.instanceId;
+  if (opts.module) convPatch.module = opts.module;
+  if (opts.cardId) convPatch.card_id = opts.cardId;
+
+  if (conversationId) {
+    const { error: updErr } = await admin
+      .from("whatsapp_conversations")
+      .update(convPatch)
+      .eq("id", conversationId);
+    if (updErr) {
+      console.warn("[recordOutboundWhatsAppInbox] erro ao atualizar conversa:", updErr.message);
+      return;
+    }
+  } else {
+    const { data: inserted, error: insertErr } = await admin
+      .from("whatsapp_conversations")
+      .insert({
+        instance_id: opts.instanceId,
+        wa_id: waId,
+        contact_name: opts.contactName ?? null,
+        phone_display: waId,
+        module: opts.module ?? null,
+        card_id: opts.cardId ?? null,
+        window_expires_at: null,
+        last_message_at: now.toISOString(),
+        last_preview: previewText,
+        unread_count: 0,
+      })
+      .select("id")
+      .single();
+
+    if (insertErr) {
+      if (insertErr.code === "23505") {
+        conversationId = await findInboxConversationId(admin, waId, opts.instanceId);
+        if (conversationId) {
+          await admin.from("whatsapp_conversations").update(convPatch).eq("id", conversationId);
+        }
+      } else {
+        console.warn("[recordOutboundWhatsAppInbox] erro ao criar conversa:", insertErr.message);
+        return;
+      }
+    } else {
+      conversationId = inserted?.id || null;
+    }
+  }
+
+  if (!conversationId) {
+    console.warn("[recordOutboundWhatsAppInbox] conversation_id indefinido após upsert");
+    return;
+  }
+
+  if (opts.waMessageId) {
+    const { data: dup } = await admin
+      .from("whatsapp_messages")
+      .select("id")
+      .eq("wa_message_id", opts.waMessageId)
+      .maybeSingle();
+    if (dup?.id) {
+      console.log("[recordOutboundWhatsAppInbox] mensagem duplicada ignorada", opts.waMessageId);
+      return;
+    }
+  }
+
+  const saved = await insertWhatsAppMessageRow(admin, {
+    conversation_id: conversationId,
+    direction: "out",
+    body: bodyText || null,
+    wa_message_id: opts.waMessageId || null,
+    status: "sent",
+    is_template: opts.isTemplate ?? false,
+    meta_template_name: opts.metaTemplateName ?? null,
+    created_at: now.toISOString(),
+    sent_by: null,
+    sent_by_name: opts.sentByName ?? "Gatilho",
+  });
+
+  if (!saved.ok) {
+    console.warn("[recordOutboundWhatsAppInbox] erro ao inserir mensagem:", saved.error);
+    return;
+  }
+
+  console.log(`[recordOutboundWhatsAppInbox] gravado conv=${conversationId} wa_id=${waId}`);
+}
+
 /** Texto enviado ao cliente: cabeçalho em negrito (Markdown WhatsApp) + conteúdo. */
 export function formatOutboundWhatsAppBody(senderName: string, content?: string | null): string {
   const name = (senderName || "").trim() || "Atendente";
