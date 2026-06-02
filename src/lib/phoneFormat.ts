@@ -39,3 +39,26 @@ export function formatPhoneBR(value: string): string {
 export function unformatPhone(value: string): string {
   return value.replace(/\D/g, "");
 }
+
+/**
+ * Telefone só com dígitos nacionais (DDD + número), sem código do país 55.
+ * Ex.: "+55 84 92000-7039" ou "5584920007039" → "84920007039"
+ */
+export function nationalPhoneDigits(value: string): string {
+  let d = unformatPhone(value);
+  if (d.startsWith("55") && d.length >= 12) d = d.slice(2);
+  while (d.startsWith("0") && d.length > 11) d = d.slice(1);
+  return d;
+}
+
+/** Compara telefones pelo número nacional (ignora +55, máscaras e espaços). */
+export function phonesMatchNational(a: string, b: string): boolean {
+  const da = nationalPhoneDigits(a);
+  const db = nationalPhoneDigits(b);
+  if (!da || !db) return false;
+  if (da === db) return true;
+  if (da.length >= 8 && db.length >= 8) {
+    return da.endsWith(db.slice(-8)) || db.endsWith(da.slice(-8));
+  }
+  return false;
+}

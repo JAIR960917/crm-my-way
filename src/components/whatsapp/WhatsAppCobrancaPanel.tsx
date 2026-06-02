@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import CobrancaContactAttemptForm from "@/components/cobrancas/CobrancaContactAttemptForm";
+import { nationalPhoneDigits, phonesMatchNational } from "@/lib/phoneFormat";
 
 type ConversationRef = {
   id: string;
@@ -38,20 +39,6 @@ type Props = {
   onLinked: (conversationId: string, patch: { card_id: string; contact_name: string | null; module: string }) => void;
 };
 
-function phoneDigits(conversation: ConversationRef) {
-  return (conversation.phone_display || conversation.wa_id || "").replace(/\D/g, "");
-}
-
-function phoneMatches(stored: unknown, digits: string) {
-  const d = String(stored ?? "").replace(/\D/g, "");
-  if (!d || !digits) return false;
-  if (d === digits) return true;
-  if (d.length >= 10 && digits.length >= 10) {
-    return d.endsWith(digits.slice(-10)) || digits.endsWith(d.slice(-10));
-  }
-  return false;
-}
-
 export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLinked }: Props) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -63,7 +50,9 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
   const [lastNote, setLastNote] = useState<LastNote | null>(null);
   const [currentUserName, setCurrentUserName] = useState("");
 
-  const digits = phoneDigits(conversation);
+  const nationalDigits = nationalPhoneDigits(
+    conversation.phone_display || conversation.wa_id || "",
+  );
   const displayPhone = formatPhone(conversation.phone_display || conversation.wa_id);
 
   const loadLastNote = useCallback(async (cobrancaId: string) => {
@@ -165,20 +154,27 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
         }
       }
 
-      if (digits.length < 8) {
+      if (nationalDigits.length < 8) {
         return;
       }
 
-      const tail = digits.length >= 11 ? digits.slice(-11) : digits;
+      const last8 = nationalDigits.slice(-8);
+      const orParts = [`data->>telefone.ilike.%${last8}%`];
+      if (nationalDigits.length >= 10) {
+        orParts.push(`data->>telefone.ilike.%${nationalDigits}%`);
+      }
       const { data: candidates } = await supabase
         .from("crm_cobrancas")
         .select("id, data, status, valor, company_id")
-        .or(`data->>telefone.ilike.%${tail}%`)
+        .or(orParts.join(","))
         .order("updated_at", { ascending: false })
-        .limit(15);
+        .limit(30);
 
       const found = (candidates || []).find((c) =>
-        phoneMatches((c.data as Record<string, unknown>)?.telefone, digits),
+        phonesMatchNational(
+          String((c.data as Record<string, unknown>)?.telefone ?? ""),
+          nationalDigits,
+        ),
       ) as CobrancaRow | undefined;
 
       if (found) {
@@ -189,7 +185,7 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
     } finally {
       setLoading(false);
     }
-  }, [user?.id, conversation.card_id, digits, applyCobranca]);
+  }, [user?.id, conversation.card_id, nationalDigits, applyCobranca]);
 
   useEffect(() => {
     resolveCobranca();
