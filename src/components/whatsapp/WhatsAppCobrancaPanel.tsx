@@ -142,7 +142,7 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
         setCurrentUserName(me?.full_name || "");
       }
 
-      if (conversation.card_id) {
+      if (conversation.card_id && conversation.module === "cobrancas") {
         const { data: byId } = await supabase
           .from("crm_cobrancas")
           .select("id, data, status, valor, company_id")
@@ -198,7 +198,7 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
     } finally {
       setLoading(false);
     }
-  }, [user?.id, conversation.card_id, nationalDigits, applyCobranca]);
+  }, [user?.id, conversation.card_id, conversation.module, nationalDigits, applyCobranca]);
 
   useEffect(() => {
     resolveCobranca();

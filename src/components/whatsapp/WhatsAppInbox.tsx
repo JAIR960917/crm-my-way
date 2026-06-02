@@ -11,6 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { inboxModuleKeyForUser, isCobrancaInboxUser } from "@/lib/pagePermissions";
 import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -113,11 +114,6 @@ function initials(name: string) {
     .toUpperCase();
 }
 
-function toModuleKey(v: string | null): ModuleKey {
-  if (v === "cobrancas" || v === "leads" || v === "renovacoes") return v;
-  return "leads";
-}
-
 function formatPhoneDisplay(raw: string) {
   const digits = (raw || "").replace(/\D/g, "");
   if (!digits) return "—";
@@ -167,7 +163,7 @@ function sortConversations(rows: ConversationRow[]): ConversationRow[] {
 }
 
 export default function WhatsAppInbox() {
-  const { user, isAdmin, isGerente, isFinanceiro } = useAuth();
+  const { user, isAdmin, isGerente, isFinanceiro, canAccessPath } = useAuth();
   const [searchParams] = useSearchParams();
   const selectedIdRef = useRef<string | null>(null);
   const conversationsRef = useRef<ConversationRow[]>([]);
@@ -230,7 +226,12 @@ export default function WhatsAppInbox() {
     setPinnedToBottom(distanceFromBottom <= thresholdPx);
   }, [getMessagesViewport]);
 
-  const mod = MODULE_STYLES[toModuleKey(conversation?.module || null)];
+  const cobrancaInboxMode = useMemo(
+    () => isCobrancaInboxUser({ isFinanceiro, canAccessPath }),
+    [isFinanceiro, canAccessPath],
+  );
+
+  const mod = MODULE_STYLES[inboxModuleKeyForUser(cobrancaInboxMode, conversation?.module ?? null)];
   const windowOpen = useMemo(() => {
     if (!conversation?.window_expires_at) return false;
     return new Date(conversation.window_expires_at).getTime() > Date.now();
@@ -747,7 +748,7 @@ export default function WhatsAppInbox() {
             <ul className="p-1">
               {filteredList.map((c) => {
                 const active = c.id === selectedId;
-                const m = MODULE_STYLES[toModuleKey(c.module)];
+                const m = MODULE_STYLES[inboxModuleKeyForUser(cobrancaInboxMode, c.module)];
                 const contact = c.contact_name || formatPhoneDisplay(c.phone_display || c.wa_id);
                 const lineLabel = formatInstanceShort(getInstance(c.instance_id));
                 const lastAt = c.last_message_at ? new Date(c.last_message_at) : null;
@@ -1159,7 +1160,7 @@ export default function WhatsAppInbox() {
                           </div>
                         </dl>
                       </div>
-                      {isFinanceiro ? (
+                      {cobrancaInboxMode ? (
                         <WhatsAppCobrancaPanel
                           conversation={conversation}
                           formatPhone={formatPhoneDisplay}

@@ -61,3 +61,23 @@ export function pageKeyForPath(path: string): string | null {
     .sort((a, b) => b.path.length - a.path.length)[0];
   return prefix?.key ?? null;
 }
+
+/** Inbox WhatsApp: usuário dedicado à cobrança (sem acesso a leads/renovação). */
+export function isCobrancaInboxUser(params: {
+  isFinanceiro: boolean;
+  canAccessPath: (path: string) => boolean;
+}): boolean {
+  if (params.isFinanceiro) return true;
+  const hasLeads = params.canAccessPath("/");
+  const hasRenovacao = params.canAccessPath("/clientes-ativos");
+  const hasCobranca = params.canAccessPath("/cobrancas");
+  return hasCobranca && !hasLeads && !hasRenovacao;
+}
+
+export function inboxModuleKeyForUser(
+  cobrancaMode: boolean,
+  storedModule: string | null,
+): "leads" | "cobrancas" | "renovacoes" {
+  if (cobrancaMode) return "cobrancas";
+  return storedModule === "cobrancas" || storedModule === "renovacoes" ? storedModule : "leads";
+}
