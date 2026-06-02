@@ -66,33 +66,26 @@ export function phoneSearchVariants(...values: Array<string | null | undefined>)
   for (const raw of values) {
     if (!raw?.trim()) continue;
     for (const d of [nationalPhoneDigits(raw), nationalMobileDigits(raw)]) {
-      if (d.length < 8) continue;
-      out.add(d);
-      if (d.length >= 10) out.add(d.slice(-10));
-      out.add(d.slice(-8));
+      if (d.length >= 10) out.add(d);
     }
   }
   return [...out];
 }
 
+/** Match exato do telefone nacional (sem +55). Não usa últimos 8 dígitos. */
+export function phonesMatchExact(a: string, b: string): boolean {
+  const da = nationalMobileDigits(a);
+  const db = nationalMobileDigits(b);
+  return da.length >= 10 && db.length >= 10 && da === db;
+}
+
 /** Compara telefones pelo número nacional (ignora +55, máscaras e espaços). */
 export function phonesMatchNational(a: string, b: string): boolean {
-  const variants = [
-    nationalPhoneDigits(a),
-    nationalMobileDigits(a),
-    nationalPhoneDigits(b),
-    nationalMobileDigits(b),
-  ];
+  if (phonesMatchExact(a, b)) return true;
   const da = nationalMobileDigits(a);
   const db = nationalMobileDigits(b);
   if (!da || !db) return false;
-  if (da === db) return true;
-  if (da.length >= 8 && db.length >= 8 && da.slice(-8) === db.slice(-8)) return true;
-  for (const x of variants) {
-    for (const y of variants) {
-      if (x.length >= 8 && y.length >= 8 && x.slice(-8) === y.slice(-8)) return true;
-    }
-  }
+  if (da.length >= 10 && db.length >= 10 && da.slice(-8) === db.slice(-8)) return true;
   return false;
 }
 

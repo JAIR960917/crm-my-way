@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import CobrancaContactAttemptForm from "@/components/cobrancas/CobrancaContactAttemptForm";
-import { extractPhoneFromCobrancaData, nationalPhoneDigits, phoneSearchVariants, phonesMatchNational } from "@/lib/phoneFormat";
+import { extractPhoneFromCobrancaData, nationalMobileDigits, nationalPhoneDigits, phoneSearchVariants, phonesMatchExact } from "@/lib/phoneFormat";
 
 type ConversationRef = {
   id: string;
@@ -45,21 +45,29 @@ function extractGatilhoNameHint(body: string | null | undefined): string | null 
   return match?.[1]?.trim() || null;
 }
 
-function pickCobrancaMatch(rows: ScoredCobrancaRow[]): {
+function pickCobrancaMatch(rows: ScoredCobrancaRow[], nameHint: string | null): {
   best: ScoredCobrancaRow | null;
   ambiguous: ScoredCobrancaRow[];
 } {
   if (rows.length === 0) return { best: null, ambiguous: [] };
+
+  if (nameHint) {
+    const byHint = rows.filter((r) =>
+      namesLooselyMatch(String(r.data?.nome || ""), nameHint),
+    );
+    if (byHint.length === 1) return { best: byHint[0], ambiguous: [] };
+  }
+
   if (rows.length === 1) return { best: rows[0], ambiguous: [] };
 
   const [first, second] = rows;
   if (first.match_score >= 1000) return { best: first, ambiguous: [] };
-  if (first.match_score >= 250 && first.match_score - (second?.match_score ?? 0) >= 50) {
+  if (first.match_score >= 400 && first.match_score - (second?.match_score ?? 0) >= 80) {
     return { best: first, ambiguous: [] };
   }
 
   const top = first.match_score;
-  const tied = rows.filter((r) => r.match_score >= top - 20 && r.match_score >= 100);
+  const tied = rows.filter((r) => r.match_score >= top - 30 && r.match_score >= 300);
   if (tied.length <= 1) return { best: first, ambiguous: [] };
 
   return { best: null, ambiguous: tied.slice(0, 5) };
@@ -205,12 +213,11 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
           .eq("id", conversation.card_id)
           .maybeSingle();
         if (byId) {
+          const linkedPhone = extractPhoneFromCobrancaData(byId.data as Record<string, unknown>);
+          const phoneOk = phonesMatchExact(linkedPhone, nationalDigits);
           const linkedName = String((byId.data as Record<string, unknown>)?.nome || "");
           const hintOk = nameHint ? namesLooselyMatch(linkedName, nameHint) : true;
-          const contactOk = conversation.contact_name
-            ? namesLooselyMatch(linkedName, conversation.contact_name)
-            : true;
-          if (hintOk && (contactOk || !nameHint)) {
+          if (phoneOk && hintOk) {
             await applyCobranca(byId as CobrancaRow, conversation.module !== "cobrancas");
             return;
           }
@@ -235,18 +242,24 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
           p_prefer_card_id: conversation.card_id,
           p_name_hint: nameHint,
         });
-        if (rpcError) {
-          console.warn("find_cobrancas_by_phone:", rpcError.message, "phone=", phone);
-          continue;
-        }
-        if (rpcRows?.length) {
+        if (!rpcError && rpcRows?.length) {
           ranked = rpcRows as ScoredCobrancaRow[];
           break;
+        }
+        if (rpcError) {
+          console.warn("find_cobrancas_by_phone:", rpcError.message, "phone=", phone);
+          const { data: legacyRows, error: legacyError } = await supabase.rpc("find_cobranca_by_phone", {
+            p_phone: phone,
+          });
+          if (!legacyError && legacyRows?.length) {
+            ranked = (legacyRows as CobrancaRow[]).map((row) => ({ ...row, match_score: 300 }));
+            break;
+          }
         }
       }
 
       if (ranked.length > 0) {
-        const { best, ambiguous } = pickCobrancaMatch(ranked);
+        const { best, ambiguous } = pickCobrancaMatch(ranked, nameHint);
         if (best) {
           await applyCobranca(best, true);
           return;
@@ -257,16 +270,13 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
         }
       }
 
-      const last8 = nationalPhoneDigits(nationalDigits).slice(-8);
+      const mobile = nationalMobileDigits(nationalDigits);
       const orParts = [
-        `data->>telefone.ilike.%${last8}%`,
-        `data->>celular.ilike.%${last8}%`,
-        `data->>whatsapp.ilike.%${last8}%`,
+        `data->>telefone.ilike.%${mobile}%`,
+        `data->>celular.ilike.%${mobile}%`,
+        `data->>whatsapp.ilike.%${mobile}%`,
+        `data->>telefone_principal.ilike.%${mobile}%`,
       ];
-      if (nationalDigits.length >= 10) {
-        orParts.push(`data->>telefone.ilike.%${nationalDigits}%`);
-        orParts.push(`data->>celular.ilike.%${nationalDigits}%`);
-      }
       const { data: candidates, error: queryError } = await supabase
         .from("crm_cobrancas")
         .select("id, data, status, valor, company_id")
@@ -277,7 +287,7 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
       if (queryError) throw queryError;
 
       const matched = (candidates || []).filter((c) =>
-        phonesMatchNational(extractPhoneFromCobrancaData(c.data as Record<string, unknown>), nationalDigits),
+        phonesMatchExact(extractPhoneFromCobrancaData(c.data as Record<string, unknown>), nationalDigits),
       ) as CobrancaRow[];
 
       if (matched.length === 1) {
@@ -286,9 +296,20 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
       }
 
       if (matched.length > 1) {
-        setAmbiguousOptions(
-          matched.map((row) => ({ ...row, match_score: 0 })),
-        );
+        const scored = matched.map((row) => ({
+          ...row,
+          match_score:
+            (nameHint && namesLooselyMatch(String(row.data?.nome || ""), nameHint) ? 200 : 0) + 300,
+        }));
+        const { best, ambiguous } = pickCobrancaMatch(scored, nameHint);
+        if (best) {
+          await applyCobranca(best, true);
+          return;
+        }
+        if (ambiguous.length > 0) {
+          setAmbiguousOptions(ambiguous);
+          return;
+        }
       }
     } catch {
       toast.error("Não foi possível carregar os dados da cobrança.");
@@ -330,6 +351,7 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
           {ambiguousOptions.map((row) => {
             const d = row.data || {};
             const nome = String(d.nome || "Cliente");
+            const cardPhone = extractPhoneFromCobrancaData(d as Record<string, unknown>);
             const valor =
               row.valor > 0
                 ? row.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
@@ -347,6 +369,9 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
                 }}
               >
                 <span className="font-semibold">{nome}</span>
+                {cardPhone ? (
+                  <span className="text-xs text-muted-foreground">{formatPhone(cardPhone)}</span>
+                ) : null}
                 {valor ? <span className="text-xs text-muted-foreground">{valor}</span> : null}
               </Button>
             );
