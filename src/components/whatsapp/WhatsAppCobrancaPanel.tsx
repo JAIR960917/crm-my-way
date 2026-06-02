@@ -37,6 +37,8 @@ function namesLooselyMatch(a: string | null | undefined, b: string | null | unde
   const fa = na.split(/\s+/)[0];
   const fb = nb.split(/\s+/)[0];
   return fa.length >= 3 && fa === fb;
+}
+
 function extractGatilhoNameHint(body: string | null | undefined): string | null {
   if (!body) return null;
   const match = body.match(/Ol[aá],\s*(.+?)!/i);
