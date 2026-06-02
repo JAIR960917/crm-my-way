@@ -64,8 +64,15 @@ type MessageRow = {
   media_size?: number | null;
   media_id?: string | null;
   caption?: string | null;
+  sent_by?: string | null;
+  sent_by_name?: string | null;
   created_at: string;
 };
+
+function formatAttendantLabel(name: string | null | undefined): string {
+  const n = (name || "").trim();
+  return n ? `Atendente ${n}` : "Atendente";
+}
 
 type TemplateRow = { name: string; status: string; category: string; language: string };
 
@@ -318,7 +325,7 @@ export default function WhatsAppInbox() {
 
   const loadMessages = useCallback(async (conversationId: string) => {
     const extendedCols =
-      "id, conversation_id, direction, body, status, is_template, meta_template_name, message_type, media_type, media_mime, media_filename, media_size, media_id, caption, created_at";
+      "id, conversation_id, direction, body, status, is_template, meta_template_name, message_type, media_type, media_mime, media_filename, media_size, media_id, caption, sent_by, sent_by_name, created_at";
     const basicCols =
       "id, conversation_id, direction, body, status, is_template, meta_template_name, created_at";
 
@@ -820,17 +827,19 @@ export default function WhatsAppInbox() {
                                   Recebido em {conversationInstanceLabel}
                                 </span>
                               ) : null}
-                              {out && conversationInstanceLabel ? (
-                                <span className="mb-1 block text-[10px] font-medium text-emerald-800/80 dark:text-emerald-300/90">
-                                  Enviado por {conversationInstanceLabel}
-                                </span>
+                              {out ? (
+                                <p className="mb-1.5 text-[11px] font-semibold leading-tight text-emerald-950/90 dark:text-emerald-100">
+                                  {formatAttendantLabel(msg.sent_by_name)}
+                                </p>
                               ) : null}
                               {(msg.is_template || !!msg.meta_template_name) && (
                                 <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                                   Template Meta
                                 </span>
                               )}
-                              <WhatsAppMediaMessage message={msg} />
+                              <div className={out ? "space-y-0.5" : undefined}>
+                                <WhatsAppMediaMessage message={msg} />
+                              </div>
                               <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
                                 <span>{format(at, "HH:mm", { locale: ptBR })}</span>
                                 {out && <StatusIcon status={msg.status} />}

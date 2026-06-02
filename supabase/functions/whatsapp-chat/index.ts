@@ -15,6 +15,19 @@ const corsHeaders = {
 
 const ALLOWED_ROLES = new Set(["admin", "gerente", "vendedor", "financeiro"]);
 
+async function resolveSenderLabel(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<{ sent_by: string; sent_by_name: string }> {
+  const { data } = await admin
+    .from("profiles")
+    .select("full_name, email")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const name = (data?.full_name || "").trim() || (data?.email || "").split("@")[0]?.trim() || "Atendente";
+  return { sent_by: userId, sent_by_name: name };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -407,6 +420,7 @@ serve(async (req) => {
           : "📄 Documento";
 
         const cap = typeof caption === "string" ? caption.trim() || null : null;
+        const sender = await resolveSenderLabel(admin, user.id);
         const saved = await insertWhatsAppMessageRow(admin, {
           conversation_id: conv.id,
           direction: "out",
@@ -423,6 +437,8 @@ serve(async (req) => {
           media_size: bytes.length,
           media_id: uploaded.id,
           caption: cap,
+          sent_by: sender.sent_by,
+          sent_by_name: sender.sent_by_name,
         });
         if (!saved.ok) {
           return new Response(JSON.stringify({ error: saved.error || "Falha ao salvar mensagem no banco" }), {
@@ -474,6 +490,7 @@ serve(async (req) => {
     }
 
     const now = new Date().toISOString();
+    const sender = await resolveSenderLabel(admin, user.id);
     await admin.from("whatsapp_messages").insert({
       conversation_id: conv.id,
       direction: "out",
@@ -483,6 +500,8 @@ serve(async (req) => {
       is_template: isTemplate,
       meta_template_name: metaTemplateName,
       created_at: now,
+      sent_by: sender.sent_by,
+      sent_by_name: sender.sent_by_name,
     });
     await admin.from("whatsapp_conversations").update({
       last_message_at: now,

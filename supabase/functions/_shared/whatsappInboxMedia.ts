@@ -169,6 +169,8 @@ export async function insertWhatsAppMessageRow(
     is_template: row.is_template ?? false,
     meta_template_name: row.meta_template_name ?? null,
     created_at: row.created_at,
+    sent_by: row.sent_by ?? null,
+    sent_by_name: row.sent_by_name ?? null,
   });
   if (fallbackErr) return { ok: false, error: fallbackErr.message };
   return { ok: true };
