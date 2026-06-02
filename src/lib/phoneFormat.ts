@@ -62,3 +62,15 @@ export function phonesMatchNational(a: string, b: string): boolean {
   }
   return false;
 }
+
+const COBRANCA_PHONE_KEYS = ["telefone", "celular", "whatsapp", "telefone_principal", "fone"] as const;
+
+/** Extrai o primeiro telefone encontrado no JSON do card de cobrança. */
+export function extractPhoneFromCobrancaData(data: Record<string, unknown> | null | undefined): string {
+  if (!data) return "";
+  for (const key of COBRANCA_PHONE_KEYS) {
+    const v = data[key];
+    if (v != null && String(v).trim()) return String(v);
+  }
+  return "";
+}

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import CobrancaContactAttemptForm from "@/components/cobrancas/CobrancaContactAttemptForm";
-import { nationalPhoneDigits, phonesMatchNational } from "@/lib/phoneFormat";
+import { nationalPhoneDigits, phonesMatchNational, extractPhoneFromCobrancaData } from "@/lib/phoneFormat";
 
 type ConversationRef = {
   id: string;
@@ -158,23 +158,36 @@ export default function WhatsAppCobrancaPanel({ conversation, formatPhone, onLin
         return;
       }
 
+      const { data: rpcRows, error: rpcError } = await supabase.rpc("find_cobranca_by_phone", {
+        p_phone: nationalDigits,
+      });
+
+      if (!rpcError && rpcRows?.length) {
+        await applyCobranca(rpcRows[0] as CobrancaRow, true);
+        return;
+      }
+
       const last8 = nationalDigits.slice(-8);
-      const orParts = [`data->>telefone.ilike.%${last8}%`];
+      const orParts = [
+        `data->>telefone.ilike.%${last8}%`,
+        `data->>celular.ilike.%${last8}%`,
+        `data->>whatsapp.ilike.%${last8}%`,
+      ];
       if (nationalDigits.length >= 10) {
         orParts.push(`data->>telefone.ilike.%${nationalDigits}%`);
+        orParts.push(`data->>celular.ilike.%${nationalDigits}%`);
       }
-      const { data: candidates } = await supabase
+      const { data: candidates, error: queryError } = await supabase
         .from("crm_cobrancas")
         .select("id, data, status, valor, company_id")
         .or(orParts.join(","))
         .order("updated_at", { ascending: false })
-        .limit(30);
+        .limit(40);
+
+      if (queryError) throw queryError;
 
       const found = (candidates || []).find((c) =>
-        phonesMatchNational(
-          String((c.data as Record<string, unknown>)?.telefone ?? ""),
-          nationalDigits,
-        ),
+        phonesMatchNational(extractPhoneFromCobrancaData(c.data as Record<string, unknown>), nationalDigits),
       ) as CobrancaRow | undefined;
 
       if (found) {

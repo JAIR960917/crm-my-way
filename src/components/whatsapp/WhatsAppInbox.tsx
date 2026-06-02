@@ -30,7 +30,14 @@ import {
   Send,
   Smartphone,
   Square,
+  Bell,
+  BellOff,
 } from "lucide-react";
+import {
+  getNotificationPermission,
+  requestWhatsAppNotificationPermission,
+  showWhatsAppInboxNotification,
+} from "@/lib/whatsappInboxNotifications";
 
 type ModuleKey = "leads" | "cobrancas" | "renovacoes";
 
@@ -161,6 +168,7 @@ function sortConversations(rows: ConversationRow[]): ConversationRow[] {
 export default function WhatsAppInbox() {
   const { user, isAdmin, isGerente, isFinanceiro } = useAuth();
   const selectedIdRef = useRef<string | null>(null);
+  const conversationsRef = useRef<ConversationRow[]>([]);
   const messagesAreaRef = useRef<HTMLDivElement | null>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -186,6 +194,7 @@ export default function WhatsAppInbox() {
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [instancesById, setInstancesById] = useState<Record<string, WaInstanceRow>>({});
+  const [notifyPermission, setNotifyPermission] = useState(() => getNotificationPermission());
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -384,6 +393,39 @@ export default function WhatsAppInbox() {
   }, [loadConversations]);
 
   useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  const notifyIncomingMessage = useCallback(
+    (conversationId: string, preview: string) => {
+      const openId = selectedIdRef.current;
+      const tabFocused = document.visibilityState === "visible";
+      if (tabFocused && openId === conversationId) return;
+
+      const conv = conversationsRef.current.find((c) => c.id === conversationId);
+      const contactLabel =
+        conv?.contact_name?.trim() ||
+        formatPhoneDisplay(conv?.phone_display || conv?.wa_id || "") ||
+        "Cliente";
+
+      showWhatsAppInboxNotification(
+        `Nova mensagem — ${contactLabel}`,
+        preview || "Mensagem recebida",
+        conversationId,
+        () => setSelectedId(conversationId),
+      );
+    },
+    [],
+  );
+
+  const handleEnableNotifications = useCallback(async () => {
+    const ok = await requestWhatsAppNotificationPermission();
+    setNotifyPermission(getNotificationPermission());
+    if (ok) toast.success("Avisos de mensagem ativados neste navegador");
+    else toast.error("Permissão de notificação negada ou indisponível");
+  }, []);
+
+  useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
 
@@ -444,6 +486,19 @@ export default function WhatsAppInbox() {
           const row = payload.new as MessageRow | null;
           if (!row) return;
           const openId = selectedIdRef.current;
+          if (row.direction === "in" && openId !== row.conversation_id) {
+            const preview =
+              row.body?.trim() ||
+              row.caption?.trim() ||
+              (row.media_type === "audio"
+                ? "🎤 Áudio"
+                : row.media_type === "image"
+                  ? "📷 Imagem"
+                  : row.media_type
+                    ? "📎 Anexo"
+                    : "Nova mensagem");
+            notifyIncomingMessage(row.conversation_id, preview);
+          }
           if (openId === row.conversation_id) {
             setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]));
             void markAsRead(row.conversation_id);
@@ -468,7 +523,7 @@ export default function WhatsAppInbox() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [applyConversationPatch, loadConversations, markAsRead]);
+  }, [applyConversationPatch, loadConversations, markAsRead, notifyIncomingMessage]);
 
   const handleSendText = async () => {
     if (!conversation?.id) return;
@@ -654,6 +709,27 @@ export default function WhatsAppInbox() {
             <div className="flex items-center gap-2">
               <MessageSquare className="h-5 w-5 text-primary" />
               <h1 className="text-lg font-semibold">Conversas</h1>
+              {notifyPermission === "granted" ? (
+                <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400">
+                  <Bell className="h-3.5 w-3.5" />
+                  Avisos ativos
+                </span>
+              ) : notifyPermission !== "unsupported" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto h-7 gap-1 text-[10px]"
+                  onClick={() => void handleEnableNotifications()}
+                >
+                  {notifyPermission === "denied" ? (
+                    <BellOff className="h-3 w-3" />
+                  ) : (
+                    <Bell className="h-3 w-3" />
+                  )}
+                  Ativar avisos
+                </Button>
+              ) : null}
             </div>
             {!isAdmin && !isGerente ? (
               <p className="text-[10px] text-muted-foreground">
