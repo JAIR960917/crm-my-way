@@ -11,7 +11,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { inboxModuleKeyForUser, isCobrancaInboxUser } from "@/lib/pagePermissions";
+import {
+  inboxModuleForConversation,
+  isCobrancaInboxUser,
+  shouldUseCobrancaInboxPanel,
+} from "@/lib/pagePermissions";
 import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -192,6 +196,7 @@ export default function WhatsAppInbox() {
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [instancesById, setInstancesById] = useState<Record<string, WaInstanceRow>>({});
+  const [cobrancaInstanceIds, setCobrancaInstanceIds] = useState<Set<string>>(() => new Set());
   const [notifyPermission, setNotifyPermission] = useState(() => getNotificationPermission());
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -231,7 +236,29 @@ export default function WhatsAppInbox() {
     [isFinanceiro, canAccessPath],
   );
 
-  const mod = MODULE_STYLES[inboxModuleKeyForUser(cobrancaInboxMode, conversation?.module ?? null)];
+  const conversationPanelContext = useMemo(() => {
+    if (!conversation) return { useCobrancaPanel: cobrancaInboxMode, moduleKey: "leads" as ModuleKey };
+    const inst = conversation.instance_id ? instancesById[conversation.instance_id] : undefined;
+    return {
+      useCobrancaPanel: shouldUseCobrancaInboxPanel({
+        dedicatedCobrancaUser: cobrancaInboxMode,
+        conversationModule: conversation.module,
+        instanceId: conversation.instance_id,
+        cobrancaInstanceIds,
+        instanceName: inst?.name ?? null,
+      }),
+      moduleKey: inboxModuleForConversation({
+        dedicatedCobrancaUser: cobrancaInboxMode,
+        storedModule: conversation.module,
+        instanceId: conversation.instance_id,
+        cobrancaInstanceIds,
+        instanceName: inst?.name ?? null,
+      }),
+    };
+  }, [conversation, cobrancaInboxMode, cobrancaInstanceIds, instancesById]);
+
+  const mod = MODULE_STYLES[conversationPanelContext.moduleKey];
+  const useCobrancaPanel = conversationPanelContext.useCobrancaPanel;
   const windowOpen = useMemo(() => {
     if (!conversation?.window_expires_at) return false;
     return new Date(conversation.window_expires_at).getTime() > Date.now();
@@ -274,6 +301,38 @@ export default function WhatsAppInbox() {
       map[row.id] = row as WaInstanceRow;
     }
     setInstancesById(map);
+  }, []);
+
+  const loadCobrancaInstanceIds = useCallback(async () => {
+    const [{ data: setting }, { data: instances }] = await Promise.all([
+      supabase
+        .from("system_settings")
+        .select("setting_value")
+        .eq("setting_key", "whatsapp_cobrancas_sessions")
+        .maybeSingle(),
+      supabase.from("whatsapp_instances").select("id, session, name").eq("is_active", true),
+    ]);
+
+    let configuredSessions: string[] = [];
+    const raw = setting?.setting_value;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          configuredSessions = parsed.filter((s: unknown) => typeof s === "string" && s.trim());
+        }
+      } catch {
+        configuredSessions = String(raw).split(",").map((s) => s.trim()).filter(Boolean);
+      }
+    }
+
+    const ids = new Set<string>();
+    for (const row of instances || []) {
+      if (configuredSessions.includes(row.session)) ids.add(row.id);
+      const name = (row.name || "").toLowerCase();
+      if (name.includes("cobran")) ids.add(row.id);
+    }
+    setCobrancaInstanceIds(ids);
   }, []);
 
   const getInstance = useCallback(
@@ -386,7 +445,7 @@ export default function WhatsAppInbox() {
     (async () => {
       setLoading(true);
       try {
-        await Promise.all([loadConversations(), loadTemplates(), loadInstances()]);
+        await Promise.all([loadConversations(), loadTemplates(), loadInstances(), loadCobrancaInstanceIds()]);
       } catch (e: unknown) {
         toast.error(e instanceof Error ? e.message : "Erro ao carregar inbox");
       } finally {
@@ -748,7 +807,14 @@ export default function WhatsAppInbox() {
             <ul className="p-1">
               {filteredList.map((c) => {
                 const active = c.id === selectedId;
-                const m = MODULE_STYLES[inboxModuleKeyForUser(cobrancaInboxMode, c.module)];
+                const inst = c.instance_id ? instancesById[c.instance_id] : undefined;
+                const m = MODULE_STYLES[inboxModuleForConversation({
+                  dedicatedCobrancaUser: cobrancaInboxMode,
+                  storedModule: c.module,
+                  instanceId: c.instance_id,
+                  cobrancaInstanceIds,
+                  instanceName: inst?.name ?? null,
+                })];
                 const contact = c.contact_name || formatPhoneDisplay(c.phone_display || c.wa_id);
                 const lineLabel = formatInstanceShort(getInstance(c.instance_id));
                 const lastAt = c.last_message_at ? new Date(c.last_message_at) : null;
@@ -1160,7 +1226,7 @@ export default function WhatsAppInbox() {
                           </div>
                         </dl>
                       </div>
-                      {cobrancaInboxMode ? (
+                      {useCobrancaPanel ? (
                         <WhatsAppCobrancaPanel
                           conversation={conversation}
                           formatPhone={formatPhoneDisplay}

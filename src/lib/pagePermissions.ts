@@ -74,10 +74,73 @@ export function isCobrancaInboxUser(params: {
   return hasCobranca && !hasLeads && !hasRenovacao;
 }
 
+export type InboxModuleKey = "leads" | "cobrancas" | "renovacoes";
+
+/** Linha WhatsApp configurada para cobrança (nome ou instância marcada nas settings). */
+export function isCobrancaWhatsAppInstanceName(name: string | null | undefined): boolean {
+  const n = (name || "").toLowerCase();
+  return n.includes("cobran");
+}
+
+/** Admin/gerente na linha de cobrança também usa o painel de cobrança. */
+export function shouldUseCobrancaInboxPanel(params: {
+  dedicatedCobrancaUser: boolean;
+  conversationModule: string | null;
+  instanceId: string | null;
+  cobrancaInstanceIds?: ReadonlySet<string>;
+  instanceName?: string | null;
+}): boolean {
+  if (params.dedicatedCobrancaUser) return true;
+  if (params.conversationModule === "cobrancas") return true;
+  if (params.instanceId && params.cobrancaInstanceIds?.has(params.instanceId)) return true;
+  if (isCobrancaWhatsAppInstanceName(params.instanceName)) return true;
+  return false;
+}
+
+export function inboxModuleForConversation(params: {
+  dedicatedCobrancaUser: boolean;
+  storedModule: string | null;
+  instanceId: string | null;
+  cobrancaInstanceIds?: ReadonlySet<string>;
+  instanceName?: string | null;
+}): InboxModuleKey {
+  if (
+    params.storedModule === "cobrancas"
+    || params.storedModule === "renovacoes"
+    || params.storedModule === "leads"
+  ) {
+    if (params.storedModule === "renovacoes" || params.storedModule === "leads") {
+      const onCobrancaLine = shouldUseCobrancaInboxPanel({
+        dedicatedCobrancaUser: params.dedicatedCobrancaUser,
+        conversationModule: null,
+        instanceId: params.instanceId,
+        cobrancaInstanceIds: params.cobrancaInstanceIds,
+        instanceName: params.instanceName,
+      });
+      if (onCobrancaLine && params.storedModule !== "cobrancas") {
+        return "cobrancas";
+      }
+    }
+    return params.storedModule;
+  }
+  if (
+    shouldUseCobrancaInboxPanel({
+      dedicatedCobrancaUser: params.dedicatedCobrancaUser,
+      conversationModule: null,
+      instanceId: params.instanceId,
+      cobrancaInstanceIds: params.cobrancaInstanceIds,
+      instanceName: params.instanceName,
+    })
+  ) {
+    return "cobrancas";
+  }
+  return "leads";
+}
+
 export function inboxModuleKeyForUser(
   cobrancaMode: boolean,
   storedModule: string | null,
-): "leads" | "cobrancas" | "renovacoes" {
+): InboxModuleKey {
   if (cobrancaMode) return "cobrancas";
   return storedModule === "cobrancas" || storedModule === "renovacoes" ? storedModule : "leads";
 }
