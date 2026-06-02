@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import WhatsAppMediaMessage from "@/components/whatsapp/WhatsAppMediaMessage";
+import WhatsAppCreateLeadPanel from "@/components/whatsapp/WhatsAppCreateLeadPanel";
 import {
   AlertCircle,
   Check,
@@ -224,6 +225,22 @@ export default function WhatsAppInbox() {
     setConversations(rows);
     setSelectedId((prev) => prev ?? (rows.length > 0 ? rows[0].id : null));
   }, []);
+
+  const handleLeadLinked = useCallback(
+    (
+      conversationId: string,
+      patch: { card_id: string; contact_name: string | null; module: string },
+    ) => {
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === conversationId
+            ? { ...c, card_id: patch.card_id, contact_name: patch.contact_name, module: patch.module }
+            : c,
+        ),
+      );
+    },
+    [],
+  );
 
   const markAsRead = useCallback(async (conversationId: string) => {
     setConversations((prev) =>
@@ -976,31 +993,36 @@ export default function WhatsAppInbox() {
                 </div>
 
                 {/* Painel lateral (placeholder real) */}
-                <aside className="hidden w-[280px] flex-col border-l bg-muted/20 xl:flex">
-                  <div className="border-b p-4">
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Vinculado no CRM
-                    </p>
-                    <p className="mt-1 font-semibold leading-snug">{conversation.card_id ? `Card ${conversation.card_id}` : "—"}</p>
-                    <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-                      {conversation.card_id || "—"}
-                    </p>
-                  </div>
-                  <ScrollArea className="flex-1 p-4">
-                    <dl className="space-y-3 text-sm">
+                <aside className="hidden w-[300px] flex-col border-l bg-muted/20 xl:flex">
+                  <ScrollArea className="flex-1">
+                    <div className="p-4 space-y-4">
                       <div>
-                        <dt className="text-xs text-muted-foreground">Módulo</dt>
-                        <dd>
-                          <span className={cn("rounded px-2 py-0.5 text-xs font-medium", mod.className)}>
-                            {mod.label}
-                          </span>
-                        </dd>
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Vinculado no CRM
+                        </p>
+                        <dl className="mt-3 space-y-3 text-sm">
+                          <div>
+                            <dt className="text-xs text-muted-foreground">Módulo</dt>
+                            <dd className="mt-0.5">
+                              <span className={cn("rounded px-2 py-0.5 text-xs font-medium", mod.className)}>
+                                {mod.label}
+                              </span>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-xs text-muted-foreground">Telefone (WhatsApp)</dt>
+                            <dd className="mt-0.5 font-medium text-amber-700 dark:text-amber-300">
+                              {formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
+                            </dd>
+                          </div>
+                        </dl>
                       </div>
-                      <div>
-                        <dt className="text-xs text-muted-foreground">Telefone (WhatsApp)</dt>
-                        <dd>{formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}</dd>
-                      </div>
-                    </dl>
+                      <WhatsAppCreateLeadPanel
+                        conversation={conversation}
+                        formatPhone={formatPhoneDisplay}
+                        onLinked={handleLeadLinked}
+                      />
+                    </div>
                   </ScrollArea>
                 </aside>
               </div>
