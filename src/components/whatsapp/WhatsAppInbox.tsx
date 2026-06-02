@@ -76,14 +76,9 @@ type WaInstanceRow = {
   phone_number_id: string | null;
 };
 
-function formatInstanceShort(
-  inst: WaInstanceRow | undefined,
-  formatPhone: (raw: string) => string,
-): string {
+function formatInstanceShort(inst: WaInstanceRow | undefined): string {
   if (!inst) return "Número não identificado";
-  const phone =
-    inst.display_phone?.trim() ||
-    (inst.phone_number_id ? formatPhone(inst.phone_number_id) : "");
+  const phone = inst.display_phone?.trim();
   if (phone && phone !== "—") return `${inst.name} · ${phone}`;
   return inst.name;
 }
@@ -237,12 +232,22 @@ export default function WhatsAppInbox() {
   }, [conversations, filter, search, user?.id]);
 
   const loadInstances = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("whatsapp_instances")
-      .select("id, name, display_phone, phone_number_id")
-      .eq("is_active", true);
+    const { data, error } = await supabase.rpc("list_whatsapp_instances_for_inbox");
     if (error) {
-      console.warn("whatsapp_instances:", error.message);
+      console.warn("list_whatsapp_instances_for_inbox:", error.message);
+      const fallback = await supabase
+        .from("whatsapp_instances")
+        .select("id, name, display_phone, phone_number_id")
+        .eq("is_active", true);
+      if (fallback.error) {
+        console.warn("whatsapp_instances:", fallback.error.message);
+        return;
+      }
+      const map: Record<string, WaInstanceRow> = {};
+      for (const row of fallback.data || []) {
+        map[row.id] = row as WaInstanceRow;
+      }
+      setInstancesById(map);
       return;
     }
     const map: Record<string, WaInstanceRow> = {};
@@ -260,7 +265,7 @@ export default function WhatsAppInbox() {
 
   const conversationInstanceLabel = useMemo(() => {
     if (!conversation?.instance_id) return null;
-    return formatInstanceShort(getInstance(conversation.instance_id), formatPhoneDisplay);
+    return formatInstanceShort(getInstance(conversation.instance_id));
   }, [conversation?.instance_id, getInstance]);
 
   const loadConversations = useCallback(async () => {
@@ -684,7 +689,7 @@ export default function WhatsAppInbox() {
                 const active = c.id === selectedId;
                 const m = MODULE_STYLES[toModuleKey(c.module)];
                 const contact = c.contact_name || formatPhoneDisplay(c.phone_display || c.wa_id);
-                const lineLabel = formatInstanceShort(getInstance(c.instance_id), formatPhoneDisplay);
+                const lineLabel = formatInstanceShort(getInstance(c.instance_id));
                 const lastAt = c.last_message_at ? new Date(c.last_message_at) : null;
                 const windowIsOpen = c.window_expires_at ? new Date(c.window_expires_at).getTime() > Date.now() : false;
                 return (
