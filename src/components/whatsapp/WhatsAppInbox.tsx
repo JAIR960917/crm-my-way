@@ -129,6 +129,12 @@ export default function WhatsAppInbox() {
   const [uploading, setUploading] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
+  const [audioDraft, setAudioDraft] = useState<{
+    url: string;
+    blob: Blob;
+    mime: string;
+    filename: string;
+  } | null>(null);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
@@ -463,9 +469,17 @@ export default function WhatsAppInbox() {
     }
   };
 
+  const clearAudioDraft = useCallback(() => {
+    setAudioDraft((prev) => {
+      if (prev?.url) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+  }, []);
+
   const startRecording = async () => {
     if (!conversation?.id) return;
     if (recording) return;
+    if (audioDraft) clearAudioDraft();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       recorderStreamRef.current = stream;
@@ -491,8 +505,11 @@ export default function WhatsAppInbox() {
         const blob = new Blob(recorderChunksRef.current, { type: rec.mimeType || "audio/webm" });
         recorderChunksRef.current = [];
         if (blob.size === 0) return;
-        const file = new File([blob], `audio-${Date.now()}.ogg`, { type: blob.type || "audio/ogg" });
-        await handleSendFile(file);
+        const mime = blob.type || "audio/ogg";
+        const ext = mime.includes("ogg") ? "ogg" : mime.includes("webm") ? "webm" : "audio";
+        const filename = `audio-${Date.now()}.${ext}`;
+        const url = URL.createObjectURL(blob);
+        setAudioDraft({ url, blob, mime, filename });
       };
       rec.start(250);
     } catch (e: unknown) {
@@ -505,6 +522,14 @@ export default function WhatsAppInbox() {
     const t = window.setInterval(() => setRecordSeconds((s) => s + 1), 1000);
     return () => window.clearInterval(t);
   }, [recording]);
+
+  useEffect(() => {
+    return () => {
+      // cleanup object url if component unmounts
+      if (audioDraft?.url) URL.revokeObjectURL(audioDraft.url);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="flex h-[calc(100dvh-16rem)] min-h-[620px] flex-col gap-3">
@@ -788,7 +813,7 @@ export default function WhatsAppInbox() {
                             variant={recording ? "destructive" : "ghost"}
                             size="icon"
                             className="shrink-0"
-                            disabled={sending || uploading || !conversation.instance_id}
+                            disabled={sending || uploading || !!audioDraft || !conversation.instance_id}
                             onClick={() => (recording ? void stopRecording() : void startRecording())}
                             title={recording ? "Parar gravação" : "Gravar áudio"}
                           >
@@ -804,7 +829,7 @@ export default function WhatsAppInbox() {
                           <Button
                             type="button"
                             className="shrink-0 gap-1"
-                            disabled={!draft.trim() || sending || uploading || !conversation.instance_id}
+                            disabled={!draft.trim() || sending || uploading || !!audioDraft || !conversation.instance_id}
                             onClick={handleSendText}
                           >
                             <Send className="h-4 w-4" />
@@ -815,6 +840,51 @@ export default function WhatsAppInbox() {
                           <p className="text-[11px] text-muted-foreground">
                             Gravando… {recordSeconds}s (clicar no botão vermelho para parar e enviar)
                           </p>
+                        ) : null}
+                        {audioDraft ? (
+                          <div className="rounded-lg border bg-muted/30 p-2 space-y-2">
+                            <p className="text-[11px] text-muted-foreground">
+                              Prévia do áudio (antes de enviar)
+                            </p>
+                            <audio controls src={audioDraft.url} className="w-full" />
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="gap-1"
+                                disabled={uploading || sending || !conversation.instance_id}
+                                onClick={async () => {
+                                  const file = new File([audioDraft.blob], audioDraft.filename, { type: audioDraft.mime });
+                                  await handleSendFile(file);
+                                  clearAudioDraft();
+                                }}
+                              >
+                                <Send className="h-4 w-4" />
+                                Enviar áudio
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={uploading || sending}
+                                onClick={() => {
+                                  clearAudioDraft();
+                                  void startRecording();
+                                }}
+                              >
+                                Regravar
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                disabled={uploading || sending}
+                                onClick={clearAudioDraft}
+                              >
+                                Excluir
+                              </Button>
+                            </div>
+                          </div>
                         ) : null}
                         {uploading ? (
                           <p className="text-[11px] text-muted-foreground">
