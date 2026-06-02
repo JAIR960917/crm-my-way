@@ -262,7 +262,7 @@ export default function WhatsAppCreateLeadPanel({ conversation, formatPhone, onL
               variant="outline"
               size="sm"
               className="w-full gap-2"
-              onClick={() => navigate(`/leads?edit=${conversation.card_id}`)}
+              onClick={() => navigate(`/?edit=${conversation.card_id}`)}
             >
               <ExternalLink className="h-4 w-4" />
               Abrir na tela de leads

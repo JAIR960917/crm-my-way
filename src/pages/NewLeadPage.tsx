@@ -853,7 +853,7 @@ export default function NewLeadPage() {
               <AlertDialogAction
                 onClick={() => {
                   if (duplicateInfo) {
-                    navigate(`/leads?edit=${duplicateInfo.leadId}`);
+                    navigate(`/?edit=${duplicateInfo.leadId}`);
                   }
                 }}
               >
