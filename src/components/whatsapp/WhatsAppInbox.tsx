@@ -20,10 +20,12 @@ import {
   Clock,
   FileText,
   Image as ImageIcon,
+  Mic,
   MessageSquare,
   Paperclip,
   Search,
   Send,
+  Square,
 } from "lucide-react";
 
 type ModuleKey = "leads" | "cobrancas" | "renovacoes";
@@ -51,6 +53,13 @@ type MessageRow = {
   status: string | null;
   is_template: boolean;
   meta_template_name: string | null;
+  message_type?: string | null;
+  media_type?: string | null;
+  media_mime?: string | null;
+  media_filename?: string | null;
+  media_size?: number | null;
+  media_id?: string | null;
+  caption?: string | null;
   created_at: string;
 };
 
@@ -117,6 +126,9 @@ export default function WhatsAppInbox() {
   const [filter, setFilter] = useState<"all" | "unread" | "mine">("all");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
@@ -124,6 +136,13 @@ export default function WhatsAppInbox() {
 
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [messages, setMessages] = useState<MessageRow[]>([]);
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recorderStreamRef = useRef<MediaStream | null>(null);
+  const recorderChunksRef = useRef<BlobPart[]>([]);
 
   const conversation = useMemo(
     () => conversations.find((c) => c.id === selectedId) ?? null,
@@ -204,7 +223,7 @@ export default function WhatsAppInbox() {
   const loadMessages = useCallback(async (conversationId: string) => {
     const { data, error } = await supabase
       .from("whatsapp_messages")
-      .select("id, conversation_id, direction, body, status, is_template, meta_template_name, created_at")
+      .select("id, conversation_id, direction, body, status, is_template, meta_template_name, message_type, media_type, media_mime, media_filename, media_size, media_id, caption, created_at")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true })
       .limit(500);
@@ -384,6 +403,109 @@ export default function WhatsAppInbox() {
     }
   };
 
+  const fileToBase64 = async (file: File): Promise<string> => {
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  };
+
+  const mapFileToMediaType = (file: File): "image" | "audio" | "video" | "document" => {
+    const mt = (file.type || "").toLowerCase();
+    if (mt.startsWith("image/")) return "image";
+    if (mt.startsWith("audio/")) return "audio";
+    if (mt.startsWith("video/")) return "video";
+    return "document";
+  };
+
+  const handleSendFile = async (file: File) => {
+    if (!conversation?.id) return;
+    if (!conversation.instance_id) {
+      toast.error("Conversa sem instance_id — não é possível enviar");
+      return;
+    }
+    setUploading(true);
+    try {
+      const base64 = await fileToBase64(file);
+      const mediaType = mapFileToMediaType(file);
+      const { data, error } = await supabase.functions.invoke("whatsapp-chat", {
+        body: {
+          action: "send-media",
+          conversation_id: conversation.id,
+          media_type: mediaType,
+          mime_type: file.type || "application/octet-stream",
+          filename: file.name || "upload",
+          base64,
+          caption: draft.trim() || undefined,
+        },
+      });
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
+      setDraft("");
+      await loadMessages(conversation.id);
+      await loadConversations();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao enviar anexo");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const stopRecording = async () => {
+    try {
+      recorderRef.current?.stop();
+    } catch {
+      // ignore
+    }
+  };
+
+  const startRecording = async () => {
+    if (!conversation?.id) return;
+    if (recording) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recorderStreamRef.current = stream;
+
+      const preferredTypes = [
+        "audio/ogg;codecs=opus",
+        "audio/webm;codecs=opus",
+        "audio/webm",
+      ];
+      const mimeType = preferredTypes.find((t) => MediaRecorder.isTypeSupported(t)) || "";
+      const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recorderRef.current = rec;
+      recorderChunksRef.current = [];
+      setRecordSeconds(0);
+      setRecording(true);
+
+      rec.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) recorderChunksRef.current.push(ev.data);
+      };
+      rec.onstop = async () => {
+        setRecording(false);
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(recorderChunksRef.current, { type: rec.mimeType || "audio/webm" });
+        recorderChunksRef.current = [];
+        if (blob.size === 0) return;
+        const file = new File([blob], `audio-${Date.now()}.ogg`, { type: blob.type || "audio/ogg" });
+        await handleSendFile(file);
+      };
+      rec.start(250);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Permissão de microfone negada");
+    }
+  };
+
+  useEffect(() => {
+    if (!recording) return;
+    const t = window.setInterval(() => setRecordSeconds((s) => s + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [recording]);
+
   return (
     <div className="flex h-[calc(100dvh-16rem)] min-h-[620px] flex-col gap-3">
       <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border bg-card shadow-sm">
@@ -540,6 +662,17 @@ export default function WhatsAppInbox() {
                       {messages.map((msg) => {
                         const out = msg.direction === "out";
                         const at = new Date(msg.created_at);
+                        const isMedia = (msg.message_type || "").toLowerCase() === "media" || !!msg.media_type || !!msg.media_id;
+                        const mediaLabel =
+                          msg.media_type === "image"
+                            ? "📷 Imagem"
+                            : msg.media_type === "audio"
+                            ? "🎤 Áudio"
+                            : msg.media_type === "video"
+                            ? "🎬 Vídeo"
+                            : msg.media_type
+                            ? "📄 Documento"
+                            : null;
                         return (
                           <div key={msg.id} className={cn("flex", out ? "justify-end" : "justify-start")}>
                             <div
@@ -555,7 +688,22 @@ export default function WhatsAppInbox() {
                                   Template Meta
                                 </span>
                               )}
-                              <p className="whitespace-pre-wrap leading-relaxed">{msg.body || "—"}</p>
+                              {isMedia ? (
+                                <div className="space-y-1">
+                                  <p className="text-sm font-medium">{mediaLabel || "📎 Anexo"}</p>
+                                  {msg.media_filename ? (
+                                    <p className="text-[11px] text-muted-foreground font-mono truncate">{msg.media_filename}</p>
+                                  ) : null}
+                                  {msg.caption ? (
+                                    <p className="whitespace-pre-wrap leading-relaxed">{msg.caption}</p>
+                                  ) : null}
+                                  <p className="text-[10px] text-muted-foreground">
+                                    (Prévia/download do anexo será adicionado em seguida.)
+                                  </p>
+                                </div>
+                              ) : (
+                                <p className="whitespace-pre-wrap leading-relaxed">{msg.body || "—"}</p>
+                              )}
                               <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
                                 <span>{format(at, "HH:mm", { locale: ptBR })}</span>
                                 {out && <StatusIcon status={msg.status} />}
@@ -580,11 +728,71 @@ export default function WhatsAppInbox() {
                           O cliente respondeu recentemente — você pode enviar texto livre (regra da Meta).
                         </p>
                         <div className="flex gap-2">
-                          <Button type="button" variant="ghost" size="icon" className="shrink-0" disabled>
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              e.target.value = "";
+                              if (f) void handleSendFile(f);
+                            }}
+                          />
+                          <input
+                            ref={imageInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              e.target.value = "";
+                              if (f) void handleSendFile(f);
+                            }}
+                          />
+                          <input
+                            ref={audioInputRef}
+                            type="file"
+                            accept="audio/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              e.target.value = "";
+                              if (f) void handleSendFile(f);
+                            }}
+                          />
+
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="shrink-0"
+                            disabled={sending || uploading || !conversation.instance_id}
+                            onClick={() => fileInputRef.current?.click()}
+                            title="Anexar arquivo"
+                          >
                             <Paperclip className="h-4 w-4" />
                           </Button>
-                          <Button type="button" variant="ghost" size="icon" className="shrink-0" disabled>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="shrink-0"
+                            disabled={sending || uploading || !conversation.instance_id}
+                            onClick={() => imageInputRef.current?.click()}
+                            title="Enviar imagem"
+                          >
                             <ImageIcon className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant={recording ? "destructive" : "ghost"}
+                            size="icon"
+                            className="shrink-0"
+                            disabled={sending || uploading || !conversation.instance_id}
+                            onClick={() => (recording ? void stopRecording() : void startRecording())}
+                            title={recording ? "Parar gravação" : "Gravar áudio"}
+                          >
+                            {recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                           </Button>
                           <Textarea
                             placeholder="Digite sua mensagem..."
@@ -596,13 +804,23 @@ export default function WhatsAppInbox() {
                           <Button
                             type="button"
                             className="shrink-0 gap-1"
-                            disabled={!draft.trim() || sending || !conversation.instance_id}
+                            disabled={!draft.trim() || sending || uploading || !conversation.instance_id}
                             onClick={handleSendText}
                           >
                             <Send className="h-4 w-4" />
                             Enviar
                           </Button>
                         </div>
+                        {recording ? (
+                          <p className="text-[11px] text-muted-foreground">
+                            Gravando… {recordSeconds}s (clicar no botão vermelho para parar e enviar)
+                          </p>
+                        ) : null}
+                        {uploading ? (
+                          <p className="text-[11px] text-muted-foreground">
+                            Enviando anexo… (isso pode levar alguns segundos)
+                          </p>
+                        ) : null}
                         {!conversation.instance_id ? (
                           <div className="text-[11px] text-amber-600 dark:text-amber-400">
                             Esta conversa não está vinculada a uma instância (`instance_id` nulo). Não é possível responder.

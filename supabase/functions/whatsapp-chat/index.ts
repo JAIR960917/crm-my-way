@@ -51,7 +51,7 @@ serve(async (req) => {
       });
     }
 
-    if (action !== "send-text" && action !== "send-template") {
+    if (action !== "send-text" && action !== "send-template" && action !== "send-media") {
       return new Response(JSON.stringify({ error: `Ação desconhecida: ${action}` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -122,6 +122,77 @@ serve(async (req) => {
     let metaTemplateLanguage: string | null = null;
     let isTemplate = false;
 
+    const GRAPH_API_VERSION = "v21.0";
+
+    async function uploadMediaToMeta(params: {
+      phoneNumberId: string;
+      accessToken: string;
+      mimeType: string;
+      filename: string;
+      bytes: Uint8Array;
+    }): Promise<{ ok: true; id: string } | { ok: false; error: string; raw?: unknown }> {
+      const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${params.phoneNumberId}/media`;
+      const form = new FormData();
+      form.append("messaging_product", "whatsapp");
+      form.append("type", params.mimeType);
+      form.append("file", new Blob([params.bytes], { type: params.mimeType }), params.filename);
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${params.accessToken}` },
+        body: form,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = (json as { error?: { message?: string } })?.error?.message || `Meta media HTTP ${res.status}`;
+        return { ok: false, error: translateWhatsAppError(err), raw: json };
+      }
+      const id = String((json as { id?: string })?.id || "");
+      if (!id) return { ok: false, error: "Meta não retornou media id", raw: json };
+      return { ok: true, id };
+    }
+
+    async function sendMediaMessage(params: {
+      phoneNumberId: string;
+      accessToken: string;
+      to: string;
+      mediaType: "image" | "audio" | "video" | "document";
+      mediaId: string;
+      caption?: string;
+      filename?: string;
+    }): Promise<{ ok: true; messageId: string | null; raw: unknown } | { ok: false; error: string; raw?: unknown }> {
+      const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${params.phoneNumberId}/messages`;
+      const body: Record<string, unknown> = {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: params.to,
+        type: params.mediaType,
+      };
+      if (params.mediaType === "image") body.image = { id: params.mediaId, ...(params.caption ? { caption: params.caption } : {}) };
+      if (params.mediaType === "audio") body.audio = { id: params.mediaId };
+      if (params.mediaType === "video") body.video = { id: params.mediaId, ...(params.caption ? { caption: params.caption } : {}) };
+      if (params.mediaType === "document") {
+        body.document = {
+          id: params.mediaId,
+          ...(params.filename ? { filename: params.filename } : {}),
+          ...(params.caption ? { caption: params.caption } : {}),
+        };
+      }
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${params.accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = (json as { error?: { message?: string } })?.error?.message || `Meta send HTTP ${res.status}`;
+        return { ok: false, error: translateWhatsAppError(err), raw: json };
+      }
+      const messageId = (json as { messages?: { id?: string }[] })?.messages?.[0]?.id || null;
+      return { ok: true, messageId, raw: json };
+    }
+
     if (action === "send-text") {
       const { text: t } = body as { text?: string };
       text = (t || "").trim();
@@ -132,6 +203,134 @@ serve(async (req) => {
         });
       }
     } else {
+      if (action === "send-media") {
+        if (target.provider !== "meta" || !target.phoneNumberId) {
+          return new Response(JSON.stringify({ error: "Anexos só estão disponíveis na Meta Cloud API" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const { media_type, mime_type, filename, base64, caption } = body as {
+          media_type?: string;
+          mime_type?: string;
+          filename?: string;
+          base64?: string;
+          caption?: string;
+        };
+
+        const mediaType = (media_type || "").trim().toLowerCase() as "image" | "audio" | "video" | "document";
+        const mimeType = (mime_type || "").trim().toLowerCase();
+        const fileName = (filename || "").trim() || "upload";
+        const b64 = (base64 || "").trim();
+
+        if (!mediaType || !["image", "audio", "video", "document"].includes(mediaType)) {
+          return new Response(JSON.stringify({ error: "media_type inválido (image/audio/video/document)" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        if (!mimeType || !mimeType.includes("/")) {
+          return new Response(JSON.stringify({ error: "mime_type é obrigatório" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        if (!b64) {
+          return new Response(JSON.stringify({ error: "base64 é obrigatório" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // limite simples para não estourar edge/memória (aprox). Ajuste se necessário.
+        if (b64.length > 18_000_000) {
+          return new Response(JSON.stringify({ error: "Arquivo muito grande (limite ~13MB em base64)" }), {
+            status: 413,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        let bytes: Uint8Array;
+        try {
+          const bin = atob(b64);
+          bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        } catch {
+          return new Response(JSON.stringify({ error: "base64 inválido" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const uploaded = await uploadMediaToMeta({
+          phoneNumberId: target.phoneNumberId,
+          accessToken,
+          mimeType,
+          filename: fileName,
+          bytes,
+        });
+        if (!uploaded.ok) {
+          return new Response(JSON.stringify({ error: uploaded.error, raw: uploaded.raw }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const sent = await sendMediaMessage({
+          phoneNumberId: target.phoneNumberId,
+          accessToken,
+          to,
+          mediaType,
+          mediaId: uploaded.id,
+          caption: typeof caption === "string" ? caption.trim() || undefined : undefined,
+          filename: fileName,
+        });
+        if (!sent.ok) {
+          return new Response(JSON.stringify({ error: sent.error, raw: sent.raw }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const now = new Date().toISOString();
+        const preview = mediaType === "image"
+          ? "📷 Imagem"
+          : mediaType === "audio"
+          ? "🎤 Áudio"
+          : mediaType === "video"
+          ? "🎬 Vídeo"
+          : "📄 Documento";
+
+        await admin.from("whatsapp_messages").insert({
+          conversation_id: conv.id,
+          direction: "out",
+          body: null,
+          wa_message_id: sent.messageId,
+          status: "sent",
+          is_template: false,
+          meta_template_name: null,
+          created_at: now,
+          message_type: "media",
+          media_type: mediaType,
+          media_mime: mimeType,
+          media_filename: fileName,
+          media_size: bytes.length,
+          media_id: uploaded.id,
+          caption: typeof caption === "string" ? caption.trim() || null : null,
+        } as any);
+
+        await admin.from("whatsapp_conversations").update({
+          last_message_at: now,
+          last_preview: (preview + (caption?.trim() ? ` · ${caption.trim()}` : "")).slice(0, 200),
+          updated_at: now,
+        }).eq("id", conv.id);
+
+        return new Response(JSON.stringify({ ok: true, meta_message_id: sent.messageId, media_id: uploaded.id }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       const { template_name, template_language } = body as { template_name?: string; template_language?: string };
       metaTemplateName = (template_name || "").trim() || null;
       metaTemplateLanguage = (template_language || "").trim() || "pt_BR";
