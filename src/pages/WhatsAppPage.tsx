@@ -19,6 +19,7 @@ import {
 import TriggerCampaigns from "@/components/whatsapp/TriggerCampaigns";
 import ImageUploadField from "@/components/whatsapp/ImageUploadField";
 import WhatsAppMetaSettings from "@/components/whatsapp/WhatsAppMetaSettings";
+import WhatsAppInbox from "@/components/whatsapp/WhatsAppInbox";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -617,6 +618,7 @@ export default function WhatsAppPage() {
 
       <Tabs defaultValue={isAdmin ? "instance" : "campaigns"} className="flex-1 flex flex-col">
         <TabsList className="mb-4">
+          <TabsTrigger value="inbox"><MessageSquare className="h-4 w-4 mr-1" /> Inbox</TabsTrigger>
           {isAdmin && <TabsTrigger value="instance"><Smartphone className="h-4 w-4 mr-1" /> Instâncias</TabsTrigger>}
           <TabsTrigger value="campaigns"><MessageSquare className="h-4 w-4 mr-1" /> Campanhas</TabsTrigger>
           <TabsTrigger value="triggers"><Zap className="h-4 w-4 mr-1" /> Gatilhos</TabsTrigger>
@@ -626,6 +628,10 @@ export default function WhatsAppPage() {
             </TabsTrigger>
           )}
         </TabsList>
+
+        <TabsContent value="inbox" className="flex-1">
+          <WhatsAppInbox />
+        </TabsContent>
 
         {/* Instance Management Tab */}
         {isAdmin && (
