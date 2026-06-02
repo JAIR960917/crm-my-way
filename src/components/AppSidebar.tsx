@@ -53,7 +53,7 @@ const mainNavItemsBeforeConfig: NavItem[] = [
 
 const mainNavItemsAfterConfig: NavItem[] = [
   { path: "/whatsapp",             label: "WhatsApp",               icon: MessageSquare },
-  { path: "/whatsapp-inbox-demo",  label: "Inbox WhatsApp (demo)",  icon: MessageSquare },
+  { path: "/whatsapp-inbox",       label: "Inbox WhatsApp",         icon: MessageSquare },
 ];
 
 /** Submenu Configuração (cadastros, formulários, integrações). */

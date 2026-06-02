@@ -144,7 +144,8 @@ const AppRoutes = () => {
       <Route path="/perfil" element={<RoleGate><ProfilePage /></RoleGate>} />
       <Route path="/notificacoes" element={<RoleGate><NotificationSettingsPage /></RoleGate>} />
       <Route path="/whatsapp" element={<RoleGate><WhatsAppPage /></RoleGate>} />
-      <Route path="/whatsapp-inbox-demo" element={<RoleGate><WhatsAppInboxDemoPage /></RoleGate>} />
+      <Route path="/whatsapp-inbox" element={<RoleGate><WhatsAppInboxDemoPage /></RoleGate>} />
+      <Route path="/whatsapp-inbox-demo" element={<Navigate to="/whatsapp-inbox" replace />} />
       <Route path="/agendamentos" element={<RoleGate><AppointmentsPage /></RoleGate>} />
       <Route path="/orcamentos" element={<RoleGate><OrcamentosPage /></RoleGate>} />
 
