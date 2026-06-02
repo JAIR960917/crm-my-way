@@ -411,6 +411,8 @@ export default function WhatsAppInbox() {
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
+
+  const handleEnableNotifications = useCallback(async () => {
     const ok = await requestWhatsAppNotificationPermission();
     setNotifyPermission(getNotificationPermission());
     if (ok) toast.success("Avisos de mensagem ativados neste navegador");
