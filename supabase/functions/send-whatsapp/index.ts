@@ -23,15 +23,14 @@
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { assertCronOrServiceRole, internalCorsHeaders } from "../_shared/internalAuth.ts";
+import { assertCronOrServiceRole } from "../_shared/internalAuth.ts";
+import { corsHeadersFor } from "../_shared/cors.ts";
 import { recordOutboundWhatsAppInbox } from "../_shared/whatsappInboxMedia.ts";
 import {
   resolveSendTargetBySession,
   sendWhatsAppMessage,
   translateWhatsAppError,
 } from "../_shared/whatsappSend.ts";
-
-const corsHeaders = internalCorsHeaders;
 
 const SUCCESS_TOKENS = ["success", "sucesso", "sent", "enviado", "accepted", "queued", "ok"];
 const ERROR_TOKENS = [
@@ -510,6 +509,7 @@ function resolveCardEnteredAt(card: any): Date {
 
 
 serve(async (req) => {
+  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }

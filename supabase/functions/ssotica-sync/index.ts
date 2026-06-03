@@ -1,17 +1,17 @@
 // Edge function: ssotica-sync
 // Sincroniza Vendas (→ Renovações) e Contas a Receber (→ Cobranças) das lojas SSótica
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { assertCronServiceRoleOrStaff, internalCorsHeaders } from "../_shared/internalAuth.ts";
+import { assertCronServiceRoleOrStaff } from "../_shared/internalAuth.ts";
+import { corsHeadersFor } from "../_shared/cors.ts";
 import {
   assertStaffSsoticaSyncAccess,
   canRunGlobalSsoticaSideEffects,
 } from "../_shared/staffAuth.ts";
 
-const corsHeaders = internalCorsHeaders;
-
 async function gateStaffSync(
   req: Request,
   supabase: ReturnType<typeof createClient>,
+  corsHeaders: Record<string, string>,
   integrationId: string | undefined,
   opts: { requireIntegrationId?: boolean; adminOnly?: boolean },
 ): Promise<Response | null> {
@@ -2458,6 +2458,7 @@ function automaticSyncDisabledResponse(ownerIntegrationId: string | null): Respo
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const supabase = createClient(
@@ -2485,7 +2486,7 @@ Deno.serve(async (req) => {
         });
       }
       {
-        const gate = await gateStaffSync(req, supabase, onlyIntegrationId, { requireIntegrationId: true });
+        const gate = await gateStaffSync(req, supabase, corsHeaders, onlyIntegrationId, { requireIntegrationId: true });
         if (gate) return gate;
       }
 
@@ -2581,7 +2582,7 @@ Deno.serve(async (req) => {
     // ========== MODO 2: consolidar cobranças cross-store sem reimportar dados ==========
     if (mode === "consolidate_only") {
       {
-        const gate = await gateStaffSync(req, supabase, undefined, { adminOnly: true });
+        const gate = await gateStaffSync(req, supabase, corsHeaders, undefined, { adminOnly: true });
         if (gate) return gate;
       }
       const consolidation = await consolidateCrossStoreCobrancas(supabase);
@@ -2600,7 +2601,7 @@ Deno.serve(async (req) => {
         });
       }
       {
-        const gate = await gateStaffSync(req, supabase, onlyIntegrationId, { requireIntegrationId: true });
+        const gate = await gateStaffSync(req, supabase, corsHeaders, onlyIntegrationId, { requireIntegrationId: true });
         if (gate) return gate;
       }
       const rawScope = typeof body.scope === "string" ? body.scope : "all";
@@ -2673,7 +2674,7 @@ Deno.serve(async (req) => {
         });
       }
       {
-        const gate = await gateStaffSync(req, supabase, onlyIntegrationId, { requireIntegrationId: true });
+        const gate = await gateStaffSync(req, supabase, corsHeaders, onlyIntegrationId, { requireIntegrationId: true });
         if (gate) return gate;
       }
 
@@ -2769,7 +2770,7 @@ Deno.serve(async (req) => {
         }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       {
-        const gate = await gateStaffSync(req, supabase, onlyIntegrationId, { requireIntegrationId: true });
+        const gate = await gateStaffSync(req, supabase, corsHeaders, onlyIntegrationId, { requireIntegrationId: true });
         if (gate) return gate;
       }
 
@@ -2837,7 +2838,7 @@ Deno.serve(async (req) => {
         });
       }
       {
-        const gate = await gateStaffSync(req, supabase, onlyIntegrationId, { requireIntegrationId: true });
+        const gate = await gateStaffSync(req, supabase, corsHeaders, onlyIntegrationId, { requireIntegrationId: true });
         if (gate) return gate;
       }
 
@@ -2951,7 +2952,7 @@ Deno.serve(async (req) => {
       }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     {
-      const gate = await gateStaffSync(req, supabase, onlyIntegrationId, { requireIntegrationId: true });
+      const gate = await gateStaffSync(req, supabase, corsHeaders, onlyIntegrationId, { requireIntegrationId: true });
       if (gate) return gate;
     }
 

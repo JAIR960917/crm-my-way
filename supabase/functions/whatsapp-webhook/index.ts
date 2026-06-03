@@ -4,14 +4,10 @@
  * POST — mensagens recebidas, ecos (envio pelo app) e status de entrega
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { corsHeadersFor } from "../_shared/cors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { cleanPhone } from "../_shared/whatsappSend.ts";
 import { insertWhatsAppMessageRow, parseWhatsAppMessage } from "../_shared/whatsappInboxMedia.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-hub-signature-256",
-};
 
 /** ID fictício usado só no botão «Teste» do painel Meta — não é o número real. */
 const META_TEST_PHONE_NUMBER_IDS = new Set(["123456123", "123456789", "0"]);
@@ -265,6 +261,7 @@ async function upsertConversationMessage(
 }
 
 serve(async (req) => {
+  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }

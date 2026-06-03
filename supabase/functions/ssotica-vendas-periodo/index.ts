@@ -2,6 +2,7 @@
 // Busca vendas (com itens/produtos) de UMA empresa SSótica em um período.
 // O frontend chama uma vez por empresa (em paralelo) para evitar timeout.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { corsHeadersFor } from "../_shared/cors.ts";
 import {
   assertAdminOrGerente,
   companyAllowed,
@@ -10,12 +11,6 @@ import {
 } from "../_shared/staffAuth.ts";
 
 const SSOTICA_BASE = "https://app.ssotica.com.br/api/v1/integracoes";
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
-
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (d: Date, days: number) => {
   const x = new Date(d);
@@ -54,6 +49,7 @@ async function fetchSSotica(url: string, token: string): Promise<any> {
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
