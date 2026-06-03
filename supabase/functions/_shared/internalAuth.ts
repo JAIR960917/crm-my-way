@@ -4,7 +4,7 @@ export const internalCorsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-cron-secret",
 };
 
-function decodeJwtRole(authHeader: string): string | null {
+export function decodeJwtRole(authHeader: string): string | null {
   try {
     const token = authHeader.replace(/^Bearer\s+/i, "").trim();
     const payloadPart = token.split(".")[1];
@@ -47,6 +47,17 @@ export function assertCronOrServiceRole(
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     },
   );
+}
+
+/** Cron interno ou JWT service_role — bypass de escopo por loja nas edge functions. */
+export function isInternalServiceCaller(req: Request): boolean {
+  const cronSecret = Deno.env.get("CRON_SECRET");
+  const providedSecret = req.headers.get("x-cron-secret");
+  if (cronSecret && providedSecret && providedSecret === cronSecret) {
+    return true;
+  }
+  const authHeader = req.headers.get("Authorization") ?? "";
+  return decodeJwtRole(authHeader) === "service_role";
 }
 
 type SupabaseAdmin = {

@@ -2,8 +2,25 @@
 // Sincroniza Vendas (→ Renovações) e Contas a Receber (→ Cobranças) das lojas SSótica
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { assertCronServiceRoleOrStaff, internalCorsHeaders } from "../_shared/internalAuth.ts";
+import {
+  assertStaffSsoticaSyncAccess,
+  canRunGlobalSsoticaSideEffects,
+} from "../_shared/staffAuth.ts";
 
 const corsHeaders = internalCorsHeaders;
+
+async function gateStaffSync(
+  req: Request,
+  supabase: ReturnType<typeof createClient>,
+  integrationId: string | undefined,
+  opts: { requireIntegrationId?: boolean; adminOnly?: boolean },
+): Promise<Response | null> {
+  return assertStaffSsoticaSyncAccess(req, supabase, corsHeaders, {
+    integrationId,
+    requireIntegrationId: opts.requireIntegrationId,
+    adminOnly: opts.adminOnly,
+  });
+}
 
 const SSOTICA_BASE = "https://app.ssotica.com.br/api/v1/integracoes";
 const MAX_WINDOW_DAYS = 30; // limite da API SSótica por janela
@@ -2467,6 +2484,10 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      {
+        const gate = await gateStaffSync(req, supabase, onlyIntegrationId, { requireIntegrationId: true });
+        if (gate) return gate;
+      }
 
       const nowIso = new Date().toISOString();
       const { data: current, error: currentError } = await supabase
@@ -2559,6 +2580,10 @@ Deno.serve(async (req) => {
 
     // ========== MODO 2: consolidar cobranças cross-store sem reimportar dados ==========
     if (mode === "consolidate_only") {
+      {
+        const gate = await gateStaffSync(req, supabase, undefined, { adminOnly: true });
+        if (gate) return gate;
+      }
       const consolidation = await consolidateCrossStoreCobrancas(supabase);
       console.log(`[ssotica-sync][consolidation-only] groups_merged=${consolidation.groups_merged} cards_removed=${consolidation.cards_removed}`);
       return new Response(JSON.stringify({ ok: true, mode, consolidation }), {
@@ -2574,6 +2599,10 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      {
+        const gate = await gateStaffSync(req, supabase, onlyIntegrationId, { requireIntegrationId: true });
+        if (gate) return gate;
+      }
       const rawScope = typeof body.scope === "string" ? body.scope : "all";
       const scope: "all" | "cobrancas" | "renovacoes" =
         rawScope === "cobrancas" || rawScope === "renovacoes" ? rawScope : "all";
@@ -2583,14 +2612,16 @@ Deno.serve(async (req) => {
       const busy = await getOtherBusyIntegration(supabase, onlyIntegrationId);
       if (busy) return busyResponse(busy);
 
-      try {
-        await pauseOtherIntegrations(
-          supabase,
-          onlyIntegrationId,
-          "Pausado automaticamente — outra loja foi acionada manualmente.",
-        );
-      } catch (pauseErr) {
-        console.error("[ssotica-sync][start_backfill] erro ao pausar outras lojas:", pauseErr);
+      if (await canRunGlobalSsoticaSideEffects(req, supabase)) {
+        try {
+          await pauseOtherIntegrations(
+            supabase,
+            onlyIntegrationId,
+            "Pausado automaticamente — outra loja foi acionada manualmente.",
+          );
+        } catch (pauseErr) {
+          console.error("[ssotica-sync][start_backfill] erro ao pausar outras lojas:", pauseErr);
+        }
       }
 
       await setManualBackfillOwner(supabase, onlyIntegrationId);
@@ -2640,6 +2671,10 @@ Deno.serve(async (req) => {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
+      }
+      {
+        const gate = await gateStaffSync(req, supabase, onlyIntegrationId, { requireIntegrationId: true });
+        if (gate) return gate;
       }
 
       // 🔒 LOCK GLOBAL: rejeita se outra loja está ocupada.
@@ -2733,6 +2768,10 @@ Deno.serve(async (req) => {
           message: "integration_id é obrigatório para full_sweep.",
         }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+      {
+        const gate = await gateStaffSync(req, supabase, onlyIntegrationId, { requireIntegrationId: true });
+        if (gate) return gate;
+      }
 
       const { data: integs, error: intErr } = await supabase
         .from("ssotica_integrations")
@@ -2753,14 +2792,16 @@ Deno.serve(async (req) => {
       const busy = await getOtherBusyIntegration(supabase, onlyIntegrationId);
       if (busy) return busyResponse(busy);
 
-      try {
-        await pauseOtherIntegrations(
-          supabase,
-          onlyIntegrationId,
-          "Pausado automaticamente — outra loja iniciou uma varredura de quitações.",
-        );
-      } catch (pauseErr) {
-        console.error("[ssotica-sync][full_sweep] erro ao pausar outras lojas:", pauseErr);
+      if (await canRunGlobalSsoticaSideEffects(req, supabase)) {
+        try {
+          await pauseOtherIntegrations(
+            supabase,
+            onlyIntegrationId,
+            "Pausado automaticamente — outra loja iniciou uma varredura de quitações.",
+          );
+        } catch (pauseErr) {
+          console.error("[ssotica-sync][full_sweep] erro ao pausar outras lojas:", pauseErr);
+        }
       }
 
       await supabase
@@ -2794,6 +2835,10 @@ Deno.serve(async (req) => {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
+      }
+      {
+        const gate = await gateStaffSync(req, supabase, onlyIntegrationId, { requireIntegrationId: true });
+        if (gate) return gate;
       }
 
       const busy = await getOtherBusyIntegration(supabase, onlyIntegrationId);
@@ -2904,6 +2949,10 @@ Deno.serve(async (req) => {
         error: "integration_id_required",
         message: "integration_id é obrigatório. Sincronização global automática foi desativada — dispare cada loja manualmente.",
       }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    {
+      const gate = await gateStaffSync(req, supabase, onlyIntegrationId, { requireIntegrationId: true });
+      if (gate) return gate;
     }
 
     const manualOwnerIntegrationId = await getManualBackfillOwner(supabase);

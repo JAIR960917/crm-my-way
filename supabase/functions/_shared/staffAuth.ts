@@ -2,6 +2,7 @@
  * Autenticação de staff (admin/gerente/vendedor) e escopo por empresa.
  */
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { isInternalServiceCaller } from "./internalAuth.ts";
 
 export type StaffUser = { id: string };
 
@@ -141,4 +142,79 @@ export async function assertCanAccessIntegration(
     };
   }
   return { response: null, companyId };
+}
+
+export async function isAdminUser(
+  admin: SupabaseClient,
+  userId: string,
+): Promise<boolean> {
+  const roles = await getUserRoles(admin, userId);
+  return roles.includes("admin");
+}
+
+/** Admin ou cron/service_role — efeitos globais (pausar outras lojas, consolidar). */
+export async function canRunGlobalSsoticaSideEffects(
+  req: Request,
+  admin: SupabaseClient,
+): Promise<boolean> {
+  if (isInternalServiceCaller(req)) return true;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const { user, response } = await getUserFromRequest(req, supabaseUrl, serviceKey);
+  if (response || !user) return false;
+  return isAdminUser(admin, user.id);
+}
+
+/**
+ * Valida chamadas de painel em ssotica-sync: cron/service_role passam;
+ * staff exige admin (modos globais) ou escopo da integração/loja.
+ */
+export async function assertStaffSsoticaSyncAccess(
+  req: Request,
+  admin: SupabaseClient,
+  corsHeaders: Record<string, string>,
+  options: {
+    integrationId?: string;
+    requireIntegrationId?: boolean;
+    adminOnly?: boolean;
+  },
+): Promise<Response | null> {
+  if (isInternalServiceCaller(req)) return null;
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const { user, response } = await getUserFromRequest(req, supabaseUrl, serviceKey);
+  if (response) return response;
+  if (!user) {
+    return new Response(JSON.stringify({ error: "Não autenticado" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  if (options.adminOnly) {
+    return assertAdmin(admin, user.id, corsHeaders);
+  }
+
+  const staffBlock = await assertAdminOrGerente(admin, user.id, corsHeaders);
+  if (staffBlock) return staffBlock;
+
+  if (options.requireIntegrationId && !options.integrationId) {
+    return new Response(JSON.stringify({ error: "integration_id obrigatório" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  if (options.integrationId) {
+    const { response: integBlock } = await assertCanAccessIntegration(
+      admin,
+      user.id,
+      options.integrationId,
+      corsHeaders,
+    );
+    if (integBlock) return integBlock;
+  }
+
+  return null;
 }
