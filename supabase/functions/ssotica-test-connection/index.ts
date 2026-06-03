@@ -2,12 +2,16 @@
 // Faz uma chamada simples na API SSótica para validar token + CNPJ/Código
 // e retorna a URL exata + resposta crua para debug.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { corsHeadersFor } from "../_shared/cors.ts";
 import {
   assertAdminOrGerente,
   assertCanAccessIntegration,
   getUserFromRequest,
 } from "../_shared/staffAuth.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 const SSOTICA_BASE = "https://app.ssotica.com.br/api/v1/integracoes";
 
@@ -16,7 +20,6 @@ function ymd(d: Date): string {
 }
 
 Deno.serve(async (req) => {
-  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {

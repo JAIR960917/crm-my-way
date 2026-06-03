@@ -20,13 +20,14 @@
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { assertCronOrServiceRole } from "../_shared/internalAuth.ts";
-import { corsHeadersFor } from "../_shared/cors.ts";
+import { assertCronOrServiceRole, internalCorsHeaders } from "../_shared/internalAuth.ts";
 import {
   resolveSendTargetBySession,
   sendWhatsAppMessage,
   cleanPhone as sharedCleanPhone,
 } from "../_shared/whatsappSend.ts";
+
+const corsHeaders = internalCorsHeaders;
 
 const cleanPhone = sharedCleanPhone;
 
@@ -118,7 +119,6 @@ async function resolveSession(supabase: any, instanceId: string | null, companyI
 }
 
 serve(async (req) => {
-  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const authDenied = assertCronOrServiceRole(req, corsHeaders);

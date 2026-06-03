@@ -45,46 +45,11 @@ docker_compose() {
 
 MODE="${1:-all}"
 
-sql_quote() {
-  printf "%s" "$1" | sed "s/'/''/g"
-}
-
-apply_db_guc_settings() {
-  local jwt_secret="${JWT_SECRET:-}"
-  local service_role="${SERVICE_ROLE_KEY:-}"
-  local cron_secret="${CRON_SECRET:-}"
-  local public_url="${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-}}"
-
-  docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$" || return 0
-
-  _guc_exec() {
-    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -c "$1" >/dev/null
-  }
-
-  if [ -n "$jwt_secret" ]; then
-    _guc_exec "ALTER DATABASE postgres SET \"app.settings.jwt_secret\" = '$(sql_quote "$jwt_secret")';" \
-      || warn "Não foi possível definir app.settings.jwt_secret"
-  fi
-  if [ -n "$service_role" ]; then
-    _guc_exec "ALTER DATABASE postgres SET \"app.settings.supabase_service_role_key\" = '$(sql_quote "$service_role")';" \
-      || warn "Não foi possível definir app.settings.supabase_service_role_key"
-  fi
-  if [ -n "$cron_secret" ]; then
-    _guc_exec "ALTER DATABASE postgres SET \"app.settings.cron_secret\" = '$(sql_quote "$cron_secret")';" \
-      || warn "Não foi possível definir app.settings.cron_secret"
-  fi
-  if [ -n "$public_url" ]; then
-    _guc_exec "ALTER DATABASE postgres SET \"app.settings.supabase_url\" = '$(sql_quote "$public_url")';" \
-      || warn "Não foi possível definir app.settings.supabase_url"
-  fi
-
-  _guc_exec "DELETE FROM public.system_settings WHERE setting_key IN ('backend_service_role_key', 'backend_cron_secret');" \
-    || true
-}
-
 persist_backend_runtime_settings_vps() {
   local app_supabase_url="${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-}}"
   local app_supabase_anon="${SUPABASE_ANON_KEY:-${ANON_KEY:-}}"
+  local app_service_role="${SERVICE_ROLE_KEY:-}"
+  local app_cron_secret="${CRON_SECRET:-}"
 
   [ -n "${app_supabase_url}" ] && [ -n "${app_supabase_anon}" ] || return 0
   docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$" || return 1
@@ -93,6 +58,8 @@ persist_backend_runtime_settings_vps() {
     psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 \
       -v backend_url="${app_supabase_url}" \
       -v backend_key="${app_supabase_anon}" \
+      -v backend_service_key="${app_service_role}" \
+      -v backend_cron_secret="${app_cron_secret}" \
       >/dev/null <<'SQL'
 CREATE TABLE IF NOT EXISTS public.system_settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -111,17 +78,24 @@ VALUES ('backend_anon_key', :'backend_key')
 ON CONFLICT (setting_key)
 DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
 
-DELETE FROM public.system_settings
-WHERE setting_key IN ('backend_service_role_key', 'backend_cron_secret');
+INSERT INTO public.system_settings (setting_key, setting_value)
+VALUES ('backend_service_role_key', NULLIF(:'backend_service_key', ''))
+ON CONFLICT (setting_key)
+DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
+
+INSERT INTO public.system_settings (setting_key, setting_value)
+VALUES ('backend_cron_secret', NULLIF(:'backend_cron_secret', ''))
+ON CONFLICT (setting_key)
+DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
 
 SELECT public.manage_whatsapp_cron()
-WHERE to_regprocedure('public.manage_whatsapp_cron()') IS NOT NULL;
+WHERE to_regprocedure('public.manage_whatsapp_cron()') IS NOT NULL
+  AND NULLIF(:'backend_service_key', '') IS NOT NULL
+  AND NULLIF(:'backend_cron_secret', '') IS NOT NULL;
 
 SELECT public.manage_ssotica_cron()
 WHERE to_regprocedure('public.manage_ssotica_cron()') IS NOT NULL;
 SQL
-
-  apply_db_guc_settings
 }
 
 sync_frontend_assets_cache() {
@@ -325,7 +299,9 @@ SQL
       DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
     " || warn "Não foi possível gravar backend_anon_key em system_settings (continuando)."
 
-    apply_db_guc_settings
+    db_exec "ALTER DATABASE postgres RESET \"app.settings.jwt_secret\";" || warn "Não foi possível limpar app.settings.jwt_secret legado (continuando)."
+    db_exec "ALTER DATABASE postgres RESET \"app.settings.supabase_url\";" || warn "Não foi possível limpar app.settings.supabase_url legado (continuando)."
+    db_exec "ALTER DATABASE postgres RESET \"app.settings.supabase_anon_key\";" || warn "Não foi possível limpar app.settings.supabase_anon_key legado (continuando)."
   fi
 
   db_exec "
@@ -375,10 +351,6 @@ SQL
     warn "Não foi possível reagendar os crons da SSÓtica automaticamente (verifique as configs backend_public_url/backend_anon_key)."
   fi
 
-  apply_db_guc_settings
-  db_exec "SELECT public.manage_whatsapp_cron();" >/dev/null 2>&1 \
-    || warn "Não foi possível reagendar cron WhatsApp (verifique JWT_SECRET/SERVICE_ROLE_KEY/CRON_SECRET no .env)."
-
   ok "Migrations aplicadas: $count"
 }
 
@@ -410,19 +382,22 @@ run_functions() {
 }
 
 # ---------------------------------------------------------------------------
-# runtime-config.js do frontend (montado no nginx; não exige rebuild)
+# Frontend (build + restart do container que serve o app)
 # ---------------------------------------------------------------------------
-write_runtime_config() {
+run_frontend() {
   local runtime_config_path="${PROJECT_DIR}/public/runtime-config.js"
+  # Por padrão o frontend aponta para o backend self-hosted desta VPS,
+  # usando SUPABASE_PUBLIC_URL/ANON_KEY do .env. Para forçar Lovable Cloud
+  # ou outro backend, defina FRONTEND_SUPABASE_URL/FRONTEND_SUPABASE_PUBLISHABLE_KEY no .env.
   local frontend_backend_url="${FRONTEND_SUPABASE_URL:-${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-${VITE_SUPABASE_URL:-}}}}"
   local frontend_publishable_key="${FRONTEND_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_ANON_KEY:-${ANON_KEY:-${VITE_SUPABASE_PUBLISHABLE_KEY:-}}}}"
 
   if [ -z "$frontend_backend_url" ] || [ -z "$frontend_publishable_key" ]; then
-    warn "SUPABASE_PUBLIC_URL/ANON_KEY ausentes — runtime-config.js não atualizado (frontend pode não abrir)."
+    err "Defina SUPABASE_PUBLIC_URL e ANON_KEY (ou FRONTEND_SUPABASE_URL/FRONTEND_SUPABASE_PUBLISHABLE_KEY, ou VITE_SUPABASE_URL/VITE_SUPABASE_PUBLISHABLE_KEY) no .env antes do build do frontend."
     return 1
   fi
 
-  log "Gravando runtime-config.js → ${frontend_backend_url}"
+  log "Gravando config runtime do frontend para ${frontend_backend_url}..."
   cat > "$runtime_config_path" <<EOF
 window.__CRM_RUNTIME_CONFIG__ = {
   supabaseUrl: "${frontend_backend_url}",
@@ -431,17 +406,8 @@ window.__CRM_RUNTIME_CONFIG__ = {
   whatsappInboxRealtime: true
 };
 EOF
-  ok "runtime-config.js atualizado"
-  return 0
-}
 
-# ---------------------------------------------------------------------------
-# Frontend (build + restart do container que serve o app)
-# ---------------------------------------------------------------------------
-run_frontend() {
-  write_runtime_config || return 1
-
-  # Preferimos rebuild via docker compose: garante que dist/ + nginx.conf estejam consistentes.
+  # Preferimos rebuild via docker compose: garante que dist/ + nginx.conf + runtime-config.js
   # estejam consistentes dentro da imagem do container crm-frontend.
   if [ "${FRONTEND_BUILD_MODE:-docker}" = "docker" ] && command -v docker >/dev/null 2>&1; then
     log "Rebuild do frontend via docker compose (modo docker)..."
@@ -493,27 +459,21 @@ run_restart() {
     supabase-functions \
     supabase-studio
   if docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
-    apply_db_guc_settings
+    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+ALTER DATABASE postgres RESET "app.settings.jwt_secret";
+ALTER DATABASE postgres RESET "app.settings.supabase_url";
+ALTER DATABASE postgres RESET "app.settings.supabase_anon_key";
+SQL
   fi
   ok "Serviços do backend recriados com as credenciais atuais do .env"
 }
 
 case "$MODE" in
-  --functions)
-    write_runtime_config || true
-    run_functions
-    ;;
-  --migrations)
-    write_runtime_config || true
-    run_migrations
-    ;;
+  --functions)   run_functions ;;
+  --migrations)  run_migrations ;;
   --frontend)    run_frontend ;;
-  --restart)
-    write_runtime_config || true
-    run_restart
-    ;;
+  --restart)     run_restart ;;
   all|"")
-    write_runtime_config || true
     run_migrations
     run_functions
     run_frontend

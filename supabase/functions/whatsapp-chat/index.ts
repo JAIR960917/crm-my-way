@@ -3,7 +3,6 @@
  * Grava mensagem "out" em whatsapp_messages e atualiza preview da conversa.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { corsHeadersFor } from "../_shared/cors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getUserFromRequest, getUserRoles } from "../_shared/staffAuth.ts";
 import { cleanPhone, resolveSendTargetByInstanceId, sendWhatsAppMessage, translateWhatsAppError } from "../_shared/whatsappSend.ts";
@@ -12,6 +11,11 @@ import {
   insertWhatsAppMessageRow,
   normalizeMetaUploadMime,
 } from "../_shared/whatsappInboxMedia.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 const ALLOWED_ROLES = new Set(["admin", "gerente", "vendedor", "financeiro"]);
 
@@ -29,7 +33,6 @@ async function resolveSenderLabel(
 }
 
 serve(async (req) => {
-  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
@@ -533,11 +536,9 @@ serve(async (req) => {
       metaTemplateLanguage,
       metaTemplateBodyParams: [],
       supabase: admin as any,
-      conversationId: conv.id,
     });
 
     if (!result.ok) {
-      console.warn("[whatsapp-chat] send failed:", result.errorMessage);
       return new Response(JSON.stringify({ error: translateWhatsAppError(result.errorMessage || "Falha no envio"), raw: result.raw }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

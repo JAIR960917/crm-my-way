@@ -1,44 +1,19 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { corsHeadersFor } from "../_shared/cors.ts";
-import { checkRateLimit, clientIp } from "../_shared/rateLimit.ts";
 
-const MAX_ATTEMPTS = 8;
-const WINDOW_MS = 15 * 60 * 1000;
-
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-bootstrap-secret",
+};
 
 Deno.serve(async (req) => {
-  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  const ip = clientIp(req);
-  const rate = checkRateLimit(`seed-admin:${ip}`, MAX_ATTEMPTS, WINDOW_MS);
-  if (!rate.allowed) {
-    return new Response(JSON.stringify({ error: "Muitas tentativas. Aguarde e tente novamente." }), {
-      status: 429,
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json",
-        "Retry-After": String(rate.retryAfterSec),
-      },
-    });
-  }
-
   const bootstrapSecret = Deno.env.get("SEED_ADMIN_SECRET") || "";
   const provided = req.headers.get("x-bootstrap-secret") || "";
-  if (
-    !bootstrapSecret ||
-    bootstrapSecret.length < 32 ||
-    !provided ||
-    !timingSafeEqual(provided, bootstrapSecret)
-  ) {
+  if (!bootstrapSecret || bootstrapSecret.length < 16 || provided !== bootstrapSecret) {
     return new Response(JSON.stringify({ error: "Bootstrap não autorizado" }), {
       status: 403,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -50,17 +25,7 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  let body: { email?: string; password?: string; full_name?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return new Response(JSON.stringify({ error: "JSON inválido" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
-  const { email, password, full_name } = body;
+  const { email, password, full_name } = await req.json();
 
   if (!email || !password) {
     return new Response(JSON.stringify({ error: "Email e senha são obrigatórios" }), {

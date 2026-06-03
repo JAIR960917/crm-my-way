@@ -156,9 +156,7 @@ async function parseSendError(
       /* ignore */
     }
   }
-  if (error?.message?.includes("non-2xx")) {
-    return "Falha ao enviar. Abra o DevTools → Network → whatsapp-chat → Response para ver o motivo (token Meta, janela 24h ou instance_id).";
-  }
+  if (error?.message?.includes("non-2xx")) return "Falha ao enviar (verifique migration de anexos e formato do áudio)";
   return error?.message || "Erro ao enviar";
 }
 
@@ -614,7 +612,7 @@ export default function WhatsAppInbox() {
       const { data, error } = await supabase.functions.invoke("whatsapp-chat", {
         body: { action: "send-text", conversation_id: conversation.id, text: draft.trim() },
       });
-      if (error) throw new Error(await parseSendError(data, error));
+      if (error) throw error;
       if ((data as any)?.error) throw new Error((data as any).error);
       setDraft("");
       await loadMessages(conversation.id);
@@ -644,7 +642,7 @@ export default function WhatsAppInbox() {
           template_language: templateLanguage.trim() || "pt_BR",
         },
       });
-      if (error) throw new Error(await parseSendError(data, error));
+      if (error) throw error;
       if ((data as any)?.error) throw new Error((data as any).error);
       await loadMessages(conversation.id);
       await loadConversations();

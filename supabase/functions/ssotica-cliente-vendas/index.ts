@@ -2,7 +2,6 @@
 // Busca o histórico completo de vendas (com itens/produtos) de um cliente SSótica
 // em UMA OU MAIS lojas (integrações).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { corsHeadersFor } from "../_shared/cors.ts";
 import {
   companyAllowed,
   getAllowedCompanyIds,
@@ -10,6 +9,12 @@ import {
 } from "../_shared/staffAuth.ts";
 
 const SSOTICA_BASE = "https://app.ssotica.com.br/api/v1/integracoes";
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (d: Date, days: number) => {
   const x = new Date(d);
@@ -74,7 +79,6 @@ type Target = {
 };
 
 Deno.serve(async (req) => {
-  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {

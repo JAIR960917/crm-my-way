@@ -2,15 +2,14 @@
 // Busca vendas (com itens/produtos) de UMA empresa SSótica em um período.
 // O frontend chama uma vez por empresa (em paralelo) para evitar timeout.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { corsHeadersFor } from "../_shared/cors.ts";
-import {
-  assertAdminOrGerente,
-  companyAllowed,
-  getAllowedCompanyIds,
-  getUserFromRequest,
-} from "../_shared/staffAuth.ts";
 
 const SSOTICA_BASE = "https://app.ssotica.com.br/api/v1/integracoes";
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (d: Date, days: number) => {
   const x = new Date(d);
@@ -49,7 +48,6 @@ async function fetchSSotica(url: string, token: string): Promise<any> {
 }
 
 Deno.serve(async (req) => {
-  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
@@ -65,19 +63,37 @@ Deno.serve(async (req) => {
       );
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, serviceKey);
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
 
-    const { user, response: authResp } = await getUserFromRequest(req, supabaseUrl, serviceKey);
-    if (authResp) return authResp;
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Não autenticado" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const { data: { user } } = await supabase.auth.getUser(
+      authHeader.replace("Bearer ", ""),
+    );
+    if (!user) {
+      return new Response(JSON.stringify({ error: "Não autenticado" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    const staffBlock = await assertAdminOrGerente(supabase, user!.id, corsHeaders);
-    if (staffBlock) return staffBlock;
-
-    const allowedCompanies = await getAllowedCompanyIds(supabase, user!.id);
-    if (!companyAllowed(allowedCompanies, companyId)) {
-      return new Response(JSON.stringify({ error: "Sem permissão para esta loja" }), {
+    // Verifica papel (admin ou gerente)
+    const { data: roles } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id);
+    const isAdmin = (roles || []).some((r: any) => r.role === "admin");
+    const isGerente = (roles || []).some((r: any) => r.role === "gerente");
+    if (!isAdmin && !isGerente) {
+      return new Response(JSON.stringify({ error: "Acesso negado" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

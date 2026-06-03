@@ -2,13 +2,16 @@
  * Painel admin: configuração e testes da WhatsApp Cloud API (Meta).
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { corsHeadersFor } from "../_shared/cors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 const GRAPH_API_VERSION = "v21.0";
 
 serve(async (req) => {
-  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -316,12 +319,6 @@ serve(async (req) => {
         && ((subscribed as { data: unknown[] }).data.length > 0);
 
       const hints: string[] = [];
-      if (!appSecret) {
-        hints.unshift(
-          "WHATSAPP_APP_SECRET ausente no .env da VPS — o webhook rejeita POSTs com 503 e mensagens do celular não entram no CRM.",
-          "Use o App Secret em Meta for Developers → seu app → Configurações → Básico (não confundir com Verify Token).",
-        );
-      }
       if (!appSubscribed) {
         hints.push(
           "A WABA não está inscrita no app. Use «Inscrever WABA no webhook».",
@@ -352,12 +349,6 @@ serve(async (req) => {
         crm_instances: metaInstances || [],
         phone_numbers: phoneChecks,
         webhook_url: webhookUrl,
-        server_env: {
-          access_token: !!accessToken,
-          verify_token: !!verifyToken,
-          app_secret: !!appSecret,
-          waba_id: !!wabaId,
-        },
         hints,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }

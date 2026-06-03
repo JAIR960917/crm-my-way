@@ -4,10 +4,14 @@
  * POST — mensagens recebidas, ecos (envio pelo app) e status de entrega
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { corsHeadersFor } from "../_shared/cors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { cleanPhone } from "../_shared/whatsappSend.ts";
 import { insertWhatsAppMessageRow, parseWhatsAppMessage } from "../_shared/whatsappInboxMedia.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-hub-signature-256",
+};
 
 /** ID fictício usado só no botão «Teste» do painel Meta — não é o número real. */
 const META_TEST_PHONE_NUMBER_IDS = new Set(["123456123", "123456789", "0"]);
@@ -31,82 +35,56 @@ async function verifySignature(payload: string, signatureHeader: string | null, 
 
 type WaMetadata = { phone_number_id?: string; display_phone_number?: string };
 
-type MetaInstanceRow = {
-  id: string;
-  phone_number_id?: string | null;
-  session?: string | null;
-  display_phone?: string | null;
-  is_active?: boolean | null;
-};
-
-function phoneDigits(value: string): string {
-  return (value || "").replace(/\D/g, "");
-}
-
-/** Compara números BR mesmo com +55, espaços ou máscaras diferentes. */
-function phonesEquivalent(a: string, b: string): boolean {
-  const da = phoneDigits(a);
-  const db = phoneDigits(b);
-  if (!da || !db) return false;
-  if (da === db) return true;
-  const tailA = da.length >= 10 ? da.slice(-11) : da;
-  const tailB = db.length >= 10 ? db.slice(-11) : db;
-  return tailA === tailB;
-}
-
-async function loadMetaInstances(
-  supabase: ReturnType<typeof createClient>,
-): Promise<MetaInstanceRow[]> {
-  const { data, error } = await supabase
-    .from("whatsapp_instances")
-    .select("id, phone_number_id, session, display_phone, is_active")
-    .eq("provider", "meta");
-  if (error) {
-    console.error("[whatsapp-webhook] erro ao listar instâncias meta:", error.message);
-    return [];
-  }
-  return data || [];
-}
-
 /** Resolve instância Meta pelo phone_number_id (e fallbacks). */
-function resolveMetaInstance(
-  instances: MetaInstanceRow[],
+async function resolveMetaInstance(
+  supabase: ReturnType<typeof createClient>,
   phoneNumberId: string,
   metadata?: WaMetadata,
-): { instanceId: string | null; resolvedVia: string } {
+): Promise<{ instanceId: string | null; resolvedVia: string }> {
   const pid = phoneNumberId.trim();
   const isMetaTestId = !pid || META_TEST_PHONE_NUMBER_IDS.has(pid);
 
   if (pid && !isMetaTestId) {
-    const byPid = instances.find((row) => {
-      const storedPid = row.phone_number_id?.trim() || "";
-      const storedSession = row.session?.trim() || "";
-      return storedPid === pid
-        || storedSession === pid
-        || phoneDigits(storedPid) === phoneDigits(pid)
-        || phoneDigits(storedSession) === phoneDigits(pid);
-    });
-    if (byPid) return { instanceId: byPid.id, resolvedVia: "phone_number_id" };
+    const { data: byPid } = await supabase
+      .from("whatsapp_instances")
+      .select("id")
+      .eq("provider", "meta")
+      .eq("phone_number_id", pid)
+      .maybeSingle();
+    if (byPid?.id) return { instanceId: byPid.id, resolvedVia: "phone_number_id" };
+
+    const { data: bySession } = await supabase
+      .from("whatsapp_instances")
+      .select("id")
+      .eq("provider", "meta")
+      .eq("session", pid)
+      .maybeSingle();
+    if (bySession?.id) return { instanceId: bySession.id, resolvedVia: "session" };
   }
 
   const displayRaw = metadata?.display_phone_number || "";
   if (displayRaw) {
-    const displayMatches = instances.filter(
-      (row) => row.display_phone && phonesEquivalent(String(row.display_phone), displayRaw),
-    );
-    if (displayMatches.length === 1) {
-      return { instanceId: displayMatches[0].id, resolvedVia: "display_phone" };
-    }
-    if (displayMatches.length > 1) {
-      const active = displayMatches.find((row) => row.is_active !== false) || displayMatches[0];
-      return { instanceId: active.id, resolvedVia: "display_phone_among_multiple" };
+    const normalized = cleanPhone(displayRaw);
+    const { data: metaRows } = await supabase
+      .from("whatsapp_instances")
+      .select("id, display_phone")
+      .eq("provider", "meta")
+      .eq("is_active", true);
+    for (const row of metaRows || []) {
+      if (row.display_phone && cleanPhone(String(row.display_phone)) === normalized) {
+        return { instanceId: row.id, resolvedVia: "display_phone" };
+      }
     }
   }
 
   // Só no payload de teste da Meta (ID fictício) — nunca atribuir mensagem real a outra linha.
   if (isMetaTestId) {
-    const activeMeta = instances.filter((row) => row.is_active !== false);
-    if (activeMeta.length === 1) {
+    const { data: activeMeta } = await supabase
+      .from("whatsapp_instances")
+      .select("id")
+      .eq("provider", "meta")
+      .eq("is_active", true);
+    if (activeMeta?.length === 1) {
       return { instanceId: activeMeta[0].id, resolvedVia: "single_meta_instance_test_payload" };
     }
   }
@@ -287,7 +265,6 @@ async function upsertConversationMessage(
 }
 
 serve(async (req) => {
-  const corsHeaders = corsHeadersFor(req);
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -327,11 +304,7 @@ serve(async (req) => {
 
   const valid = await verifySignature(rawBody, signature, APP_SECRET);
   if (!valid) {
-    console.warn(
-      "[whatsapp-webhook] assinatura inválida ou ausente",
-      signature ? "header presente" : "sem x-hub-signature-256",
-      "— confira WHATSAPP_APP_SECRET (App Secret do app Meta, não o verify token)",
-    );
+    console.warn("[whatsapp-webhook] assinatura inválida ou ausente");
     return new Response(JSON.stringify({ error: "Invalid signature" }), {
       status: 401,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -350,10 +323,9 @@ serve(async (req) => {
 
   const entries = (body.entry as unknown[]) || [];
   let saved = 0;
-  const metaInstances = await loadMetaInstances(supabase);
 
   console.log(
-    `[whatsapp-webhook] POST object=${String(body.object || "")} entries=${entries.length} meta_instances=${metaInstances.length}`,
+    `[whatsapp-webhook] POST object=${String(body.object || "")} entries=${entries.length}`,
   );
 
   for (const entry of entries) {
@@ -367,22 +339,17 @@ serve(async (req) => {
 
       const metadata = (value.metadata as WaMetadata) || {};
       const phoneNumberId = String(metadata.phone_number_id || "").trim();
-      const { instanceId, resolvedVia } = resolveMetaInstance(metaInstances, phoneNumberId, metadata);
+      const { instanceId, resolvedVia } = await resolveMetaInstance(supabase, phoneNumberId, metadata);
 
       if (META_TEST_PHONE_NUMBER_IDS.has(phoneNumberId)) {
         console.warn(
-          "[whatsapp-webhook] phone_number_id de TESTE da Meta (" + phoneNumberId + ") — não é mensagem real do celular. Envie do WhatsApp pessoal e confira o phone_number_id nos logs.",
+          "[whatsapp-webhook] phone_number_id de TESTE da Meta (" + phoneNumberId + ") — não é mensagem real do celular. Envie do WhatsApp pessoal e procure phone_number_id=1173598282496506 nos logs.",
         );
       } else if (!instanceId) {
-        const crmIds = metaInstances
-          .map((row) => row.phone_number_id?.trim())
-          .filter(Boolean)
-          .join(", ") || "nenhum";
         console.warn(
           "[whatsapp-webhook] instância não encontrada para phone_number_id=" + phoneNumberId +
             " display=" + (metadata.display_phone_number || "—") +
-            " crm_ids=" + crmIds +
-            " — mensagem ignorada. Corrija o Phone Number ID em WhatsApp → API Meta (Diagnosticar webhook).",
+            " — mensagem não será vinculada a outra linha. Cadastre o número em WhatsApp → API Meta ou ignore se a linha foi removida de propósito.",
         );
       } else {
         console.log(
