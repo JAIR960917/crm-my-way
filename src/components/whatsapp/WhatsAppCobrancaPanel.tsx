@@ -84,7 +84,10 @@ type ModuleKey = "leads" | "cobrancas" | "renovacoes";
 type Props = {
   conversation: ConversationRef;
   formatPhone: (raw: string) => string;
-  onLinked: (conversationId: string, patch: { card_id: string; contact_name: string | null; module: string }) => void;
+  onLinked: (
+    conversationId: string,
+    patch: { card_id: string | null; contact_name: string | null; module: string | null },
+  ) => void;
   /** Admin: se não achar cobrança, renderiza renovação → leads → cadastro. */
   fallback?: ReactNode;
   onResolvedModule?: (module: ModuleKey | null) => void;

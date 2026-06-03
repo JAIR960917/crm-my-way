@@ -390,7 +390,7 @@ export default function WhatsAppInbox() {
   const handleLeadLinked = useCallback(
     (
       conversationId: string,
-      patch: { card_id: string; contact_name: string | null; module: string },
+      patch: { card_id: string | null; contact_name: string | null; module: string | null },
     ) => {
       const moduleKey =
         patch.module === "cobrancas" || patch.module === "renovacoes" || patch.module === "leads"
@@ -850,7 +850,10 @@ export default function WhatsAppInbox() {
                   cobrancaInstanceIds,
                   instanceName: inst?.name ?? null,
                 })];
-                const contact = c.contact_name || formatPhoneDisplay(c.phone_display || c.wa_id);
+                const contact =
+                  c.contact_name?.trim() && c.card_id
+                    ? c.contact_name
+                    : formatPhoneDisplay(c.phone_display || c.wa_id);
                 const lineLabel = formatInstanceShort(getInstance(c.instance_id));
                 const lastAt = c.last_message_at ? new Date(c.last_message_at) : null;
                 const windowIsOpen = c.window_expires_at ? new Date(c.window_expires_at).getTime() > Date.now() : false;
@@ -926,7 +929,11 @@ export default function WhatsAppInbox() {
                 </Avatar>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="font-semibold">{conversation.contact_name || formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}</h2>
+                    <h2 className="font-semibold">
+                      {conversation.card_id && conversation.contact_name?.trim()
+                        ? conversation.contact_name
+                        : formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
+                    </h2>
                     <span className={cn("rounded px-2 py-0.5 text-xs font-medium", mod.className)}>
                       {mod.label}
                     </span>
