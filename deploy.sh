@@ -386,6 +386,12 @@ run_functions() {
 # ---------------------------------------------------------------------------
 run_frontend() {
   local runtime_config_path="${PROJECT_DIR}/public/runtime-config.js"
+  # Docker cria um diretório com este nome se o arquivo não existia — quebra o mount e gera 502 no Caddy.
+  if [ -d "$runtime_config_path" ]; then
+    warn "Removendo ${runtime_config_path} (era diretório, não arquivo)."
+    rm -rf "$runtime_config_path"
+  fi
+  mkdir -p "${PROJECT_DIR}/.frontend-assets-cache"
   # Por padrão o frontend aponta para o backend self-hosted desta VPS,
   # usando SUPABASE_PUBLIC_URL/ANON_KEY do .env. Para forçar Lovable Cloud
   # ou outro backend, defina FRONTEND_SUPABASE_URL/FRONTEND_SUPABASE_PUBLISHABLE_KEY no .env.
