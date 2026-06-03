@@ -48,6 +48,12 @@ export function resolveCorsOrigin(req: Request): string | null {
     if (allowed.some((o) => normalizeOrigin(o) === normalized)) {
       return requestOrigin;
     }
+    console.warn(
+      "[cors] origem rejeitada:",
+      requestOrigin,
+      "— permitidas:",
+      allowed.join(", ") || "(nenhuma; defina SITE_URL no .env da VPS)",
+    );
     return null;
   }
 

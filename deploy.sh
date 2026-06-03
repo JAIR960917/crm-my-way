@@ -410,22 +410,19 @@ run_functions() {
 }
 
 # ---------------------------------------------------------------------------
-# Frontend (build + restart do container que serve o app)
+# runtime-config.js do frontend (montado no nginx; não exige rebuild)
 # ---------------------------------------------------------------------------
-run_frontend() {
+write_runtime_config() {
   local runtime_config_path="${PROJECT_DIR}/public/runtime-config.js"
-  # Por padrão o frontend aponta para o backend self-hosted desta VPS,
-  # usando SUPABASE_PUBLIC_URL/ANON_KEY do .env. Para forçar Lovable Cloud
-  # ou outro backend, defina FRONTEND_SUPABASE_URL/FRONTEND_SUPABASE_PUBLISHABLE_KEY no .env.
   local frontend_backend_url="${FRONTEND_SUPABASE_URL:-${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-${VITE_SUPABASE_URL:-}}}}"
   local frontend_publishable_key="${FRONTEND_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_ANON_KEY:-${ANON_KEY:-${VITE_SUPABASE_PUBLISHABLE_KEY:-}}}}"
 
   if [ -z "$frontend_backend_url" ] || [ -z "$frontend_publishable_key" ]; then
-    err "Defina SUPABASE_PUBLIC_URL e ANON_KEY (ou FRONTEND_SUPABASE_URL/FRONTEND_SUPABASE_PUBLISHABLE_KEY, ou VITE_SUPABASE_URL/VITE_SUPABASE_PUBLISHABLE_KEY) no .env antes do build do frontend."
+    warn "SUPABASE_PUBLIC_URL/ANON_KEY ausentes — runtime-config.js não atualizado (frontend pode não abrir)."
     return 1
   fi
 
-  log "Gravando config runtime do frontend para ${frontend_backend_url}..."
+  log "Gravando runtime-config.js → ${frontend_backend_url}"
   cat > "$runtime_config_path" <<EOF
 window.__CRM_RUNTIME_CONFIG__ = {
   supabaseUrl: "${frontend_backend_url}",
@@ -434,8 +431,17 @@ window.__CRM_RUNTIME_CONFIG__ = {
   whatsappInboxRealtime: true
 };
 EOF
+  ok "runtime-config.js atualizado"
+  return 0
+}
 
-  # Preferimos rebuild via docker compose: garante que dist/ + nginx.conf + runtime-config.js
+# ---------------------------------------------------------------------------
+# Frontend (build + restart do container que serve o app)
+# ---------------------------------------------------------------------------
+run_frontend() {
+  write_runtime_config || return 1
+
+  # Preferimos rebuild via docker compose: garante que dist/ + nginx.conf estejam consistentes.
   # estejam consistentes dentro da imagem do container crm-frontend.
   if [ "${FRONTEND_BUILD_MODE:-docker}" = "docker" ] && command -v docker >/dev/null 2>&1; then
     log "Rebuild do frontend via docker compose (modo docker)..."
@@ -493,11 +499,21 @@ run_restart() {
 }
 
 case "$MODE" in
-  --functions)   run_functions ;;
-  --migrations)  run_migrations ;;
+  --functions)
+    write_runtime_config || true
+    run_functions
+    ;;
+  --migrations)
+    write_runtime_config || true
+    run_migrations
+    ;;
   --frontend)    run_frontend ;;
-  --restart)     run_restart ;;
+  --restart)
+    write_runtime_config || true
+    run_restart
+    ;;
   all|"")
+    write_runtime_config || true
     run_migrations
     run_functions
     run_frontend

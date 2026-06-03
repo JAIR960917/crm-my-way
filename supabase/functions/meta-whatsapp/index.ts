@@ -316,6 +316,12 @@ serve(async (req) => {
         && ((subscribed as { data: unknown[] }).data.length > 0);
 
       const hints: string[] = [];
+      if (!appSecret) {
+        hints.unshift(
+          "WHATSAPP_APP_SECRET ausente no .env da VPS — o webhook rejeita POSTs com 503 e mensagens do celular não entram no CRM.",
+          "Use o App Secret em Meta for Developers → seu app → Configurações → Básico (não confundir com Verify Token).",
+        );
+      }
       if (!appSubscribed) {
         hints.push(
           "A WABA não está inscrita no app. Use «Inscrever WABA no webhook».",
@@ -346,6 +352,12 @@ serve(async (req) => {
         crm_instances: metaInstances || [],
         phone_numbers: phoneChecks,
         webhook_url: webhookUrl,
+        server_env: {
+          access_token: !!accessToken,
+          verify_token: !!verifyToken,
+          app_secret: !!appSecret,
+          waba_id: !!wabaId,
+        },
         hints,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
