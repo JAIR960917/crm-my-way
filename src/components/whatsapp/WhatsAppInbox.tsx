@@ -45,6 +45,7 @@ import {
   requestWhatsAppNotificationPermission,
   setWhatsAppInboxSession,
 } from "@/lib/whatsappInboxNotifications";
+import { isWhatsAppInboxRealtimeEnabled } from "@/lib/runtime-config";
 
 type ModuleKey = "leads" | "cobrancas" | "renovacoes";
 
@@ -539,6 +540,13 @@ export default function WhatsAppInbox() {
   }, [messages.length, pinnedToBottom, scrollToBottom, selectedId]);
 
   useEffect(() => {
+    if (!isWhatsAppInboxRealtimeEnabled()) {
+      const poll = setInterval(() => {
+        void loadConversations();
+      }, 12_000);
+      return () => clearInterval(poll);
+    }
+
     const channel = supabase
       .channel("whatsapp-inbox-realtime")
       .on(

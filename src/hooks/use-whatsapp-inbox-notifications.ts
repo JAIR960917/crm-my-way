@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { isRealtimeEnabled } from "@/lib/runtime-config";
+import { isWhatsAppInboxRealtimeEnabled } from "@/lib/runtime-config";
 import {
   buildWhatsAppContactLabel,
   notifyWhatsAppIncomingMessage,
@@ -82,7 +82,7 @@ export function useWhatsAppInboxNotifications() {
   );
 
   useEffect(() => {
-    if (!canUseInbox || !isRealtimeEnabled()) return;
+    if (!canUseInbox) return;
 
     let cancelled = false;
 
@@ -100,45 +100,75 @@ export function useWhatsAppInboxNotifications() {
       conversationsRef.current = map;
     };
 
+    const applyConversationRows = (rows: ConversationMeta[]) => {
+      for (const row of rows) {
+        const prev = conversationsRef.current.get(row.id);
+        conversationsRef.current.set(row.id, row);
+        if ((row.unread_count || 0) > (prev?.unread_count || 0)) {
+          notify(row.id, row.last_preview || "Nova mensagem");
+        }
+      }
+    };
+
+    const pollUnread = async () => {
+      const { data } = await supabase
+        .from("whatsapp_conversations")
+        .select("id, contact_name, phone_display, wa_id, unread_count, last_preview")
+        .order("last_message_at", { ascending: false, nullsFirst: false })
+        .limit(300);
+      if (cancelled || !data) return;
+      applyConversationRows(data as ConversationMeta[]);
+    };
+
     void seedConversations();
 
-    const channel = supabase
-      .channel("whatsapp-inbox-notifications-global")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "whatsapp_conversations" },
-        (payload: RealtimePostgresChangesPayload<ConversationMeta>) => {
-          if (payload.eventType === "DELETE" && payload.old) {
-            conversationsRef.current.delete((payload.old as ConversationMeta).id);
-            return;
-          }
-          if (!payload.new) return;
+    const useRealtime = isWhatsAppInboxRealtimeEnabled();
+    let pollTimer: ReturnType<typeof setInterval> | undefined;
 
-          const row = payload.new as ConversationMeta;
-          const prev = conversationsRef.current.get(row.id);
-          conversationsRef.current.set(row.id, row);
+    if (!useRealtime) {
+      pollTimer = setInterval(() => {
+        void pollUnread();
+      }, 12_000);
+    }
 
-          if (
-            (row.unread_count || 0) > (prev?.unread_count || 0)
-          ) {
-            notify(row.id, row.last_preview || "Nova mensagem");
-          }
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "whatsapp_messages" },
-        (payload) => {
-          const row = payload.new as MessageRow | null;
-          if (!row || row.direction !== "in") return;
-          notify(row.conversation_id, messagePreview(row));
-        },
-      )
-      .subscribe();
+    const channel = useRealtime
+      ? supabase
+          .channel("whatsapp-inbox-notifications-global")
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "whatsapp_conversations" },
+            (payload: RealtimePostgresChangesPayload<ConversationMeta>) => {
+              if (payload.eventType === "DELETE" && payload.old) {
+                conversationsRef.current.delete((payload.old as ConversationMeta).id);
+                return;
+              }
+              if (!payload.new) return;
+
+              const row = payload.new as ConversationMeta;
+              const prev = conversationsRef.current.get(row.id);
+              conversationsRef.current.set(row.id, row);
+
+              if ((row.unread_count || 0) > (prev?.unread_count || 0)) {
+                notify(row.id, row.last_preview || "Nova mensagem");
+              }
+            },
+          )
+          .on(
+            "postgres_changes",
+            { event: "INSERT", schema: "public", table: "whatsapp_messages" },
+            (payload) => {
+              const row = payload.new as MessageRow | null;
+              if (!row || row.direction !== "in") return;
+              notify(row.conversation_id, messagePreview(row));
+            },
+          )
+          .subscribe()
+      : null;
 
     return () => {
       cancelled = true;
-      void supabase.removeChannel(channel);
+      if (pollTimer) clearInterval(pollTimer);
+      if (channel) void supabase.removeChannel(channel);
     };
   }, [canUseInbox, notify]);
 

@@ -402,7 +402,8 @@ run_frontend() {
 window.__CRM_RUNTIME_CONFIG__ = {
   supabaseUrl: "${frontend_backend_url}",
   supabasePublishableKey: "${frontend_publishable_key}",
-  disableRealtime: true
+  disableRealtime: true,
+  whatsappInboxRealtime: true
 };
 EOF
 

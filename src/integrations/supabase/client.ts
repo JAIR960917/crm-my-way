@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
-import { getRuntimeConfig, isRealtimeEnabled } from '@/lib/runtime-config';
+import { getRuntimeConfig, isRealtimeEnabled, isWhatsAppInboxRealtimeEnabled } from '@/lib/runtime-config';
 
 const runtimeConfig = getRuntimeConfig();
 
@@ -25,7 +25,7 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
   },
   realtime: {
     params: {
-      eventsPerSecond: isRealtimeEnabled() ? 10 : 0,
+      eventsPerSecond: isRealtimeEnabled() || isWhatsAppInboxRealtimeEnabled() ? 10 : 0,
     },
   },
 });
