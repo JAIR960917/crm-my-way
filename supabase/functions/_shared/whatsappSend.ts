@@ -162,16 +162,39 @@ export async function isMetaWindowOpen(
   supabase: ReturnType<typeof import("https://esm.sh/@supabase/supabase-js@2").createClient>,
   instanceId: string | null,
   waId: string,
+  conversationId?: string | null,
 ): Promise<boolean> {
-  if (!instanceId || !waId) return false;
-  const { data } = await supabase
-    .from("whatsapp_conversations")
-    .select("window_expires_at")
-    .eq("instance_id", instanceId)
-    .eq("wa_id", cleanPhone(waId))
-    .maybeSingle();
-  if (!data?.window_expires_at) return false;
-  return new Date(data.window_expires_at).getTime() > Date.now();
+  const cp = cleanPhone(waId);
+  if (!cp) return false;
+
+  if (instanceId) {
+    const { data } = await supabase
+      .from("whatsapp_conversations")
+      .select("window_expires_at")
+      .eq("instance_id", instanceId)
+      .eq("wa_id", cp)
+      .maybeSingle();
+    if (data?.window_expires_at && new Date(data.window_expires_at).getTime() > Date.now()) {
+      return true;
+    }
+  }
+
+  if (conversationId) {
+    const { data: lastIn } = await supabase
+      .from("whatsapp_messages")
+      .select("created_at")
+      .eq("conversation_id", conversationId)
+      .eq("direction", "in")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (lastIn?.created_at) {
+      const expires = new Date(lastIn.created_at).getTime() + 24 * 60 * 60 * 1000;
+      return expires > Date.now();
+    }
+  }
+
+  return false;
 }
 
 async function sendMetaText(
@@ -302,6 +325,7 @@ export type SendWhatsAppParams = {
   metaTemplateBodyParams?: string[];
   supabase?: ReturnType<typeof import("https://esm.sh/@supabase/supabase-js@2").createClient>;
   skipWindowCheck?: boolean;
+  conversationId?: string | null;
 };
 
 export async function sendWhatsAppMessage(params: SendWhatsAppParams): Promise<SendResult> {
@@ -317,6 +341,7 @@ export async function sendWhatsAppMessage(params: SendWhatsAppParams): Promise<S
     metaTemplateBodyParams = [],
     supabase,
     skipWindowCheck = false,
+    conversationId = null,
   } = params;
 
   const cp = cleanPhone(phone);
@@ -339,7 +364,7 @@ export async function sendWhatsAppMessage(params: SendWhatsAppParams): Promise<S
 
   let windowOpen = skipWindowCheck;
   if (!windowOpen && supabase && target.instanceId) {
-    windowOpen = await isMetaWindowOpen(supabase, target.instanceId, cp);
+    windowOpen = await isMetaWindowOpen(supabase, target.instanceId, cp, conversationId);
   }
 
   if (windowOpen) {

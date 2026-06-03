@@ -536,9 +536,11 @@ serve(async (req) => {
       metaTemplateLanguage,
       metaTemplateBodyParams: [],
       supabase: admin as any,
+      conversationId: conv.id,
     });
 
     if (!result.ok) {
+      console.warn("[whatsapp-chat] send failed:", result.errorMessage);
       return new Response(JSON.stringify({ error: translateWhatsAppError(result.errorMessage || "Falha no envio"), raw: result.raw }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
