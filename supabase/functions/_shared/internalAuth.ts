@@ -4,6 +4,18 @@ export const internalCorsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-cron-secret",
 };
 
+function extractBearerToken(req: Request): string {
+  return (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/** @deprecated Prefer hasValidServiceRoleKey — só para bloqueio de anon em jwtGate. */
 export function decodeJwtRole(authHeader: string): string | null {
   try {
     const token = authHeader.replace(/^Bearer\s+/i, "").trim();
@@ -17,25 +29,31 @@ export function decodeJwtRole(authHeader: string): string | null {
   }
 }
 
+export function hasValidCronSecret(req: Request): boolean {
+  const cronSecret = Deno.env.get("CRON_SECRET");
+  const providedSecret = req.headers.get("x-cron-secret");
+  return !!(cronSecret && providedSecret && timingSafeEqual(providedSecret, cronSecret));
+}
+
+/** Compara o Bearer com SUPABASE_SERVICE_ROLE_KEY (não confia só no claim JWT). */
+export function hasValidServiceRoleKey(req: Request): boolean {
+  const expected = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!expected) return false;
+  const token = extractBearerToken(req);
+  if (!token) return false;
+  return timingSafeEqual(token, expected);
+}
+
 /**
- * Apenas cron interno (x-cron-secret) ou JWT com role=service_role.
- * Rejeita anon/authenticated mesmo que a chave seja válida no Kong.
+ * Apenas cron interno (x-cron-secret) ou Bearer idêntico à service role key.
+ * Rejeita anon/authenticated e JWTs forjados com role=service_role.
  */
 export function assertCronOrServiceRole(
   req: Request,
   corsHeaders: Record<string, string> = internalCorsHeaders,
 ): Response | null {
-  const cronSecret = Deno.env.get("CRON_SECRET");
-  const providedSecret = req.headers.get("x-cron-secret");
-  if (cronSecret && providedSecret && providedSecret === cronSecret) {
-    return null;
-  }
-
-  const authHeader = req.headers.get("Authorization") ?? "";
-  const jwtRole = decodeJwtRole(authHeader);
-  if (jwtRole === "service_role") {
-    return null;
-  }
+  if (hasValidCronSecret(req)) return null;
+  if (hasValidServiceRoleKey(req)) return null;
 
   return new Response(
     JSON.stringify({
@@ -49,15 +67,9 @@ export function assertCronOrServiceRole(
   );
 }
 
-/** Cron interno ou JWT service_role — bypass de escopo por loja nas edge functions. */
+/** Cron interno ou Bearer service role — bypass de escopo por loja nas edge functions. */
 export function isInternalServiceCaller(req: Request): boolean {
-  const cronSecret = Deno.env.get("CRON_SECRET");
-  const providedSecret = req.headers.get("x-cron-secret");
-  if (cronSecret && providedSecret && providedSecret === cronSecret) {
-    return true;
-  }
-  const authHeader = req.headers.get("Authorization") ?? "";
-  return decodeJwtRole(authHeader) === "service_role";
+  return hasValidCronSecret(req) || hasValidServiceRoleKey(req);
 }
 
 type SupabaseAdmin = {

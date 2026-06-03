@@ -45,11 +45,46 @@ docker_compose() {
 
 MODE="${1:-all}"
 
+sql_quote() {
+  printf "%s" "$1" | sed "s/'/''/g"
+}
+
+apply_db_guc_settings() {
+  local jwt_secret="${JWT_SECRET:-}"
+  local service_role="${SERVICE_ROLE_KEY:-}"
+  local cron_secret="${CRON_SECRET:-}"
+  local public_url="${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-}}"
+
+  docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$" || return 0
+
+  _guc_exec() {
+    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -c "$1" >/dev/null
+  }
+
+  if [ -n "$jwt_secret" ]; then
+    _guc_exec "ALTER DATABASE postgres SET \"app.settings.jwt_secret\" = '$(sql_quote "$jwt_secret")';" \
+      || warn "Não foi possível definir app.settings.jwt_secret"
+  fi
+  if [ -n "$service_role" ]; then
+    _guc_exec "ALTER DATABASE postgres SET \"app.settings.supabase_service_role_key\" = '$(sql_quote "$service_role")';" \
+      || warn "Não foi possível definir app.settings.supabase_service_role_key"
+  fi
+  if [ -n "$cron_secret" ]; then
+    _guc_exec "ALTER DATABASE postgres SET \"app.settings.cron_secret\" = '$(sql_quote "$cron_secret")';" \
+      || warn "Não foi possível definir app.settings.cron_secret"
+  fi
+  if [ -n "$public_url" ]; then
+    _guc_exec "ALTER DATABASE postgres SET \"app.settings.supabase_url\" = '$(sql_quote "$public_url")';" \
+      || warn "Não foi possível definir app.settings.supabase_url"
+  fi
+
+  _guc_exec "DELETE FROM public.system_settings WHERE setting_key IN ('backend_service_role_key', 'backend_cron_secret');" \
+    || true
+}
+
 persist_backend_runtime_settings_vps() {
   local app_supabase_url="${SUPABASE_PUBLIC_URL:-${SUPABASE_URL:-}}"
   local app_supabase_anon="${SUPABASE_ANON_KEY:-${ANON_KEY:-}}"
-  local app_service_role="${SERVICE_ROLE_KEY:-}"
-  local app_cron_secret="${CRON_SECRET:-}"
 
   [ -n "${app_supabase_url}" ] && [ -n "${app_supabase_anon}" ] || return 0
   docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$" || return 1
@@ -58,8 +93,6 @@ persist_backend_runtime_settings_vps() {
     psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 \
       -v backend_url="${app_supabase_url}" \
       -v backend_key="${app_supabase_anon}" \
-      -v backend_service_key="${app_service_role}" \
-      -v backend_cron_secret="${app_cron_secret}" \
       >/dev/null <<'SQL'
 CREATE TABLE IF NOT EXISTS public.system_settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -78,24 +111,17 @@ VALUES ('backend_anon_key', :'backend_key')
 ON CONFLICT (setting_key)
 DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
 
-INSERT INTO public.system_settings (setting_key, setting_value)
-VALUES ('backend_service_role_key', NULLIF(:'backend_service_key', ''))
-ON CONFLICT (setting_key)
-DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
-
-INSERT INTO public.system_settings (setting_key, setting_value)
-VALUES ('backend_cron_secret', NULLIF(:'backend_cron_secret', ''))
-ON CONFLICT (setting_key)
-DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
+DELETE FROM public.system_settings
+WHERE setting_key IN ('backend_service_role_key', 'backend_cron_secret');
 
 SELECT public.manage_whatsapp_cron()
-WHERE to_regprocedure('public.manage_whatsapp_cron()') IS NOT NULL
-  AND NULLIF(:'backend_service_key', '') IS NOT NULL
-  AND NULLIF(:'backend_cron_secret', '') IS NOT NULL;
+WHERE to_regprocedure('public.manage_whatsapp_cron()') IS NOT NULL;
 
 SELECT public.manage_ssotica_cron()
 WHERE to_regprocedure('public.manage_ssotica_cron()') IS NOT NULL;
 SQL
+
+  apply_db_guc_settings
 }
 
 sync_frontend_assets_cache() {
@@ -299,9 +325,7 @@ SQL
       DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
     " || warn "Não foi possível gravar backend_anon_key em system_settings (continuando)."
 
-    db_exec "ALTER DATABASE postgres RESET \"app.settings.jwt_secret\";" || warn "Não foi possível limpar app.settings.jwt_secret legado (continuando)."
-    db_exec "ALTER DATABASE postgres RESET \"app.settings.supabase_url\";" || warn "Não foi possível limpar app.settings.supabase_url legado (continuando)."
-    db_exec "ALTER DATABASE postgres RESET \"app.settings.supabase_anon_key\";" || warn "Não foi possível limpar app.settings.supabase_anon_key legado (continuando)."
+    apply_db_guc_settings
   fi
 
   db_exec "
@@ -350,6 +374,10 @@ SQL
   if ! db_exec "SELECT public.manage_ssotica_cron();"; then
     warn "Não foi possível reagendar os crons da SSÓtica automaticamente (verifique as configs backend_public_url/backend_anon_key)."
   fi
+
+  apply_db_guc_settings
+  db_exec "SELECT public.manage_whatsapp_cron();" >/dev/null 2>&1 \
+    || warn "Não foi possível reagendar cron WhatsApp (verifique JWT_SECRET/SERVICE_ROLE_KEY/CRON_SECRET no .env)."
 
   ok "Migrations aplicadas: $count"
 }
@@ -459,11 +487,7 @@ run_restart() {
     supabase-functions \
     supabase-studio
   if docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
-    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
-ALTER DATABASE postgres RESET "app.settings.jwt_secret";
-ALTER DATABASE postgres RESET "app.settings.supabase_url";
-ALTER DATABASE postgres RESET "app.settings.supabase_anon_key";
-SQL
+    apply_db_guc_settings
   fi
   ok "Serviços do backend recriados com as credenciais atuais do .env"
 }
