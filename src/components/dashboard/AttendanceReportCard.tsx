@@ -148,14 +148,44 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
   }, [profiles, companyFilter, mode, myCompanyId, userId, vendedorIds]);
 
   const filteredRows = useMemo(() => {
-    return allRows.filter((r) => {
+    const filtered = allRows.filter((r) => {
       if (mode === "vendedor") return r.user_id === userId;
       if (mode === "gerente" && myCompanyId && r.company_id !== myCompanyId) return false;
       if (companyFilter !== ALL && r.company_id !== companyFilter) return false;
       if (sellerFilter.length > 0 && !sellerFilter.includes(r.user_id)) return false;
       return true;
     });
-  }, [allRows, companyFilter, sellerFilter, mode, userId, myCompanyId]);
+
+    if (mode === "gerente" && sellerFilter.length === 0) {
+      const compById = new Map(companies.map((c) => [c.id, c.name]));
+      const byId = new Map(filtered.map((r) => [r.user_id, r]));
+      const merged = availableSellers
+        .map((s) => {
+          const existing = byId.get(s.user_id);
+          if (existing) return existing;
+          const p = profiles.find((x) => x.user_id === s.user_id);
+          if (!p) return null;
+          return {
+            user_id: p.user_id,
+            full_name: p.full_name || "(sem nome)",
+            avatar_url: p.avatar_url,
+            company_id: p.company_id,
+            company_name: p.company_id ? compById.get(p.company_id) || "—" : "—",
+            adicionados: 0,
+            tratados: 0,
+            naoAtenderam: 0,
+            atenderam: 0,
+            agendaram: 0,
+            naoAgendaram: 0,
+            agendamentos: 0,
+          } satisfies SellerRow;
+        })
+        .filter((r): r is SellerRow => r !== null);
+      return merged.sort((a, b) => b.tratados - a.tratados || a.full_name.localeCompare(b.full_name));
+    }
+
+    return filtered;
+  }, [allRows, companyFilter, sellerFilter, mode, userId, myCompanyId, availableSellers, profiles, companies]);
 
   const reportTotals = useMemo(
     () =>
