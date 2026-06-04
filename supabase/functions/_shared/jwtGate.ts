@@ -22,7 +22,20 @@ export function rejectAnonJwt(
 ): Response | null {
   if (JWT_EXEMPT_SERVICES.has(serviceName)) return null;
   const authHeader = req.headers.get("authorization") ?? "";
-  if (!authHeader) return null;
+  if (!authHeader?.startsWith("Bearer ")) return null;
+
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  const anonKey = (Deno.env.get("SUPABASE_ANON_KEY") ?? "").trim();
+  if (anonKey && token === anonKey) {
+    return new Response(
+      JSON.stringify({
+        error: "Unauthorized",
+        detail: "Chave anon não permitida nesta função. Use sessão de usuário.",
+      }),
+      { status: 403, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
   const role = decodeJwtRole(authHeader);
   if (role === "anon") {
     return new Response(

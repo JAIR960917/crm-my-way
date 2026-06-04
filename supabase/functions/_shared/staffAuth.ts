@@ -21,11 +21,8 @@ export async function getUserFromRequest(
     };
   }
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-  const userClient = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  });
-  const { data: { user }, error } = await userClient.auth.getUser();
+  const admin = createClient(supabaseUrl, serviceKey);
+  const { data: { user }, error } = await admin.auth.getUser(token);
   if (error || !user) {
     return {
       user: null,

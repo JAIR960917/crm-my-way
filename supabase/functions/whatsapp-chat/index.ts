@@ -527,10 +527,15 @@ serve(async (req) => {
       ? formatOutboundWhatsAppBody(sender.sent_by_name, text)
       : "";
 
+    console.log(
+      `[whatsapp-chat] send ${action} provider=${target.provider} instance=${conv.instance_id} to=${to} pid=${target.phoneNumberId ?? "—"}`,
+    );
+
     const result = await sendWhatsAppMessage({
       target,
       phone: to,
       text: textForWhatsApp,
+      apiFullKey: Deno.env.get("APIFULL_API_KEY") || "",
       metaAccessToken: accessToken,
       metaTemplateName,
       metaTemplateLanguage,
@@ -540,7 +545,7 @@ serve(async (req) => {
     });
 
     if (!result.ok) {
-      console.warn("[whatsapp-chat] send failed:", result.errorMessage);
+      console.warn("[whatsapp-chat] send failed:", result.errorMessage, result.raw);
       return new Response(JSON.stringify({ error: translateWhatsAppError(result.errorMessage || "Falha no envio"), raw: result.raw }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -548,7 +553,7 @@ serve(async (req) => {
     }
 
     const now = new Date().toISOString();
-    await admin.from("whatsapp_messages").insert({
+    const saved = await insertWhatsAppMessageRow(admin, {
       conversation_id: conv.id,
       direction: "out",
       body: action === "send-text" ? text : null,
@@ -560,11 +565,18 @@ serve(async (req) => {
       sent_by: sender.sent_by,
       sent_by_name: sender.sent_by_name,
     });
-    await admin.from("whatsapp_conversations").update({
+    if (!saved.ok) {
+      console.warn("[whatsapp-chat] mensagem enviada na Meta mas falhou ao gravar:", saved.error);
+    }
+    const convPatch: Record<string, unknown> = {
       last_message_at: now,
       last_preview: (action === "send-text" ? text : `[Template] ${metaTemplateName}`).slice(0, 200),
       updated_at: now,
-    }).eq("id", conv.id);
+    };
+    if (target.instanceId && !conv.instance_id) {
+      convPatch.instance_id = target.instanceId;
+    }
+    await admin.from("whatsapp_conversations").update(convPatch).eq("id", conv.id);
 
     return new Response(JSON.stringify({ ok: true, meta_message_id: result.metaMessageId || null }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
