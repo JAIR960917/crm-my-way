@@ -89,8 +89,25 @@ export default function DashboardPage() {
 
   const [companyFilter, setCompanyFilter] = useState<string>(ALL);
   const [sellerFilter, setSellerFilter] = useState<string[]>([]); // empty = all
+  const [vendedorIds, setVendedorIds] = useState<Set<string>>(new Set());
+  const [gerenteCompanyId, setGerenteCompanyId] = useState<string | null>(null);
 
   const canSee = isAdmin || isGerente;
+  const showCompanyFilter = isAdmin;
+  const showSellerFilter = isAdmin || isGerente;
+
+  useEffect(() => {
+    if (!canSee) return;
+    supabase.from("user_roles").select("user_id, role").then(({ data }) => {
+      setVendedorIds(
+        new Set(
+          (data || [])
+            .filter((r: { role: string }) => r.role === "vendedor")
+            .map((r: { user_id: string }) => r.user_id),
+        ),
+      );
+    });
+  }, [canSee]);
 
   const fetchTotals = async (companyId: string) => {
     if (companyId === ALL) {
@@ -463,27 +480,48 @@ export default function DashboardPage() {
     };
   }, [canSee, user, dateMode, selectedDate, startDate, endDate, companyFilter, cobDateMode, cobSelectedDate, cobStartDate, cobEndDate]);
 
-  // Reset seller filter when company changes
   useEffect(() => {
-    setSellerFilter([]);
-  }, [companyFilter]);
+    if (!isGerente || isAdmin || !user) return;
+    supabase
+      .from("profiles")
+      .select("company_id")
+      .eq("user_id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        const cid = (data as { company_id?: string | null } | null)?.company_id;
+        if (cid) {
+          setGerenteCompanyId(cid);
+          setCompanyFilter(cid);
+        }
+      });
+  }, [isGerente, isAdmin, user?.id]);
 
-  // Sellers available given company filter (from profiles, so admin can pick anyone in that company even if no activity yet)
+  useEffect(() => {
+    if (showCompanyFilter) setSellerFilter([]);
+  }, [companyFilter, showCompanyFilter]);
+
   const availableSellers = useMemo(() => {
-    const list = profiles
-      .filter((p) => companyFilter === ALL || p.company_id === companyFilter)
-      .map((p) => ({ user_id: p.user_id, full_name: p.full_name || "(sem nome)" }));
-    list.sort((a, b) => a.full_name.localeCompare(b.full_name));
-    return list;
-  }, [profiles, companyFilter]);
+    let list = profiles;
+    if (isGerente && !isAdmin && gerenteCompanyId) {
+      list = list.filter(
+        (p) => p.company_id === gerenteCompanyId && (p.user_id === user?.id || vendedorIds.has(p.user_id)),
+      );
+    } else {
+      list = list.filter((p) => companyFilter === ALL || p.company_id === companyFilter);
+    }
+    return list
+      .map((p) => ({ user_id: p.user_id, full_name: p.full_name || "(sem nome)" }))
+      .sort((a, b) => a.full_name.localeCompare(b.full_name));
+  }, [profiles, companyFilter, isGerente, isAdmin, gerenteCompanyId, user?.id, vendedorIds]);
 
   const filteredRows = useMemo(() => {
     return allRows.filter((r) => {
+      if (isGerente && !isAdmin && gerenteCompanyId && r.company_id !== gerenteCompanyId) return false;
       if (companyFilter !== ALL && r.company_id !== companyFilter) return false;
       if (sellerFilter.length > 0 && !sellerFilter.includes(r.user_id)) return false;
       return true;
     });
-  }, [allRows, companyFilter, sellerFilter]);
+  }, [allRows, companyFilter, sellerFilter, isGerente, isAdmin, gerenteCompanyId]);
 
   const reportTotals = useMemo(() => {
     return filteredRows.reduce(
@@ -607,13 +645,15 @@ export default function DashboardPage() {
               <div>
                 <CardTitle>Relatório de atendimentos</CardTitle>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Filtre por empresa e selecione vendedores específicos para detalhar as métricas.
+                  {isAdmin
+                    ? "Filtre por empresa e selecione vendedores específicos para detalhar as métricas."
+                    : "Suas métricas e as dos vendedores da sua empresa."}
                 </p>
               </div>
 
               {/* Filters */}
               <div className="flex flex-wrap items-end gap-2">
-                {/* Company */}
+                {showCompanyFilter && (
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-medium text-muted-foreground uppercase">Empresa</label>
                   <Select value={companyFilter} onValueChange={setCompanyFilter}>
@@ -629,8 +669,9 @@ export default function DashboardPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                )}
 
-                {/* Sellers (multi) */}
+                {showSellerFilter && (
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-medium text-muted-foreground uppercase">Vendedores</label>
                   <Popover>
@@ -674,6 +715,7 @@ export default function DashboardPage() {
                     </PopoverContent>
                   </Popover>
                 </div>
+                )}
 
                 {/* Date mode */}
                 <div className="flex flex-col gap-1">
@@ -832,8 +874,11 @@ export default function DashboardPage() {
               <div>
                 <CardTitle>Relatório de Cobranças</CardTitle>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Tentativas de contato registradas em cobranças. Os filtros de empresa e vendedores
-                  acima continuam valendo; o período abaixo é exclusivo deste relatório.
+                  Tentativas de contato registradas em cobranças.
+                  {showCompanyFilter || showSellerFilter
+                    ? " Os filtros de empresa e vendedores acima continuam valendo;"
+                    : ""}{" "}
+                  o período abaixo é exclusivo deste relatório.
                 </p>
               </div>
 

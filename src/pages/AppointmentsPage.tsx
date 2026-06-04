@@ -16,7 +16,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CalendarCheck, Plus, Pencil, Trash2, CalendarIcon, Undo2 } from "lucide-react";
+import { CalendarCheck, Plus, Pencil, Trash2, CalendarIcon, Undo2, ChevronLeft, ChevronRight, List } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import AppointmentsCalendar from "@/components/appointments/AppointmentsCalendar";
+import {
+  getCalendarQueryRange,
+  shiftFocusDate,
+  type CalendarViewMode,
+} from "@/lib/appointmentCalendarUtils";
 import { cn } from "@/lib/utils";
 import { isRealtimeEnabled } from "@/lib/runtime-config";
 import {
@@ -89,7 +96,9 @@ export default function AppointmentsPage() {
   const [profilesFull, setProfilesFull] = useState<ProfileFull[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterDate, setFilterDate] = useState<Date | undefined>(new Date());
+  const [focusDate, setFocusDate] = useState(() => new Date());
+  const [calendarView, setCalendarView] = useState<CalendarViewMode>("month");
+  const [pageTab, setPageTab] = useState<"calendario" | "lista">("calendario");
   const [filterCompanyId, setFilterCompanyId] = useState<string>("all");
 
   // Add/Edit dialog
@@ -133,20 +142,16 @@ export default function AppointmentsPage() {
 
   const fetchAll = async () => {
     setLoading(true);
+    const { queryStart, queryEnd } = getCalendarQueryRange(focusDate, calendarView);
     let query = supabase
       .from("crm_appointments")
       .select("*")
       .eq("status", "agendado")
+      .gte("scheduled_datetime", queryStart.toISOString())
+      .lte("scheduled_datetime", queryEnd.toISOString())
       .order("scheduled_datetime", { ascending: true });
     if (!isAdmin) {
       query = query.is("deleted_at", null);
-    }
-    if (filterDate) {
-      const dayStart = new Date(filterDate);
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(filterDate);
-      dayEnd.setHours(23, 59, 59, 999);
-      query = query.gte("scheduled_datetime", dayStart.toISOString()).lte("scheduled_datetime", dayEnd.toISOString());
     }
     const [apptRes, profRes] = await Promise.all([
       query,
@@ -165,7 +170,7 @@ export default function AppointmentsPage() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchAll(); }, [filterDate]);
+  useEffect(() => { fetchAll(); }, [focusDate, calendarView, isAdmin]);
 
   // Realtime: refresh appointments when the table changes
   useEffect(() => {
@@ -182,7 +187,7 @@ export default function AppointmentsPage() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterDate]);
+  }, [focusDate, calendarView]);
 
   const filteredAppointments = useMemo(() => {
     const base =
@@ -369,6 +374,8 @@ export default function AppointmentsPage() {
     setDialogOpen(true);
   };
 
+  const calendarLabel = getCalendarQueryRange(focusDate, calendarView).label;
+
   const openEdit = (appt: Appointment) => {
     setEditingAppt(appt);
     setFormNome(appt.nome); setFormTelefone(appt.telefone); setFormIdade(appt.idade);
@@ -479,28 +486,61 @@ export default function AppointmentsPage() {
               </SelectContent>
             </Select>
           )}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className={cn("justify-start text-left font-normal", !filterDate && "text-muted-foreground")}>
-                <CalendarIcon className="mr-2 h-4 w-4 text-destructive" />
-                {filterDate ? format(filterDate, "dd/MM/yyyy", { locale: ptBR }) : "Todos os dias"}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="end">
-              <Calendar mode="single" selected={filterDate} onSelect={setFilterDate} locale={ptBR} className="p-3 pointer-events-auto" />
-            </PopoverContent>
-          </Popover>
-          {filterDate && (
-            <Button variant="ghost" size="sm" onClick={() => setFilterDate(undefined)}>
-              Limpar
-            </Button>
-          )}
           <Button size="sm" onClick={openAdd}>
             <Plus className="mr-1 h-4 w-4" /> Novo Agendamento
           </Button>
         </div>
       </div>
 
+      <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as "calendario" | "lista")}>
+        <TabsList className="mb-3">
+          <TabsTrigger value="calendario">Calendário</TabsTrigger>
+          <TabsTrigger value="lista"><List className="h-3.5 w-3.5 mr-1 inline" />Lista</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="calendario" className="mt-0 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2">
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="sm" onClick={() => setFocusDate(new Date())}>Hoje</Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setFocusDate((d) => shiftFocusDate(d, calendarView, -1))}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setFocusDate((d) => shiftFocusDate(d, calendarView, 1))}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <span className="text-sm font-semibold capitalize ml-1">{calendarLabel}</span>
+            </div>
+            <Select value={calendarView} onValueChange={(v) => setCalendarView(v as CalendarViewMode)}>
+              <SelectTrigger className="h-8 w-[120px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="month">Mês</SelectItem>
+                <SelectItem value="week">Semana</SelectItem>
+                <SelectItem value="day">Dia</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {loading ? (
+            <p className="text-center text-muted-foreground py-8">Carregando...</p>
+          ) : (
+            <AppointmentsCalendar
+              appointments={filteredAppointments}
+              view={calendarView}
+              focusDate={focusDate}
+              onSelectAppointment={(a) => {
+                const full = appointments.find((x) => x.id === a.id);
+                if (full) openEdit(full);
+              }}
+              onDayClick={(d) => {
+                setFocusDate(d);
+                setCalendarView("day");
+              }}
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="lista" className="mt-0">
       {loading ? (
         <p className="text-center text-muted-foreground py-8">Carregando...</p>
       ) : filteredAppointments.length === 0 ? (
@@ -620,6 +660,8 @@ export default function AppointmentsPage() {
           </table>
         </div>
       )}
+        </TabsContent>
+      </Tabs>
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

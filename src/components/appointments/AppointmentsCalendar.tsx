@@ -1,0 +1,233 @@
+import { useMemo } from "react";
+import { cn } from "@/lib/utils";
+import { getAppointmentRowColor } from "@/lib/appointmentUtils";
+import {
+  buildMonthGrid,
+  buildWeekDays,
+  dayKey,
+  format,
+  HOUR_SLOTS,
+  isConsultaPaga,
+  isSameDay,
+  isSameMonth,
+  ptBR,
+  WEEKDAY_LABELS,
+  type CalendarViewMode,
+} from "@/lib/appointmentCalendarUtils";
+
+export type CalendarAppointment = {
+  id: string;
+  nome: string;
+  scheduled_datetime: string;
+  consulta_paga: boolean | null;
+  consulta_paga_em?: string | null;
+  created_at: string;
+};
+
+type Props = {
+  appointments: CalendarAppointment[];
+  view: CalendarViewMode;
+  focusDate: Date;
+  onSelectAppointment: (appt: CalendarAppointment) => void;
+  onDayClick?: (date: Date) => void;
+};
+
+const SLOT_HEIGHT = 48;
+
+function apptsByDay(appts: CalendarAppointment[]) {
+  const map = new Map<string, CalendarAppointment[]>();
+  for (const a of appts) {
+    const key = dayKey(new Date(a.scheduled_datetime));
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(a);
+  }
+  map.forEach((list) =>
+    list.sort((x, y) => new Date(x.scheduled_datetime).getTime() - new Date(y.scheduled_datetime).getTime()),
+  );
+  return map;
+}
+
+function EventChip({
+  appt,
+  onClick,
+  compact,
+}: {
+  appt: CalendarAppointment;
+  onClick: () => void;
+  compact?: boolean;
+}) {
+  const dt = new Date(appt.scheduled_datetime);
+  const rowColor = getAppointmentRowColor(appt as Parameters<typeof getAppointmentRowColor>[0]);
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className={cn(
+        "w-full text-left rounded px-1.5 py-0.5 truncate border text-[11px] leading-tight",
+        rowColor || "bg-primary/15 border-primary/30 hover:bg-primary/25",
+        compact ? "max-w-full" : "",
+      )}
+      title={`${appt.nome} — ${format(dt, "HH:mm", { locale: ptBR })}`}
+    >
+      {!compact && <span className="font-medium">{format(dt, "HH:mm")} </span>}
+      {appt.nome || "—"}
+    </button>
+  );
+}
+
+function MonthView({ appointments, focusDate, onSelectAppointment, onDayClick }: Props) {
+  const byDay = useMemo(() => apptsByDay(appointments), [appointments]);
+  const grid = buildMonthGrid(focusDate);
+  const today = new Date();
+
+  return (
+    <div className="rounded-lg border overflow-hidden bg-card">
+      <div className="grid grid-cols-7 border-b bg-muted/50">
+        {WEEKDAY_LABELS.map((label) => (
+          <div key={label} className="px-1 py-2 text-center text-[11px] font-semibold text-muted-foreground">
+            {label}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 divide-x divide-y divide-border">
+        {grid.map((day) => {
+          const key = dayKey(day);
+          const dayAppts = byDay.get(key) || [];
+          const paid = dayAppts.filter(isConsultaPaga).length;
+          const total = dayAppts.length;
+          const inMonth = isSameMonth(day, focusDate);
+          const isToday = isSameDay(day, today);
+
+          return (
+            <div
+              key={key}
+              className={cn(
+                "min-h-[110px] p-1 flex flex-col gap-0.5 bg-background",
+                !inMonth && "bg-muted/20 text-muted-foreground",
+              )}
+              onClick={() => onDayClick?.(day)}
+            >
+              <div className="flex flex-col items-center gap-0.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onDayClick?.(day); }}
+                  className={cn(
+                    "h-7 w-7 rounded-full text-sm font-medium flex items-center justify-center",
+                    isToday && "bg-primary text-primary-foreground",
+                  )}
+                >
+                  {format(day, "d")}
+                </button>
+                {inMonth && total > 0 && (
+                  <span className="text-[10px] text-muted-foreground font-medium">
+                    pagos {paid}/{total}
+                  </span>
+                )}
+              </div>
+              <div className="flex-1 space-y-0.5 overflow-hidden">
+                {dayAppts.slice(0, 3).map((a) => (
+                  <EventChip key={a.id} appt={a} compact onClick={() => onSelectAppointment(a)} />
+                ))}
+                {dayAppts.length > 3 && (
+                  <span className="text-[10px] text-muted-foreground px-1">+{dayAppts.length - 3} mais</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TimeGridView({
+  appointments,
+  focusDate,
+  view,
+  onSelectAppointment,
+}: Props & { view: "week" | "day" }) {
+  const days = view === "week" ? buildWeekDays(focusDate) : [focusDate];
+  const byDay = useMemo(() => apptsByDay(appointments), [appointments]);
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const showNowLine = days.some((d) => isSameDay(d, now));
+
+  return (
+    <div className="rounded-lg border overflow-hidden bg-card flex flex-col max-h-[calc(100vh-220px)]">
+      <div className="flex border-b bg-muted/50 shrink-0 overflow-x-auto">
+        <div className="w-14 shrink-0 border-r" />
+        {days.map((day) => {
+          const isToday = isSameDay(day, now);
+          return (
+            <div key={dayKey(day)} className="flex-1 min-w-[100px] text-center py-2 border-r last:border-r-0">
+              <div className="text-[11px] font-semibold text-muted-foreground">
+                {WEEKDAY_LABELS[day.getDay()]}
+              </div>
+              <div
+                className={cn(
+                  "inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium mt-0.5",
+                  isToday && "bg-primary text-primary-foreground",
+                )}
+              >
+                {format(day, "d")}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex-1 overflow-y-auto relative">
+        <div className="flex min-h-[672px]">
+          <div className="w-14 shrink-0 border-r bg-muted/20">
+            {HOUR_SLOTS.map((h) => (
+              <div
+                key={h}
+                className="text-[10px] text-muted-foreground text-right pr-1 border-b border-border/50"
+                style={{ height: SLOT_HEIGHT }}
+              >
+                {h <= 12 ? `${h === 12 ? 12 : h} ${h < 12 ? "AM" : "PM"}` : `${h - 12} PM`}
+              </div>
+            ))}
+          </div>
+          {days.map((day) => {
+            const dayAppts = byDay.get(dayKey(day)) || [];
+            return (
+              <div key={dayKey(day)} className="flex-1 min-w-[100px] border-r last:border-r-0 relative">
+                {HOUR_SLOTS.map((h) => (
+                  <div key={h} className="border-b border-border/40" style={{ height: SLOT_HEIGHT }} />
+                ))}
+                {dayAppts.map((a) => {
+                  const dt = new Date(a.scheduled_datetime);
+                  const top = ((dt.getHours() - 7) * 60 + dt.getMinutes()) * (SLOT_HEIGHT / 60);
+                  const height = Math.max(SLOT_HEIGHT * 0.75, 28);
+                  if (dt.getHours() < 7 || dt.getHours() > 20) return null;
+                  return (
+                    <div
+                      key={a.id}
+                      className="absolute left-0.5 right-0.5 z-10"
+                      style={{ top, height }}
+                    >
+                      <EventChip appt={a} onClick={() => onSelectAppointment(a)} />
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+        {showNowLine && now.getHours() >= 7 && now.getHours() <= 20 && (
+          <div
+            className="absolute left-14 right-0 border-t-2 border-red-500 z-20 pointer-events-none"
+            style={{ top: ((now.getHours() - 7) * 60 + now.getMinutes()) * (SLOT_HEIGHT / 60) }}
+          >
+            <span className="absolute -left-2 -top-1.5 h-2.5 w-2.5 rounded-full bg-red-500" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function AppointmentsCalendar(props: Props) {
+  if (props.view === "month") return <MonthView {...props} />;
+  return <TimeGridView {...props} view={props.view} />;
+}

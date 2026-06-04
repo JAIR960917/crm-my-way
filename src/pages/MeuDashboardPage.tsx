@@ -10,6 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveLeadIdentity, type LeadIdentityField } from "@/lib/leadIdentity";
 import { CalendarClock, AlertTriangle, Users, RefreshCw } from "lucide-react";
+import AttendanceReportCard from "@/components/dashboard/AttendanceReportCard";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -248,6 +249,8 @@ export default function MeuDashboardPage() {
             tone="text-amber-500"
           />
         </div>
+
+        {user && <AttendanceReportCard mode="vendedor" userId={user.id} />}
 
         <Card>
           <CardHeader>
