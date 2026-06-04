@@ -14,27 +14,16 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Users, Receipt, CalendarHeart, Phone, PhoneOff, CalendarCheck, CalendarX, Calendar as CalIcon, Building2, ChevronDown, X, ThumbsUp, ThumbsDown, HandCoins } from "lucide-react";
+import { Users, Receipt, CalendarHeart, Phone, PhoneOff, CalendarCheck, CalendarX, Calendar as CalIcon, Building2, ChevronDown, X, ThumbsUp, ThumbsDown, HandCoins, CalendarClock } from "lucide-react";
 import { isRealtimeEnabled } from "@/lib/runtime-config";
+import { fetchAttendanceReport, type AttendanceSellerRow } from "@/lib/attendanceReport";
 
 type Profile = { user_id: string; full_name: string; avatar_url: string | null; company_id: string | null };
 type Company = { id: string; name: string };
 
 type Totals = { leads: number; cobrancas: number; renovacoes: number };
 
-type SellerRow = {
-  user_id: string;
-  full_name: string;
-  avatar_url: string | null;
-  company_id: string | null;
-  company_name: string;
-  adicionados: number;
-  tratados: number;
-  naoAtenderam: number;
-  atenderam: number;
-  agendaram: number;
-  naoAgendaram: number;
-};
+type SellerRow = AttendanceSellerRow;
 
 type CobrancaRow = {
   user_id: string;
@@ -85,8 +74,6 @@ export default function DashboardPage() {
   const [cobStartDate, setCobStartDate] = useState<string>(formatDateForInput(new Date()));
   const [cobEndDate, setCobEndDate] = useState<string>(formatDateForInput(new Date()));
   const [loadingCob, setLoadingCob] = useState(true);
-  const [adminIds, setAdminIds] = useState<Set<string>>(new Set());
-
   const [companyFilter, setCompanyFilter] = useState<string>(ALL);
   const [sellerFilter, setSellerFilter] = useState<string[]>([]); // empty = all
   const [vendedorIds, setVendedorIds] = useState<Set<string>>(new Set());
@@ -163,158 +150,11 @@ export default function DashboardPage() {
   };
 
   const fetchReport = async (startStr: string, endStr: string) => {
-    const { startISO, endISO } = rangeBounds(startStr, endStr);
-
-    // Profiles + companies + admins (RLS already scopes for gerente)
-    const [{ data: profilesData }, { data: companiesData }, { data: adminRoles }] = await Promise.all([
-      supabase.from("profiles").select("user_id, full_name, avatar_url, company_id"),
-      supabase.from("companies").select("id, name").order("name"),
-      supabase.from("user_roles").select("user_id").eq("role", "admin"),
-    ]);
-    const profs = (profilesData || []) as Profile[];
-    const comps = (companiesData || []) as Company[];
-    const adminSet = new Set<string>((adminRoles || []).map((r: any) => r.user_id));
-    setProfiles(profs.filter((p) => !adminSet.has(p.user_id)));
-    setCompanies(comps);
-    setAdminIds(adminSet);
-    const compById = new Map(comps.map((c) => [c.id, c.name]));
-
-    const dayKey = (iso: string) => {
-      const d = new Date(iso);
-      return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    };
-
-    const { data: opens } = await supabase
-      .from("lead_card_opens")
-      .select("user_id, card_type, lead_id, renovacao_id, opened_at")
-      .gte("opened_at", startISO)
-      .lte("opened_at", endISO);
-
-    // Leads adicionados por usuário no período (created_by)
-    const { data: createdLeads } = await supabase
-      .from("crm_leads")
-      .select("id, created_by, created_at")
-      .gte("created_at", startISO)
-      .lte("created_at", endISO);
-
-    const adicionadosMap = new Map<string, Set<string>>();
-    (createdLeads || []).forEach((l: any) => {
-      if (!l.created_by || adminSet.has(l.created_by)) return;
-      if (!adicionadosMap.has(l.created_by)) adicionadosMap.set(l.created_by, new Set());
-      adicionadosMap.get(l.created_by)!.add(l.id);
-    });
-
-    // Tratados: distinct (lead_id) abertos pelo usuário no período (qualquer card_type)
-    //           + leads criados pelo usuário no período.
-    const tratadosMap = new Map<string, Set<string>>();
-    (opens || []).forEach((o: any) => {
-      if (adminSet.has(o.user_id)) return;
-      const cardId = o.lead_id || o.renovacao_id;
-      if (!cardId) return;
-      const key = `${o.card_type}:${cardId}`;
-      if (!tratadosMap.has(o.user_id)) tratadosMap.set(o.user_id, new Set());
-      tratadosMap.get(o.user_id)!.add(key);
-    });
-    adicionadosMap.forEach((set, uid) => {
-      if (!tratadosMap.has(uid)) tratadosMap.set(uid, new Set());
-      set.forEach((id) => tratadosMap.get(uid)!.add(`lead:${id}`));
-    });
-
-    const [{ data: leadNotes }, { data: renovNotes }] = await Promise.all([
-      supabase
-        .from("crm_lead_notes")
-        .select("user_id, lead_id, content, created_at")
-        .gte("created_at", startISO)
-        .lte("created_at", endISO),
-      supabase
-        .from("crm_renovacao_notes" as any)
-        .select("user_id, renovacao_id, content, created_at")
-        .gte("created_at", startISO)
-        .lte("created_at", endISO),
-    ]);
-
-    // Para cada (vendedor, card, dia) armazenamos APENAS a última tentativa de contato.
-    type Cat = "agendou" | "naoAtendeu" | "atendeuSemAgendar";
-    type LastEntry = { ts: number; cat: Cat };
-    const latestPerCardDay = new Map<string, LastEntry>();
-
-    const classify = (content: string): Cat | null => {
-      if (!content.startsWith("📞 Tentativa de contato")) return null;
-      if (content.includes("NÃO ATENDEU")) return "naoAtendeu";
-      if (content.includes("ATENDEU")) {
-        if (content.includes("✅ Consulta marcada")) return "agendou";
-        return "atendeuSemAgendar";
-      }
-      return null;
-    };
-
-    const ingestNote = (
-      userId: string,
-      cardType: "lead" | "renovacao",
-      cardId: string,
-      content: string,
-      createdAt: string,
-    ) => {
-      if (adminSet.has(userId)) return;
-      const cat = classify(content);
-      if (!cat) return;
-      const ts = new Date(createdAt).getTime();
-      const key = `${userId}|${dayKey(createdAt)}|${cardType}:${cardId}`;
-      const prev = latestPerCardDay.get(key);
-      if (!prev || ts > prev.ts) latestPerCardDay.set(key, { ts, cat });
-    };
-
-    (leadNotes || []).forEach((n: any) =>
-      ingestNote(n.user_id, "lead", n.lead_id, n.content || "", n.created_at),
-    );
-    ((renovNotes as any[]) || []).forEach((n: any) =>
-      ingestNote(n.user_id, "renovacao", n.renovacao_id, n.content || "", n.created_at),
-    );
-
-    const agendou = new Map<string, number>();
-    const naoAtendeu = new Map<string, number>();
-    const atendeuSemAgendar = new Map<string, number>();
-
-    latestPerCardDay.forEach((entry, key) => {
-      const userId = key.split("|")[0];
-      const target =
-        entry.cat === "agendou"
-          ? agendou
-          : entry.cat === "naoAtendeu"
-          ? naoAtendeu
-          : atendeuSemAgendar;
-      target.set(userId, (target.get(userId) || 0) + 1);
-    });
-
-    const userIds = new Set<string>([
-      ...tratadosMap.keys(),
-      ...adicionadosMap.keys(),
-      ...agendou.keys(),
-      ...naoAtendeu.keys(),
-      ...atendeuSemAgendar.keys(),
-    ]);
-
-    const rows: SellerRow[] = Array.from(userIds).map((uid) => {
-      const p = profs.find((x) => x.user_id === uid);
-      const ag = agendou.get(uid) || 0;
-      const semAg = atendeuSemAgendar.get(uid) || 0;
-      return {
-        user_id: uid,
-        full_name: p?.full_name || "(usuário desconhecido)",
-        avatar_url: p?.avatar_url || null,
-        company_id: p?.company_id || null,
-        company_name: p?.company_id ? compById.get(p.company_id) || "—" : "—",
-        adicionados: adicionadosMap.get(uid)?.size || 0,
-        tratados: tratadosMap.get(uid)?.size || 0,
-        naoAtenderam: naoAtendeu.get(uid) || 0,
-        atenderam: ag + semAg,
-        agendaram: ag,
-        naoAgendaram: semAg,
-      };
-    });
-
-    rows.sort((a, b) => b.tratados - a.tratados);
-    setAllRows(rows);
+    const result = await fetchAttendanceReport(startStr, endStr);
+    setProfiles(result.profiles);
+    setCompanies(result.companies);
+    setVendedorIds(result.vendedorIds);
+    setAllRows(result.rows);
   };
 
   const fetchCobrancaReport = async (startStr: string, endStr: string) => {
@@ -466,9 +306,11 @@ export default function DashboardPage() {
 
     const channel = supabase
       .channel("dashboard-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "lead_card_opens" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "crm_lead_notes" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "crm_renovacao_notes" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "lead_activities" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "renovacao_activities" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "crm_appointments" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "crm_cobranca_notes" }, refresh)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "crm_leads" }, refresh)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "crm_renovacoes" }, refresh)
@@ -532,8 +374,9 @@ export default function DashboardPage() {
         atenderam: acc.atenderam + r.atenderam,
         agendaram: acc.agendaram + r.agendaram,
         naoAgendaram: acc.naoAgendaram + r.naoAgendaram,
+        agendamentos: acc.agendamentos + r.agendamentos,
       }),
-      { adicionados: 0, tratados: 0, naoAtenderam: 0, atenderam: 0, agendaram: 0, naoAgendaram: 0 },
+      { adicionados: 0, tratados: 0, naoAtenderam: 0, atenderam: 0, agendaram: 0, naoAgendaram: 0, agendamentos: 0 },
     );
   }, [filteredRows]);
 
@@ -780,13 +623,14 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             {/* Resumo */}
-            <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 mb-4">
+            <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 mb-4">
               <SummaryStat label="Leads Adicionados" value={reportTotals.adicionados} icon={Users} tone="default" />
               <SummaryStat label="Leads Tratados" value={reportTotals.tratados} icon={Phone} tone="default" />
               <SummaryStat label="Leads Não Atenderam" value={reportTotals.naoAtenderam} icon={PhoneOff} tone="danger" />
               <SummaryStat label="Leads Atenderam" value={reportTotals.atenderam} icon={ThumbsUp} tone="success" />
               <SummaryStat label="Leads Agendaram" value={reportTotals.agendaram} icon={CalendarCheck} tone="success" />
               <SummaryStat label="Leads Não Agendaram" value={reportTotals.naoAgendaram} icon={CalendarX} tone="warning" />
+              <SummaryStat label="Agendamentos CRM" value={reportTotals.agendamentos} icon={CalendarClock} tone="default" />
             </div>
 
             <Tabs defaultValue="vendedores">
@@ -810,6 +654,7 @@ export default function DashboardPage() {
                           <TableHead className="text-center text-emerald-600">Atenderam</TableHead>
                           <TableHead className="text-center text-emerald-600">Agendaram</TableHead>
                           <TableHead className="text-center text-amber-600">Não agendaram</TableHead>
+                          <TableHead className="text-center">Agend. CRM</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -849,6 +694,7 @@ export default function DashboardPage() {
                                 {row.naoAgendaram}
                               </Badge>
                             </TableCell>
+                            <TableCell className="text-center font-semibold">{row.agendamentos}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -860,9 +706,9 @@ export default function DashboardPage() {
 
             <p className="text-[11px] text-muted-foreground mt-4">
               <Phone className="h-3 w-3 inline mr-1" />
-              "Adicionados" = leads cadastrados no período. "Tratados" = leads abertos para tratativa
-              ou criados pelo usuário. Atenderam/Não atenderam/Agendaram/Não agendaram vêm das
-              tentativas de contato registradas em cada card.
+              "Adicionados" = leads cadastrados no período. "Tratados" = tentativa de contato
+              (atendeu/não atendeu) ou tarefa criada/alterada no card. Atenderam/Não atenderam/Agendaram/Não agendaram
+              vêm da última tentativa de contato do dia. "Agend. CRM" = consultas criadas no sistema.
             </p>
           </CardContent>
         </Card>

@@ -22,36 +22,22 @@ import {
   ChevronDown,
   X,
   ThumbsUp,
+  CalendarClock,
 } from "lucide-react";
+import {
+  fetchAttendanceReport,
+  type AttendanceSellerRow,
+  type AttendanceProfile,
+  type AttendanceCompany,
+} from "@/lib/attendanceReport";
 
 export type AttendanceReportMode = "admin" | "gerente" | "vendedor";
 
-type Profile = { user_id: string; full_name: string; avatar_url: string | null; company_id: string | null };
-type Company = { id: string; name: string };
-
-type SellerRow = {
-  user_id: string;
-  full_name: string;
-  avatar_url: string | null;
-  company_id: string | null;
-  company_name: string;
-  adicionados: number;
-  tratados: number;
-  naoAtenderam: number;
-  atenderam: number;
-  agendaram: number;
-  naoAgendaram: number;
-};
+type SellerRow = AttendanceSellerRow;
+type Profile = AttendanceProfile;
+type Company = AttendanceCompany;
 
 const ALL = "__all__";
-
-const rangeBounds = (startStr: string, endStr: string) => {
-  const [ys, ms, ds] = startStr.split("-").map(Number);
-  const [ye, me, de] = endStr.split("-").map(Number);
-  const start = new Date(ys, ms - 1, ds, 0, 0, 0, 0);
-  const end = new Date(ye, me - 1, de, 23, 59, 59, 999);
-  return { startISO: start.toISOString(), endISO: end.toISOString() };
-};
 
 const formatDateForInput = (date: Date) => {
   const y = date.getFullYear();
@@ -105,157 +91,11 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
   }, [mode, userId]);
 
   const fetchReport = async (startStr: string, endStr: string) => {
-    const { startISO, endISO } = rangeBounds(startStr, endStr);
-
-    const [{ data: profilesData }, { data: companiesData }, { data: adminRoles }, { data: rolesData }] =
-      await Promise.all([
-        supabase.from("profiles").select("user_id, full_name, avatar_url, company_id"),
-        supabase.from("companies").select("id, name").order("name"),
-        supabase.from("user_roles").select("user_id").eq("role", "admin"),
-        supabase.from("user_roles").select("user_id, role"),
-      ]);
-
-    const profs = (profilesData || []) as Profile[];
-    const comps = (companiesData || []) as Company[];
-    const adminSet = new Set<string>((adminRoles || []).map((r: { user_id: string }) => r.user_id));
-    const vendSet = new Set(
-      (rolesData || [])
-        .filter((r: { role: string }) => r.role === "vendedor")
-        .map((r: { user_id: string }) => r.user_id),
-    );
-    setProfiles(profs.filter((p) => !adminSet.has(p.user_id)));
-    setCompanies(comps);
-    setVendedorIds(vendSet);
-    const compById = new Map(comps.map((c) => [c.id, c.name]));
-
-    const dayKey = (iso: string) => {
-      const d = new Date(iso);
-      return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    };
-
-    const { data: opens } = await supabase
-      .from("lead_card_opens")
-      .select("user_id, card_type, lead_id, renovacao_id, opened_at")
-      .gte("opened_at", startISO)
-      .lte("opened_at", endISO);
-
-    const { data: createdLeads } = await supabase
-      .from("crm_leads")
-      .select("id, created_by, created_at")
-      .gte("created_at", startISO)
-      .lte("created_at", endISO);
-
-    const adicionadosMap = new Map<string, Set<string>>();
-    (createdLeads || []).forEach((l: { id: string; created_by: string | null }) => {
-      if (!l.created_by || adminSet.has(l.created_by)) return;
-      if (!adicionadosMap.has(l.created_by)) adicionadosMap.set(l.created_by, new Set());
-      adicionadosMap.get(l.created_by)!.add(l.id);
-    });
-
-    const tratadosMap = new Map<string, Set<string>>();
-    (opens || []).forEach((o: { user_id: string; lead_id: string | null; renovacao_id: string | null; card_type: string }) => {
-      if (adminSet.has(o.user_id)) return;
-      const cardId = o.lead_id || o.renovacao_id;
-      if (!cardId) return;
-      const key = `${o.card_type}:${cardId}`;
-      if (!tratadosMap.has(o.user_id)) tratadosMap.set(o.user_id, new Set());
-      tratadosMap.get(o.user_id)!.add(key);
-    });
-    adicionadosMap.forEach((set, uid) => {
-      if (!tratadosMap.has(uid)) tratadosMap.set(uid, new Set());
-      set.forEach((id) => tratadosMap.get(uid)!.add(`lead:${id}`));
-    });
-
-    const [{ data: leadNotes }, { data: renovNotes }] = await Promise.all([
-      supabase
-        .from("crm_lead_notes")
-        .select("user_id, lead_id, content, created_at")
-        .gte("created_at", startISO)
-        .lte("created_at", endISO),
-      supabase
-        .from("crm_renovacao_notes")
-        .select("user_id, renovacao_id, content, created_at")
-        .gte("created_at", startISO)
-        .lte("created_at", endISO),
-    ]);
-
-    type Cat = "agendou" | "naoAtendeu" | "atendeuSemAgendar";
-    type LastEntry = { ts: number; cat: Cat };
-    const latestPerCardDay = new Map<string, LastEntry>();
-
-    const classify = (content: string): Cat | null => {
-      if (!content.startsWith("📞 Tentativa de contato")) return null;
-      if (content.includes("NÃO ATENDEU")) return "naoAtendeu";
-      if (content.includes("ATENDEU")) {
-        if (content.includes("✅ Consulta marcada")) return "agendou";
-        return "atendeuSemAgendar";
-      }
-      return null;
-    };
-
-    const ingestNote = (
-      noteUserId: string,
-      cardType: "lead" | "renovacao",
-      cardId: string,
-      content: string,
-      createdAt: string,
-    ) => {
-      if (adminSet.has(noteUserId)) return;
-      const cat = classify(content);
-      if (!cat) return;
-      const ts = new Date(createdAt).getTime();
-      const key = `${noteUserId}|${dayKey(createdAt)}|${cardType}:${cardId}`;
-      const prev = latestPerCardDay.get(key);
-      if (!prev || ts > prev.ts) latestPerCardDay.set(key, { ts, cat });
-    };
-
-    (leadNotes || []).forEach((n: { user_id: string; lead_id: string; content: string; created_at: string }) =>
-      ingestNote(n.user_id, "lead", n.lead_id, n.content || "", n.created_at),
-    );
-    ((renovNotes as { user_id: string; renovacao_id: string; content: string; created_at: string }[]) || []).forEach(
-      (n) => ingestNote(n.user_id, "renovacao", n.renovacao_id, n.content || "", n.created_at),
-    );
-
-    const agendou = new Map<string, number>();
-    const naoAtendeu = new Map<string, number>();
-    const atendeuSemAgendar = new Map<string, number>();
-
-    latestPerCardDay.forEach((entry, key) => {
-      const uid = key.split("|")[0];
-      const target =
-        entry.cat === "agendou" ? agendou : entry.cat === "naoAtendeu" ? naoAtendeu : atendeuSemAgendar;
-      target.set(uid, (target.get(uid) || 0) + 1);
-    });
-
-    const userIds = new Set<string>([
-      ...tratadosMap.keys(),
-      ...adicionadosMap.keys(),
-      ...agendou.keys(),
-      ...naoAtendeu.keys(),
-      ...atendeuSemAgendar.keys(),
-    ]);
-
-    const rows: SellerRow[] = Array.from(userIds).map((uid) => {
-      const p = profs.find((x) => x.user_id === uid);
-      const ag = agendou.get(uid) || 0;
-      const semAg = atendeuSemAgendar.get(uid) || 0;
-      return {
-        user_id: uid,
-        full_name: p?.full_name || "(usuário desconhecido)",
-        avatar_url: p?.avatar_url || null,
-        company_id: p?.company_id || null,
-        company_name: p?.company_id ? compById.get(p.company_id) || "—" : "—",
-        adicionados: adicionadosMap.get(uid)?.size || 0,
-        tratados: tratadosMap.get(uid)?.size || 0,
-        naoAtenderam: naoAtendeu.get(uid) || 0,
-        atenderam: ag + semAg,
-        agendaram: ag,
-        naoAgendaram: semAg,
-      };
-    });
-
-    rows.sort((a, b) => b.tratados - a.tratados);
-    setAllRows(rows);
+    const result = await fetchAttendanceReport(startStr, endStr);
+    setProfiles(result.profiles);
+    setCompanies(result.companies);
+    setVendedorIds(result.vendedorIds);
+    setAllRows(result.rows);
   };
 
   useEffect(() => {
@@ -280,9 +120,11 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
     };
     const channel = supabase
       .channel(`attendance-report-${mode}-${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "lead_card_opens" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "crm_lead_notes" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "crm_renovacao_notes" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "lead_activities" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "renovacao_activities" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "crm_appointments" }, refresh)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [mode, userId, dateMode, selectedDate, startDate, endDate]);
@@ -325,8 +167,9 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
           atenderam: acc.atenderam + r.atenderam,
           agendaram: acc.agendaram + r.agendaram,
           naoAgendaram: acc.naoAgendaram + r.naoAgendaram,
+          agendamentos: acc.agendamentos + r.agendamentos,
         }),
-        { adicionados: 0, tratados: 0, naoAtenderam: 0, atenderam: 0, agendaram: 0, naoAgendaram: 0 },
+        { adicionados: 0, tratados: 0, naoAtenderam: 0, atenderam: 0, agendaram: 0, naoAgendaram: 0, agendamentos: 0 },
       ),
     [filteredRows],
   );
@@ -440,14 +283,19 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 mb-4">
+        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 mb-4">
           <SummaryStat label="Leads Adicionados" value={reportTotals.adicionados} icon={Users} tone="default" />
           <SummaryStat label="Leads Tratados" value={reportTotals.tratados} icon={Phone} tone="default" />
           <SummaryStat label="Leads Não Atenderam" value={reportTotals.naoAtenderam} icon={PhoneOff} tone="danger" />
           <SummaryStat label="Leads Atenderam" value={reportTotals.atenderam} icon={ThumbsUp} tone="success" />
           <SummaryStat label="Leads Agendaram" value={reportTotals.agendaram} icon={CalendarCheck} tone="success" />
           <SummaryStat label="Leads Não Agendaram" value={reportTotals.naoAgendaram} icon={CalendarX} tone="warning" />
+          <SummaryStat label="Agendamentos CRM" value={reportTotals.agendamentos} icon={CalendarClock} tone="default" />
         </div>
+        <p className="text-[11px] text-muted-foreground mb-4 -mt-1">
+          Tratados = tentativa de contato (atendeu/não atendeu) ou tarefa criada/alterada no card.
+          Agendamentos CRM = consultas registradas no sistema no período.
+        </p>
         {loading ? (
           <Skeleton className="h-40 w-full" />
         ) : showSellerTable ? (
@@ -466,6 +314,7 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
                     <TableHead className="text-center text-emerald-600">Atenderam</TableHead>
                     <TableHead className="text-center text-emerald-600">Agendaram</TableHead>
                     <TableHead className="text-center text-amber-600">Não agendaram</TableHead>
+                    <TableHead className="text-center">Agend. CRM</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -497,6 +346,7 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
                       <TableCell className="text-center">
                         <Badge variant="outline" className="border-amber-500/40 text-amber-700 bg-amber-500/10">{row.naoAgendaram}</Badge>
                       </TableCell>
+                      <TableCell className="text-center font-semibold">{row.agendamentos}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
