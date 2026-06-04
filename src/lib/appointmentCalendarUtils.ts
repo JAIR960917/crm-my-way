@@ -176,11 +176,10 @@ export function layoutTimedAppointments<T extends { scheduled_datetime: string }
   const layouts: CalendarEventLayout<T>[] = [];
   for (const cluster of overlapClusters(inRange)) {
     for (const slot of layoutCluster(cluster)) {
+      const durationMin = slot.endMin - slot.startMin;
       const top = (slot.startMin - gridStart) * (slotHeightPx / 60);
-      const height = Math.max(
-        slotHeightPx * 0.75,
-        ((slot.endMin - slot.startMin) / 60) * slotHeightPx,
-      );
+      // Altura exata pela duração — não usar mínimo maior que o slot (evita invadir horário seguinte)
+      const height = (durationMin / 60) * slotHeightPx;
       layouts.push({
         item: slot.item,
         top,

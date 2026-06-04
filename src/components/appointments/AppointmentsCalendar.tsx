@@ -89,7 +89,7 @@ function EventChip({
       className={cn(
         "h-full w-full text-left rounded truncate border overflow-hidden box-border",
         rowColor || "bg-primary text-primary-foreground border-primary/50",
-        compact ? "h-4 text-[9px] px-1 py-0 leading-4" : "px-1.5 py-0.5 text-[11px] leading-tight",
+        compact ? "h-4 shrink-0 text-[9px] px-1 py-0 leading-4" : "h-full max-h-full px-1 py-0 text-[11px] leading-none",
         appt.is_reschedule_snapshot && "border-dashed",
       )}
       title={title}
@@ -228,8 +228,12 @@ function TimeGridView({
                 {slotGroups.map((group) => (
                   <div
                     key={`${group[0].top}-${group.map((g) => g.item.id).join("-")}`}
-                    className="absolute left-1 right-1 z-10 flex gap-0.5"
-                    style={{ top: group[0].top, height: group[0].height }}
+                    className="absolute left-1 right-1 flex gap-0.5 overflow-hidden"
+                    style={{
+                      top: group[0].top,
+                      height: group[0].height,
+                      zIndex: 10 + group[0].column,
+                    }}
                   >
                     {group.map(({ item: a }) => (
                       <div key={a.id} className="flex-1 min-w-0">
