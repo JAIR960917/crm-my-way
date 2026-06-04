@@ -63,7 +63,8 @@ export default function NewLeadPage() {
   const [agDate, setAgDate] = useState(""); // yyyy-MM-dd
   const [agTime, setAgTime] = useState("09:00");
   const [agFormaPagamento, setAgFormaPagamento] = useState("");
-  const [agConsultaPaga, setAgConsultaPaga] = useState<"sim" | "nao" | "">("");
+  const [agConsultaPaga, setAgConsultaPaga] = useState<"sim" | "nao" | "cortesia" | "">("");
+  const [agValorConsulta, setAgValorConsulta] = useState("");
 
   // Duplicate phone detection
   const [duplicateInfo, setDuplicateInfo] = useState<
@@ -341,6 +342,13 @@ export default function NewLeadPage() {
         toast.error("Informe se a consulta foi paga no momento do agendamento.");
         return;
       }
+      if (agConsultaPaga !== "cortesia") {
+        const valorNum = parseFloat(agValorConsulta.replace(",", "."));
+        if (!agValorConsulta.trim() || Number.isNaN(valorNum) || valorNum < 0) {
+          toast.error("Informe o valor da consulta.");
+          return;
+        }
+      }
     }
 
     setSaving(true);
@@ -382,7 +390,14 @@ export default function NewLeadPage() {
     const { nome: leadName, telefone: leadPhone, idade: leadIdade } = resolveLeadIdentity(finalData, fields);
 
     const canalAgendamento = agendou === "sim" ? resolveCanalFromForm(fields, formData) : "";
-    const consultaPagaNoAgendamento = agendou === "sim" && agConsultaPaga === "sim";
+    const consultaPagaNoAgendamento =
+      agendou === "sim" && (agConsultaPaga === "sim" || agConsultaPaga === "cortesia");
+    const valorConsulta =
+      agendou === "sim"
+        ? agConsultaPaga === "cortesia"
+          ? 0
+          : parseFloat(agValorConsulta.replace(",", ".")) || 0
+        : 0;
 
     const apptPayload: (OfflineAppointmentPayload & { idade?: string }) | undefined = agendou === "sim" ? {
       scheduled_datetime: (() => {
@@ -394,7 +409,7 @@ export default function NewLeadPage() {
       nome: leadName,
       telefone: leadPhone,
       idade: leadIdade,
-      valor: 0,
+      valor: valorConsulta,
       forma_pagamento: agFormaPagamento,
       forma_pagamento_oculos: agFormaPagamento,
       canal_agendamento: canalAgendamento,
@@ -426,7 +441,7 @@ export default function NewLeadPage() {
       setFormData({});
       setObservacao("");
       setAgendou("");
-      setAgDate(""); setAgTime("09:00"); setAgFormaPagamento(""); setAgConsultaPaga("");
+      setAgDate(""); setAgTime("09:00"); setAgFormaPagamento(""); setAgConsultaPaga(""); setAgValorConsulta("");
       setStep(0);
       navigate(apptPayload ? "/agendamentos" : "/");
       return;
@@ -531,7 +546,7 @@ export default function NewLeadPage() {
     setFormData({});
     setObservacao("");
     setAgendou("");
-    setAgDate(""); setAgTime("09:00"); setAgFormaPagamento(""); setAgConsultaPaga("");
+    setAgDate(""); setAgTime("09:00"); setAgFormaPagamento(""); setAgConsultaPaga(""); setAgValorConsulta("");
     setStep(0);
     navigate(apptPayload ? "/agendamentos" : "/");
   };
@@ -809,14 +824,36 @@ export default function NewLeadPage() {
 
                 <div className="space-y-2">
                   <Label>Consulta paga no momento do agendamento? <span className="text-destructive">*</span></Label>
-                  <Select value={agConsultaPaga} onValueChange={(v) => setAgConsultaPaga(v as "sim" | "nao")}>
+                  <Select
+                    value={agConsultaPaga}
+                    onValueChange={(v) => {
+                      const opt = v as "sim" | "nao" | "cortesia";
+                      setAgConsultaPaga(opt);
+                      if (opt === "cortesia") setAgValorConsulta("");
+                    }}
+                  >
                     <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="sim">Sim</SelectItem>
                       <SelectItem value="nao">Não</SelectItem>
+                      <SelectItem value="cortesia">Cortesia</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+
+                {agConsultaPaga && agConsultaPaga !== "cortesia" && (
+                  <div className="space-y-2">
+                    <Label>Valor da consulta (R$) <span className="text-destructive">*</span></Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={agValorConsulta}
+                      onChange={(e) => setAgValorConsulta(e.target.value)}
+                      placeholder="0,00"
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
