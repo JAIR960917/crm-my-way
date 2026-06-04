@@ -1,3 +1,4 @@
+import { format } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 
 export const CANAIS_AGENDAMENTO = [
@@ -56,12 +57,18 @@ export const isSameCalendarDay = (a: string | null | undefined, b: string | null
   }
 };
 
-export function getAppointmentRowColor(appt: {
+export type AppointmentColorInput = {
   consulta_paga: boolean | null;
   consulta_paga_em?: string | null;
   created_at: string;
   scheduled_datetime: string;
-}): string {
+  is_reschedule_snapshot?: boolean | null;
+};
+
+export function getAppointmentRowColor(appt: AppointmentColorInput): string {
+  if (appt.is_reschedule_snapshot) {
+    return "bg-violet-700/35 border-violet-500/50 hover:bg-violet-700/45";
+  }
   if (appt.consulta_paga !== true) {
     return "bg-red-700/30 hover:bg-red-700/40";
   }
@@ -80,6 +87,34 @@ export function glassesPaymentLabel(appt: {
   forma_pagamento?: string | null;
 }): string {
   return appt.forma_pagamento_oculos || appt.forma_pagamento || "—";
+}
+
+export function formatRescheduleNote(appt: {
+  rescheduled_from_datetime?: string | null;
+  original_scheduled_datetime?: string | null;
+  is_reschedule_snapshot?: boolean | null;
+  rescheduled_to_datetime?: string | null;
+  scheduled_datetime: string;
+}): string | null {
+  if (appt.is_reschedule_snapshot && appt.rescheduled_to_datetime) {
+    try {
+      const nova = format(new Date(appt.rescheduled_to_datetime), "dd/MM/yyyy");
+      return `Reagendado — nova data: ${nova}`;
+    } catch {
+      return "Reagendado";
+    }
+  }
+  const from = appt.rescheduled_from_datetime || appt.original_scheduled_datetime;
+  if (from) {
+    try {
+      const original = format(new Date(from), "dd/MM/yyyy");
+      const atual = format(new Date(appt.scheduled_datetime), "dd/MM/yyyy");
+      return `Agendado originalmente para ${original}, reagendado para ${atual}`;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export async function logAppointmentHistory(

@@ -106,14 +106,14 @@ export default function RenovacaoEditSheet(props: Props) {
 
   const isEditing = !!renovacaoId;
 
-  // Mandatory tratativa: enforced for non-admin users
+  // Obrigatório nesta abertura do card (vendedor/gerente): nova tratativa OU nova tarefa
   const [tratativaRegistrada, setTratativaRegistrada] = useState(false);
+  const [taskAddedThisSession, setTaskAddedThisSession] = useState(false);
   const [contactDirty, setContactDirty] = useState(false);
   const requiresTratativa = isEditing && !isAdmin;
-  const hasAnyTasks = activities.length > 0;
   const hasPendingTasks = useMemo(() => activities.some(a => !a.completed_at), [activities]);
-  const hasTratativa = useMemo(() => tratativaRegistrada || !!formData.tratativa_em, [tratativaRegistrada, formData.tratativa_em]);
-  const canCloseOrSave = !requiresTratativa || hasTratativa || hasAnyTasks;
+  const sessionRequirementMet = tratativaRegistrada || taskAddedThisSession;
+  const canCloseOrSave = !requiresTratativa || sessionRequirementMet;
 
   const fetchTimeline = async () => {
     if (!renovacaoId) return;
@@ -132,6 +132,8 @@ export default function RenovacaoEditSheet(props: Props) {
       setNewComment("");
       setTaskOpen(false);
       setTratativaRegistrada(false);
+      setTaskAddedThisSession(false);
+      setContactDirty(false);
       // Track card open for daily salesperson report
       if (user?.id) {
         recordCardOpen({ userId: user.id, cardType: "renovacao", renovacaoId });
@@ -144,7 +146,7 @@ export default function RenovacaoEditSheet(props: Props) {
       toast.error("Você iniciou uma tratativa. Clique em \"Salvar contato\" para concluir antes de fechar.");
       return;
     }
-    if (!next && !canCloseOrSave) {
+    if (!next && requiresTratativa && !sessionRequirementMet) {
       toast.error("Registre uma tratativa ou adicione uma tarefa antes de fechar.");
       return;
     }
@@ -185,6 +187,7 @@ export default function RenovacaoEditSheet(props: Props) {
     if (error) toast.error("Erro ao criar tarefa");
     else {
       toast.success("Tarefa criada");
+      setTaskAddedThisSession(true);
       setTaskOpen(false); setTaskTitle(""); setTaskDescription(""); setTaskDate(undefined); setTaskTime("09:00");
       fetchTimeline();
       onCardUpdated?.();
@@ -441,6 +444,38 @@ export default function RenovacaoEditSheet(props: Props) {
             })()
           ) : (
             <>
+              {requiresTratativa && !sessionRequirementMet && (
+                <div className="mx-5 mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>Registre uma tratativa (tentativa de contato) ou crie uma tarefa nesta sessão antes de fechar o card.</span>
+                </div>
+              )}
+
+              {renovacaoId && user && (
+                <div className="px-5 py-3 border-b">
+                  <RenovacaoContactAttemptForm
+                    renovacaoId={renovacaoId}
+                    userId={user.id}
+                    renovacaoStatus={formStatus}
+                    renovacaoSnapshot={(() => {
+                      const nameField = fields.find(f => f.is_name_field);
+                      const phoneField = fields.find(f => f.is_phone_field);
+                      const nome = nameField ? String(formData[`field_${nameField.id}`] || "Cliente") : "Cliente";
+                      const telefone = phoneField ? String(formData[`field_${phoneField.id}`] || "") : "";
+                      return { nome, telefone, idade: "" };
+                    })()}
+                    onSaved={(updatedData) => {
+                      if (updatedData) setFormData((prev) => ({ ...prev, ...updatedData }));
+                      setTratativaRegistrada(true);
+                      setContactDirty(false);
+                      fetchTimeline();
+                      onCardUpdated?.();
+                    }}
+                    onDirtyChange={setContactDirty}
+                  />
+                </div>
+              )}
+
               <div className="px-5 py-3 border-b flex items-center gap-2">
                 <Input
                   placeholder="Adicionar comentário..."
@@ -495,38 +530,6 @@ export default function RenovacaoEditSheet(props: Props) {
                   </PopoverContent>
                 </Popover>
               </div>
-
-              {/* Tentativa de contato — visível para todos os usuários (admin, gerente, vendedor) */}
-              {tab === "atividade" && renovacaoId && user && (
-                <div className="px-5 py-3 border-b">
-                  {!canCloseOrSave && (
-                    <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-start gap-2">
-                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                      <span>Registre uma tratativa ou adicione uma tarefa antes de fechar o card.</span>
-                    </div>
-                  )}
-                  <RenovacaoContactAttemptForm
-                    renovacaoId={renovacaoId}
-                    userId={user.id}
-                    renovacaoStatus={formStatus}
-                    renovacaoSnapshot={(() => {
-                      const nameField = fields.find(f => f.is_name_field);
-                      const phoneField = fields.find(f => f.is_phone_field);
-                      const nome = nameField ? String(formData[`field_${nameField.id}`] || "Cliente") : "Cliente";
-                      const telefone = phoneField ? String(formData[`field_${phoneField.id}`] || "") : "";
-                      return { nome, telefone, idade: "" };
-                    })()}
-                    onSaved={(updatedData) => {
-                      if (updatedData) setFormData((prev) => ({ ...prev, ...updatedData }));
-                      setTratativaRegistrada(true);
-                      setContactDirty(false);
-                      fetchTimeline();
-                      onCardUpdated?.();
-                    }}
-                    onDirtyChange={setContactDirty}
-                  />
-                </div>
-              )}
 
               <ScrollArea className="sm:flex-1">
                 <div className="p-5 space-y-3">

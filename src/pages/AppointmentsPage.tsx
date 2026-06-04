@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { isRealtimeEnabled } from "@/lib/runtime-config";
 import {
   FORMAS_PAGAMENTO_OCULOS,
+  formatRescheduleNote,
   getAppointmentRowColor,
   glassesPaymentLabel,
   logAppointmentHistory,
@@ -70,6 +71,11 @@ type Appointment = {
   orcamento_produtos_itens?: ProdutoItem[] | null;
   orcamento_observacao?: string | null;
   forma_pagamento_oculos?: string | null;
+  original_scheduled_datetime?: string | null;
+  rescheduled_from_datetime?: string | null;
+  rescheduled_to_datetime?: string | null;
+  is_reschedule_snapshot?: boolean;
+  snapshot_of_appointment_id?: string | null;
 };
 
 type Profile = { user_id: string; full_name: string };
@@ -112,6 +118,14 @@ export default function AppointmentsPage() {
   const [formTime, setFormTime] = useState("09:00");
   const [formValor, setFormValor] = useState("");
   const [formPagamentoOculos, setFormPagamentoOculos] = useState("");
+  const [formConsultaPaga, setFormConsultaPaga] = useState("");
+  const [formConfirmacao, setFormConfirmacao] = useState("Pendente");
+  const [formComparecimento, setFormComparecimento] = useState("Pendente");
+  const [formVenda, setFormVenda] = useState("Pendente");
+  const [formResumo, setFormResumo] = useState("");
+  const [formRescheduleDate, setFormRescheduleDate] = useState<Date | undefined>();
+  const [formRescheduleTime, setFormRescheduleTime] = useState("09:00");
+  const [rescheduling, setRescheduling] = useState(false);
 
   // Delete
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -262,6 +276,14 @@ export default function AppointmentsPage() {
       setNvDialogOpen(true);
       return;
     }
+    if (field === "venda" && value === "Vendido") {
+      setSaleApptId(id);
+      setSaleValor("");
+      setSaleEntrada("");
+      setSalePagamento("");
+      setSaleDialogOpen(true);
+      return;
+    }
     const payload: Record<string, unknown> = { [field]: value };
     const { error } = await supabase.from("crm_appointments").update(payload).eq("id", id);
     if (error) toast.error("Erro ao atualizar");
@@ -275,12 +297,114 @@ export default function AppointmentsPage() {
         { field, value },
       );
     }
-    if (field === "venda" && value === "Vendido") {
-      const appt = appointments.find(a => a.id === id);
-      if (appt?.lead_id) {
-        await supabase.from("crm_leads").update({ comprou: true } as any).eq("id", appt.lead_id);
-      }
+  };
+
+  const handleDialogVendaChange = (value: string) => {
+    if (!editingAppt) return;
+    setFormVenda(value);
+    if (value === "Gerou Orçamento" || value === "Não Gerou Orçamento") {
+      updateField(editingAppt.id, "venda", value);
+      return;
     }
+    if (value === "Vendido") {
+      setSaleApptId(editingAppt.id);
+      setSaleValor("");
+      setSaleEntrada("");
+      setSalePagamento("");
+      setSaleDialogOpen(true);
+    }
+  };
+
+  const buildShadowPayload = (appt: Appointment, originalFirst: string, newDtIso: string) => ({
+    lead_id: appt.lead_id,
+    renovacao_id: appt.renovacao_id,
+    scheduled_by: appt.scheduled_by,
+    scheduled_datetime: originalFirst,
+    original_scheduled_datetime: originalFirst,
+    rescheduled_to_datetime: newDtIso,
+    is_reschedule_snapshot: true,
+    snapshot_of_appointment_id: appt.id,
+    valor: appt.valor,
+    forma_pagamento: appt.forma_pagamento_oculos || appt.forma_pagamento || "",
+    forma_pagamento_oculos: appt.forma_pagamento_oculos || appt.forma_pagamento || "",
+    canal_agendamento: appt.canal_agendamento,
+    nome: appt.nome,
+    telefone: appt.telefone,
+    idade: appt.idade,
+    confirmacao: appt.confirmacao,
+    comparecimento: appt.comparecimento,
+    venda: appt.venda,
+    resumo: appt.resumo,
+    previous_status: appt.previous_status,
+    status: "agendado",
+    consulta_paga: appt.consulta_paga,
+    consulta_paga_em: appt.consulta_paga_em,
+    consulta_paga_por: appt.consulta_paga_por,
+  });
+
+  const handleReschedule = async () => {
+    if (!editingAppt || !formRescheduleDate || !user || editingAppt.is_reschedule_snapshot) return;
+    const [h, m] = formRescheduleTime.split(":").map(Number);
+    const newDt = new Date(formRescheduleDate);
+    newDt.setHours(h || 9, m || 0, 0, 0);
+    const newDtIso = newDt.toISOString();
+    const currentIso = editingAppt.scheduled_datetime;
+    if (newDtIso === currentIso) {
+      toast.error("Escolha uma data/horário diferente do agendamento atual.");
+      return;
+    }
+
+    const originalFirst = editingAppt.original_scheduled_datetime || editingAppt.scheduled_datetime;
+    setRescheduling(true);
+
+    const { error: updateErr } = await supabase.from("crm_appointments").update({
+      scheduled_datetime: newDtIso,
+      original_scheduled_datetime: originalFirst,
+      rescheduled_from_datetime: originalFirst,
+    } as any).eq("id", editingAppt.id);
+
+    if (updateErr) {
+      toast.error("Erro ao reagendar");
+      setRescheduling(false);
+      return;
+    }
+
+    const { data: existingShadow } = await supabase
+      .from("crm_appointments")
+      .select("id")
+      .eq("snapshot_of_appointment_id", editingAppt.id)
+      .eq("is_reschedule_snapshot", true)
+      .maybeSingle();
+
+    const shadowPayload = buildShadowPayload(editingAppt, originalFirst, newDtIso);
+    if (existingShadow?.id) {
+      await supabase.from("crm_appointments").update(shadowPayload as any).eq("id", existingShadow.id);
+    } else {
+      await supabase.from("crm_appointments").insert(shadowPayload as any);
+    }
+
+    if (editingAppt.lead_id) {
+      await supabase.from("crm_leads").update({ scheduled_date: newDtIso } as any).eq("id", editingAppt.lead_id);
+    }
+    if (editingAppt.renovacao_id) {
+      await supabase.from("crm_renovacoes").update({ scheduled_date: newDtIso } as any).eq("id", editingAppt.renovacao_id);
+    }
+
+    const origLabel = format(new Date(originalFirst), "dd/MM/yyyy", { locale: ptBR });
+    const newLabel = format(newDt, "dd/MM/yyyy", { locale: ptBR });
+    await logAppointmentHistory(
+      editingAppt.id,
+      user.id,
+      "rescheduled",
+      `${getProfileName(user.id)} reagendou de ${origLabel} para ${newLabel}`,
+      { from: originalFirst, to: newDtIso },
+    );
+
+    toast.success(`Reagendado para ${newLabel}`);
+    setRescheduling(false);
+    setFormRescheduleDate(undefined);
+    setDialogOpen(false);
+    fetchAll();
   };
 
   const handleNvSubmit = async () => {
@@ -306,6 +430,7 @@ export default function AppointmentsPage() {
     const { error } = await supabase.from("crm_appointments").update(payload).eq("id", nvApptId);
     if (error) toast.error("Erro ao salvar");
     else toast.success("Registrado!");
+    setFormVenda(nvVendaTipo);
     setNvSaving(false);
     setNvDialogOpen(false);
     setNvApptId(null);
@@ -360,6 +485,7 @@ export default function AppointmentsPage() {
       await supabase.from("crm_leads").update({ comprou: true } as any).eq("id", appt.lead_id);
     }
     toast.success("Venda registrada!");
+    setFormVenda("Vendido");
     setSaleSaving(false);
     setSaleDialogOpen(false);
     setSaleApptId(null);
@@ -371,6 +497,9 @@ export default function AppointmentsPage() {
     setFormNome(""); setFormTelefone(""); setFormIdade("");
     setFormDate(undefined); setFormTime("09:00");
     setFormValor(""); setFormPagamentoOculos("");
+    setFormConsultaPaga(""); setFormConfirmacao("Pendente");
+    setFormComparecimento("Pendente"); setFormVenda("Pendente"); setFormResumo("");
+    setFormRescheduleDate(undefined); setFormRescheduleTime("09:00");
     setDialogOpen(true);
   };
 
@@ -386,27 +515,45 @@ export default function AppointmentsPage() {
     } catch { setFormDate(undefined); setFormTime("09:00"); }
     setFormValor(String(appt.valor));
     setFormPagamentoOculos(appt.forma_pagamento_oculos || appt.forma_pagamento || "");
+    setFormConsultaPaga(appt.consulta_paga === true ? "sim" : appt.consulta_paga === false ? "nao" : "");
+    setFormConfirmacao(appt.confirmacao || "Pendente");
+    setFormComparecimento(appt.comparecimento || "Pendente");
+    setFormVenda(appt.venda || "Pendente");
+    setFormResumo(appt.resumo || "");
+    setFormRescheduleDate(undefined);
+    setFormRescheduleTime(format(new Date(appt.scheduled_datetime), "HH:mm"));
     setDialogOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formDate || !formPagamentoOculos || !user) return;
+    if (editingAppt?.is_reschedule_snapshot) return;
     setSaving(true);
     const [h, m] = formTime.split(":").map(Number);
     const dt = new Date(formDate);
     dt.setHours(h, m, 0, 0);
 
     if (editingAppt) {
-      const { error } = await supabase.from("crm_appointments").update({
+      const payload: Record<string, unknown> = {
         nome: formNome, telefone: formTelefone, idade: formIdade,
         scheduled_datetime: dt.toISOString(),
         valor: parseFloat(formValor) || 0,
         forma_pagamento: formPagamentoOculos,
         forma_pagamento_oculos: formPagamentoOculos,
-      } as any).eq("id", editingAppt.id);
+        confirmacao: formConfirmacao,
+        comparecimento: formComparecimento,
+        resumo: formResumo,
+      };
+      if (!editingAppt.original_scheduled_datetime) {
+        payload.original_scheduled_datetime = editingAppt.scheduled_datetime;
+      }
+      const { error } = await supabase.from("crm_appointments").update(payload as any).eq("id", editingAppt.id);
       if (error) toast.error("Erro ao atualizar");
       else {
+        if (formConsultaPaga) {
+          await updateField(editingAppt.id, "consulta_paga", formConsultaPaga);
+        }
         toast.success("Agendamento atualizado");
         await logAppointmentHistory(
           editingAppt.id,
@@ -426,6 +573,7 @@ export default function AppointmentsPage() {
         canal_agendamento: "Loja",
         nome: formNome, telefone: formTelefone, idade: formIdade,
         previous_status: "manual",
+        original_scheduled_datetime: dt.toISOString(),
       } as any);
       if (error) toast.error("Erro ao criar agendamento");
       else toast.success("Agendamento criado");
@@ -573,6 +721,8 @@ export default function AppointmentsPage() {
                 const cpaga = appt.consulta_paga;
                 const rowColor = getAppointmentRowColor(appt);
                 const consultaPagaLocked = cpaga === true && !isAdmin;
+                const rescheduleNote = formatRescheduleNote(appt);
+                const isSnapshot = !!appt.is_reschedule_snapshot;
                 return (
                   <tr
                     key={appt.id}
@@ -580,15 +730,30 @@ export default function AppointmentsPage() {
                       "transition-colors",
                       rowColor,
                       appt.deleted_at && isAdmin ? "opacity-60" : "",
+                      isSnapshot && "border-dashed",
                     )}
                   >
-                    <td className="px-3 py-2 font-medium">{appt.nome || "—"}</td>
+                    <td className="px-3 py-2 font-medium">
+                      {isSnapshot && <span className="text-violet-400 text-[10px] block">↪ Reagendado</span>}
+                      {appt.nome || "—"}
+                      {rescheduleNote && !isSnapshot && (
+                        <span className="text-[10px] text-muted-foreground block">{rescheduleNote}</span>
+                      )}
+                      {isSnapshot && appt.rescheduled_to_datetime && (
+                        <span className="text-[10px] text-muted-foreground block">
+                          Nova data: {format(new Date(appt.rescheduled_to_datetime), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2">{appt.telefone || "—"}</td>
                     <td className="px-3 py-2">{appt.idade || "—"}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{dtFormatted}</td>
                     <td className="px-3 py-2">{getProfileName(appt.scheduled_by)}</td>
                     <td className="px-3 py-2">R$ {Number(appt.valor).toFixed(2)}</td>
                     <td className="px-3 py-2">
+                      {isSnapshot ? (
+                        <span className="text-xs">{cpaga === true ? "Sim" : cpaga === false ? "Não" : "—"}</span>
+                      ) : (
                       <Select
                         value={cpaga === true ? "sim" : cpaga === false ? "nao" : ""}
                         onValueChange={(v) => updateField(appt.id, "consulta_paga", v)}
@@ -600,30 +765,40 @@ export default function AppointmentsPage() {
                           <SelectItem value="nao">Não</SelectItem>
                         </SelectContent>
                       </Select>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-xs whitespace-nowrap">
                       {glassesPaymentLabel(appt)}
                     </td>
                     <td className="px-3 py-2">{appt.canal_agendamento}</td>
                     <td className="px-3 py-2">
+                      {isSnapshot ? appt.confirmacao : (
                       <Select value={appt.confirmacao} onValueChange={(v) => updateField(appt.id, "confirmacao", v)}>
                         <SelectTrigger className="h-8 text-xs w-[120px]"><SelectValue /></SelectTrigger>
                         <SelectContent>{CONFIRMACAO_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
                       </Select>
+                      )}
                     </td>
                     <td className="px-3 py-2">
+                      {isSnapshot ? appt.comparecimento : (
                       <Select value={appt.comparecimento} onValueChange={(v) => updateField(appt.id, "comparecimento", v)}>
                         <SelectTrigger className="h-8 text-xs w-[140px]"><SelectValue /></SelectTrigger>
                         <SelectContent>{COMPARECIMENTO_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
                       </Select>
+                      )}
                     </td>
                     <td className="px-3 py-2">
+                      {isSnapshot ? appt.venda : (
                       <Select value={appt.venda} onValueChange={(v) => updateField(appt.id, "venda", v)}>
                         <SelectTrigger className="h-8 text-xs w-[120px]"><SelectValue /></SelectTrigger>
                         <SelectContent>{VENDA_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
                       </Select>
+                      )}
                     </td>
                     <td className="px-3 py-2">
+                      {isSnapshot ? (
+                        <span className="text-xs">{appt.resumo || "—"}</span>
+                      ) : (
                       <input
                         type="text"
                         className="border rounded px-2 py-1 text-xs w-[150px] bg-background"
@@ -631,10 +806,11 @@ export default function AppointmentsPage() {
                         onBlur={(e) => { if (e.target.value !== appt.resumo) updateField(appt.id, "resumo", e.target.value); }}
                         placeholder="Observações..."
                       />
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex gap-1">
-                        {appt.venda !== "Vendido" && (
+                        {!isSnapshot && appt.venda !== "Vendido" && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -648,9 +824,11 @@ export default function AppointmentsPage() {
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(appt)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
+                        {!isSnapshot && (
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeleteId(appt.id)}>
                           <Trash2 className="h-3.5 w-3.5 text-destructive" />
                         </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -665,12 +843,53 @@ export default function AppointmentsPage() {
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className={cn(editingAppt && isAdmin ? "sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" : "sm:max-w-md")}>
+        <DialogContent className={cn(editingAppt ? "sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" : "sm:max-w-md")}>
           <DialogHeader>
-            <DialogTitle>{editingAppt ? "Editar Agendamento" : "Novo Agendamento"}</DialogTitle>
+            <DialogTitle>
+              {editingAppt?.is_reschedule_snapshot
+                ? "Histórico de reagendamento"
+                : editingAppt
+                  ? "Editar Agendamento"
+                  : "Novo Agendamento"}
+            </DialogTitle>
           </DialogHeader>
-          <div className={cn(editingAppt && isAdmin ? "flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden" : "")}>
-          <form onSubmit={handleSubmit} className={cn("space-y-3", editingAppt && isAdmin ? "flex-1 overflow-y-auto pr-0 md:pr-4" : "")}>
+          <div className={cn(editingAppt ? "flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden" : "")}>
+          <form onSubmit={handleSubmit} className={cn("space-y-3", editingAppt ? "flex-1 overflow-y-auto pr-0 md:pr-4 max-h-[70vh]" : "")}>
+            {editingAppt && formatRescheduleNote(editingAppt) && (
+              <div className={cn(
+                "rounded-md border px-3 py-2 text-xs",
+                editingAppt.is_reschedule_snapshot
+                  ? "border-violet-500/40 bg-violet-500/10 text-violet-200"
+                  : "border-primary/30 bg-primary/10 text-foreground",
+              )}>
+                {formatRescheduleNote(editingAppt)}
+              </div>
+            )}
+
+            {editingAppt?.is_reschedule_snapshot ? (
+              <div className="space-y-2 text-sm">
+                <p><span className="text-muted-foreground">Cliente:</span> {editingAppt.nome}</p>
+                <p><span className="text-muted-foreground">Telefone:</span> {editingAppt.telefone || "—"}</p>
+                <p><span className="text-muted-foreground">Data original:</span> {format(new Date(editingAppt.scheduled_datetime), "dd/MM/yyyy HH:mm", { locale: ptBR })}</p>
+                {editingAppt.rescheduled_to_datetime && (
+                  <p><span className="text-muted-foreground">Nova data:</span> {format(new Date(editingAppt.rescheduled_to_datetime), "dd/MM/yyyy HH:mm", { locale: ptBR })}</p>
+                )}
+                {editingAppt.snapshot_of_appointment_id && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const active = appointments.find((a) => a.id === editingAppt.snapshot_of_appointment_id);
+                      if (active) openEdit(active);
+                    }}
+                  >
+                    Abrir agendamento ativo
+                  </Button>
+                )}
+              </div>
+            ) : (
+            <>
             <div className="space-y-1.5">
               <Label>Nome <span className="text-destructive">*</span></Label>
               <Input value={formNome} onChange={e => setFormNome(e.target.value)} required />
@@ -716,13 +935,108 @@ export default function AppointmentsPage() {
                 <SelectContent>{FORMAS_PAGAMENTO_OCULOS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <Button type="submit" className="w-full" disabled={saving || !formDate || !formPagamentoOculos || !formNome}>
+
+            {editingAppt && (
+              <>
+                <div className="border-t pt-3 space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Atendimento</p>
+                  <div className="space-y-1.5">
+                    <Label>Consulta paga</Label>
+                    <Select
+                      value={formConsultaPaga}
+                      onValueChange={setFormConsultaPaga}
+                      disabled={editingAppt.consulta_paga === true && !isAdmin}
+                    >
+                      <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="sim">Sim</SelectItem>
+                        <SelectItem value="nao">Não</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Confirmação</Label>
+                      <Select value={formConfirmacao} onValueChange={setFormConfirmacao}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{CONFIRMACAO_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Comparecimento</Label>
+                      <Select value={formComparecimento} onValueChange={setFormComparecimento}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{COMPARECIMENTO_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Venda</Label>
+                    <Select value={formVenda} onValueChange={handleDialogVendaChange}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{VENDA_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Resumo</Label>
+                    <Textarea
+                      value={formResumo}
+                      onChange={(e) => setFormResumo(e.target.value)}
+                      rows={2}
+                      placeholder="Observações..."
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t pt-3 space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Reagendamento</p>
+                  <p className="text-xs text-muted-foreground">
+                    O lead permanece visível na data original apenas para administradores. Vendedores e gerentes verão somente a nova data.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Nova data</Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !formRescheduleDate && "text-muted-foreground")}>
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {formRescheduleDate ? format(formRescheduleDate, "dd/MM/yyyy") : "Selecionar"}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar mode="single" selected={formRescheduleDate} onSelect={setFormRescheduleDate} locale={ptBR} className="p-3 pointer-events-auto" />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Novo horário</Label>
+                      <Input type="time" value={formRescheduleTime} onChange={e => setFormRescheduleTime(e.target.value)} />
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full"
+                    disabled={!formRescheduleDate || rescheduling}
+                    onClick={handleReschedule}
+                  >
+                    {rescheduling ? "Reagendando..." : "Confirmar reagendamento"}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            <Button type="submit" className="w-full" disabled={saving || !formDate || !formPagamentoOculos || !formNome || !!editingAppt?.is_reschedule_snapshot}>
               {saving ? "Salvando..." : editingAppt ? "Atualizar" : "Criar Agendamento"}
             </Button>
-
+            </>
+            )}
           </form>
-          {editingAppt && isAdmin && (
+          {editingAppt && isAdmin && !editingAppt.is_reschedule_snapshot && (
             <AppointmentHistoryPanel appointmentId={editingAppt.id} profiles={profiles} />
+          )}
+          {editingAppt?.is_reschedule_snapshot && isAdmin && editingAppt.snapshot_of_appointment_id && (
+            <AppointmentHistoryPanel appointmentId={editingAppt.snapshot_of_appointment_id} profiles={profiles} />
           )}
           </div>
         </DialogContent>

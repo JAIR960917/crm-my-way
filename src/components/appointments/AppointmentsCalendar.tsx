@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { getAppointmentRowColor } from "@/lib/appointmentUtils";
+import { getAppointmentRowColor, formatRescheduleNote } from "@/lib/appointmentUtils";
 import {
   buildMonthGrid,
   buildWeekDays,
@@ -22,6 +22,10 @@ export type CalendarAppointment = {
   consulta_paga: boolean | null;
   consulta_paga_em?: string | null;
   created_at: string;
+  is_reschedule_snapshot?: boolean | null;
+  rescheduled_from_datetime?: string | null;
+  original_scheduled_datetime?: string | null;
+  rescheduled_to_datetime?: string | null;
 };
 
 type Props = {
@@ -58,6 +62,10 @@ function EventChip({
 }) {
   const dt = new Date(appt.scheduled_datetime);
   const rowColor = getAppointmentRowColor(appt as Parameters<typeof getAppointmentRowColor>[0]);
+  const note = formatRescheduleNote(appt);
+  const title = note
+    ? `${appt.nome} — ${format(dt, "HH:mm", { locale: ptBR })} · ${note}`
+    : `${appt.nome} — ${format(dt, "HH:mm", { locale: ptBR })}`;
   return (
     <button
       type="button"
@@ -66,10 +74,12 @@ function EventChip({
         "w-full text-left rounded px-1.5 py-0.5 truncate border text-[11px] leading-tight",
         rowColor || "bg-primary/15 border-primary/30 hover:bg-primary/25",
         compact ? "max-w-full" : "",
+        appt.is_reschedule_snapshot && "border-dashed",
       )}
-      title={`${appt.nome} — ${format(dt, "HH:mm", { locale: ptBR })}`}
+      title={title}
     >
       {!compact && <span className="font-medium">{format(dt, "HH:mm")} </span>}
+      {appt.is_reschedule_snapshot && <span className="opacity-80">↪ </span>}
       {appt.nome || "—"}
     </button>
   );

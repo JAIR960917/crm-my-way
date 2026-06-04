@@ -147,6 +147,7 @@ export type Database = {
           forma_pagamento_venda: string
           id: string
           idade: string
+          is_reschedule_snapshot: boolean
           lead_id: string | null
           nao_vendido_motivo: string | null
           nome: string
@@ -154,11 +155,15 @@ export type Database = {
           orcamento_produtos: string | null
           orcamento_produtos_itens: Json
           orcamento_valor: number | null
+          original_scheduled_datetime: string | null
           previous_status: string
           renovacao_id: string | null
+          rescheduled_from_datetime: string | null
+          rescheduled_to_datetime: string | null
           resumo: string | null
           scheduled_by: string
           scheduled_datetime: string
+          snapshot_of_appointment_id: string | null
           status: string
           telefone: string
           updated_at: string
@@ -187,6 +192,7 @@ export type Database = {
           forma_pagamento_venda?: string
           id?: string
           idade?: string
+          is_reschedule_snapshot?: boolean
           lead_id?: string | null
           nao_vendido_motivo?: string | null
           nome?: string
@@ -194,11 +200,15 @@ export type Database = {
           orcamento_produtos?: string | null
           orcamento_produtos_itens?: Json
           orcamento_valor?: number | null
+          original_scheduled_datetime?: string | null
           previous_status?: string
           renovacao_id?: string | null
+          rescheduled_from_datetime?: string | null
+          rescheduled_to_datetime?: string | null
           resumo?: string | null
           scheduled_by: string
           scheduled_datetime: string
+          snapshot_of_appointment_id?: string | null
           status?: string
           telefone?: string
           updated_at?: string
@@ -227,6 +237,7 @@ export type Database = {
           forma_pagamento_venda?: string
           id?: string
           idade?: string
+          is_reschedule_snapshot?: boolean
           lead_id?: string | null
           nao_vendido_motivo?: string | null
           nome?: string
@@ -234,11 +245,15 @@ export type Database = {
           orcamento_produtos?: string | null
           orcamento_produtos_itens?: Json
           orcamento_valor?: number | null
+          original_scheduled_datetime?: string | null
           previous_status?: string
           renovacao_id?: string | null
+          rescheduled_from_datetime?: string | null
+          rescheduled_to_datetime?: string | null
           resumo?: string | null
           scheduled_by?: string
           scheduled_datetime?: string
+          snapshot_of_appointment_id?: string | null
           status?: string
           telefone?: string
           updated_at?: string
