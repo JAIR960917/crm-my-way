@@ -88,6 +88,44 @@ export type Database = {
         }
         Relationships: []
       }
+      crm_appointment_history: {
+        Row: {
+          action: string
+          appointment_id: string
+          created_at: string
+          details: Json
+          id: string
+          summary: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          appointment_id: string
+          created_at?: string
+          details?: Json
+          id?: string
+          summary?: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          appointment_id?: string
+          created_at?: string
+          details?: Json
+          id?: string
+          summary?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "crm_appointment_history_appointment_id_fkey"
+            columns: ["appointment_id"]
+            isOneToOne: false
+            referencedRelation: "crm_appointments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       crm_appointments: {
         Row: {
           canal_agendamento: string
@@ -96,7 +134,12 @@ export type Database = {
           consulta_a_receber: string | null
           consulta_a_receber_updated_at: string | null
           consulta_paga: boolean | null
+          consulta_paga_em: string | null
+          consulta_paga_no_agendamento: boolean | null
+          consulta_paga_por: string | null
           created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
           fez_orcamento: boolean
           forma_pagamento: string
           forma_pagamento_consulta: string | null
@@ -131,7 +174,12 @@ export type Database = {
           consulta_a_receber?: string | null
           consulta_a_receber_updated_at?: string | null
           consulta_paga?: boolean | null
+          consulta_paga_em?: string | null
+          consulta_paga_no_agendamento?: boolean | null
+          consulta_paga_por?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           fez_orcamento?: boolean
           forma_pagamento?: string
           forma_pagamento_consulta?: string | null
@@ -166,7 +214,12 @@ export type Database = {
           consulta_a_receber?: string | null
           consulta_a_receber_updated_at?: string | null
           consulta_paga?: boolean | null
+          consulta_paga_em?: string | null
+          consulta_paga_no_agendamento?: boolean | null
+          consulta_paga_por?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           fez_orcamento?: boolean
           forma_pagamento?: string
           forma_pagamento_consulta?: string | null

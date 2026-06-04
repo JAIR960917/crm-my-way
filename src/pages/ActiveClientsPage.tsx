@@ -20,6 +20,7 @@ import { usePaginatedColumns } from "@/hooks/use-paginated-columns";
 import { useVisibleStatusKeys } from "@/hooks/use-visible-status-keys";
 import { logTransition } from "@/lib/transitionLogs";
 import { getRenovacaoExamTimestamp, sortKanbanByExamAndTratativa } from "@/lib/kanbanCardSort";
+import { resolveCanalFromLeadData } from "@/lib/appointmentUtils";
 
 type Renovacao = {
   id: string;
@@ -529,20 +530,33 @@ export default function ActiveClientsPage() {
     setScheduleOpen(true);
   };
 
-  const handleScheduleSubmit = async (schedData: { scheduled_datetime: string; valor: number; forma_pagamento: string; canal_agendamento: string }) => {
+  const handleScheduleSubmit = async (schedData: {
+    scheduled_datetime: string;
+    forma_pagamento: string;
+    forma_pagamento_oculos: string;
+    canal_agendamento: string;
+    consulta_paga: boolean;
+    consulta_paga_no_agendamento: boolean;
+  }) => {
     if (!schedulingItem || !user) return;
     setScheduleSaving(true);
     const d = (schedulingItem.data || {}) as Record<string, any>;
     const nome = String(d.nome || "Cliente");
     const telefone = String(d.telefone || "");
+    const nowIso = new Date().toISOString();
     const { error } = await supabase.from("crm_appointments").insert({
       lead_id: null,
       renovacao_id: schedulingItem.id,
       scheduled_by: user.id,
       scheduled_datetime: schedData.scheduled_datetime,
-      valor: schedData.valor,
+      valor: 0,
       forma_pagamento: schedData.forma_pagamento,
+      forma_pagamento_oculos: schedData.forma_pagamento_oculos,
       canal_agendamento: schedData.canal_agendamento,
+      consulta_paga: schedData.consulta_paga,
+      consulta_paga_no_agendamento: schedData.consulta_paga_no_agendamento,
+      consulta_paga_em: schedData.consulta_paga ? nowIso : null,
+      consulta_paga_por: schedData.consulta_paga ? user.id : null,
       previous_status: schedulingItem.status,
       nome,
       telefone,
@@ -1034,6 +1048,11 @@ export default function ActiveClientsPage() {
         onOpenChange={(open) => { setScheduleOpen(open); if (!open) setSchedulingItem(null); }}
         leadName={String((schedulingItem?.data as any)?.nome || "")}
         leadPhone={String((schedulingItem?.data as any)?.telefone || "")}
+        canalAgendamento={
+          schedulingItem
+            ? resolveCanalFromLeadData((schedulingItem.data || {}) as Record<string, unknown>)
+            : "Ligação Renovação"
+        }
         saving={scheduleSaving}
         onSubmit={handleScheduleSubmit}
       />

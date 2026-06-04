@@ -20,6 +20,7 @@ import { format, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { normalizeLeadData, resolveLeadIdentity } from "@/lib/leadIdentity";
+import { FORMAS_PAGAMENTO_OCULOS, logAppointmentHistory, resolveCanalFromForm } from "@/lib/appointmentUtils";
 
 type DateStatusRange = { max_years: number; status_key: string };
 type DateStatusConfig = { ranges: DateStatusRange[]; above_all: string; no_answer: string };
@@ -62,22 +63,13 @@ export default function NewLeadPage() {
   const [agDate, setAgDate] = useState(""); // yyyy-MM-dd
   const [agTime, setAgTime] = useState("09:00");
   const [agFormaPagamento, setAgFormaPagamento] = useState("");
-  const [agCanal, setAgCanal] = useState("");
+  const [agConsultaPaga, setAgConsultaPaga] = useState<"sim" | "nao" | "">("");
 
   // Duplicate phone detection
   const [duplicateInfo, setDuplicateInfo] = useState<
     | { leadId: string; ownerName: string; isMine: boolean }
     | null
   >(null);
-
-  const CANAIS_AGENDAMENTO = [
-    "Ligação Leads", "Ligação Renovação", "Loja", "Rede Social", "Ação Adam",
-    "Convênios", "PAP", "Reavaliação", "Recomendação", "Teste de Visão Online",
-    "Tráfego Pago", "Cortesia",
-  ];
-  const FORMAS_PAGAMENTO = [
-    "Dinheiro", "Cartão de Crédito", "Cartão de Débito", "PIX", "Convênio", "Boleto", "Cortesia",
-  ];
 
   useEffect(() => {
     const onLine = () => setIsOnline(true);
@@ -330,10 +322,23 @@ export default function NewLeadPage() {
       return;
     }
 
-    // Validate scheduling fields when "Sim"
+    if (!agendou) {
+      toast.error('Selecione se agendou a consulta (Sim ou Não).');
+      return;
+    }
+
     if (agendou === "sim") {
-      if (!agDate || !agTime || !agFormaPagamento || !agCanal) {
-        toast.error("Preencha todos os campos do agendamento.");
+      const canalAg = resolveCanalFromForm(fields, formData);
+      if (!agDate || !agTime || !agFormaPagamento) {
+        toast.error("Preencha data, horário e forma de pagamento do óculos.");
+        return;
+      }
+      if (!canalAg) {
+        toast.error("Preencha o canal de captação no início do formulário.");
+        return;
+      }
+      if (!agConsultaPaga) {
+        toast.error("Informe se a consulta foi paga no momento do agendamento.");
         return;
       }
     }
@@ -376,7 +381,9 @@ export default function NewLeadPage() {
 
     const { nome: leadName, telefone: leadPhone, idade: leadIdade } = resolveLeadIdentity(finalData, fields);
 
-    // Build appointment payload (if scheduling)
+    const canalAgendamento = agendou === "sim" ? resolveCanalFromForm(fields, formData) : "";
+    const consultaPagaNoAgendamento = agendou === "sim" && agConsultaPaga === "sim";
+
     const apptPayload: (OfflineAppointmentPayload & { idade?: string }) | undefined = agendou === "sim" ? {
       scheduled_datetime: (() => {
         const [y, mo, d] = agDate.split("-").map(Number);
@@ -389,7 +396,10 @@ export default function NewLeadPage() {
       idade: leadIdade,
       valor: 0,
       forma_pagamento: agFormaPagamento,
-      canal_agendamento: agCanal,
+      forma_pagamento_oculos: agFormaPagamento,
+      canal_agendamento: canalAgendamento,
+      consulta_paga: consultaPagaNoAgendamento,
+      consulta_paga_no_agendamento: consultaPagaNoAgendamento,
       resumo: observacao.trim(),
       previous_status: resolvedStatus,
     } : undefined;
@@ -416,7 +426,7 @@ export default function NewLeadPage() {
       setFormData({});
       setObservacao("");
       setAgendou("");
-      setAgDate(""); setAgTime("09:00"); setAgFormaPagamento(""); setAgCanal("");
+      setAgDate(""); setAgTime("09:00"); setAgFormaPagamento(""); setAgConsultaPaga("");
       setStep(0);
       navigate(apptPayload ? "/agendamentos" : "/");
       return;
@@ -482,7 +492,8 @@ export default function NewLeadPage() {
 
     // Create appointment online
     if (apptPayload && finalLeadId) {
-      const { error: aErr } = await supabase.from("crm_appointments").insert({
+      const nowIso = new Date().toISOString();
+      const { data: insertedAppt, error: aErr } = await supabase.from("crm_appointments").insert({
         lead_id: finalLeadId,
         scheduled_by: apptPayload.scheduled_by,
         scheduled_datetime: apptPayload.scheduled_datetime,
@@ -491,14 +502,28 @@ export default function NewLeadPage() {
         idade: (apptPayload as any).idade || "",
         valor: apptPayload.valor,
         forma_pagamento: apptPayload.forma_pagamento,
+        forma_pagamento_oculos: apptPayload.forma_pagamento_oculos,
         canal_agendamento: apptPayload.canal_agendamento,
+        consulta_paga: apptPayload.consulta_paga ?? false,
+        consulta_paga_no_agendamento: apptPayload.consulta_paga_no_agendamento ?? false,
+        consulta_paga_em: apptPayload.consulta_paga ? nowIso : null,
+        consulta_paga_por: apptPayload.consulta_paga ? user!.id : null,
         resumo: apptPayload.resumo || "",
         previous_status: apptPayload.previous_status,
-      });
+      }).select("id").single();
       if (aErr) {
         toast.warning("Lead salvo, mas erro ao agendar: " + aErr.message);
       } else {
         toast.success("Agendamento criado!");
+        if (insertedAppt?.id) {
+          const dtLabel = format(new Date(apptPayload.scheduled_datetime), "dd/MM/yyyy", { locale: ptBR });
+          await logAppointmentHistory(
+            insertedAppt.id,
+            user!.id,
+            "created",
+            `${currentUserName || "Vendedor"} agendou consulta para ${dtLabel}`,
+          );
+        }
       }
     }
 
@@ -506,7 +531,7 @@ export default function NewLeadPage() {
     setFormData({});
     setObservacao("");
     setAgendou("");
-    setAgDate(""); setAgTime("09:00"); setAgFormaPagamento(""); setAgCanal("");
+    setAgDate(""); setAgTime("09:00"); setAgFormaPagamento(""); setAgConsultaPaga("");
     setStep(0);
     navigate(apptPayload ? "/agendamentos" : "/");
   };
@@ -771,11 +796,11 @@ export default function NewLeadPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Forma de Pagamento <span className="text-destructive">*</span></Label>
+                  <Label>Forma de pagamento do Óculos <span className="text-destructive">*</span></Label>
                   <Select value={agFormaPagamento} onValueChange={setAgFormaPagamento}>
                     <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                     <SelectContent>
-                      {FORMAS_PAGAMENTO.map((fp) => (
+                      {FORMAS_PAGAMENTO_OCULOS.map((fp) => (
                         <SelectItem key={fp} value={fp}>{fp}</SelectItem>
                       ))}
                     </SelectContent>
@@ -783,13 +808,12 @@ export default function NewLeadPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Canal de Agendamento <span className="text-destructive">*</span></Label>
-                  <Select value={agCanal} onValueChange={setAgCanal}>
+                  <Label>Consulta paga no momento do agendamento? <span className="text-destructive">*</span></Label>
+                  <Select value={agConsultaPaga} onValueChange={(v) => setAgConsultaPaga(v as "sim" | "nao")}>
                     <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                     <SelectContent>
-                      {CANAIS_AGENDAMENTO.map((c) => (
-                        <SelectItem key={c} value={c}>{c}</SelectItem>
-                      ))}
+                      <SelectItem value="sim">Sim</SelectItem>
+                      <SelectItem value="nao">Não</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

@@ -23,7 +23,10 @@ export type OfflineAppointmentPayload = {
   idade?: string;
   valor: number;
   forma_pagamento: string;
+  forma_pagamento_oculos?: string;
   canal_agendamento: string;
+  consulta_paga?: boolean;
+  consulta_paga_no_agendamento?: boolean;
   resumo?: string;
   previous_status: string;
 };
@@ -98,6 +101,7 @@ export async function syncOfflineQueue(): Promise<string[]> {
       // Create attached appointment if any
       if (lead.pending_appointment) {
         const ap = lead.pending_appointment;
+        const nowIso = new Date().toISOString();
         await supabase.from("crm_appointments").insert({
           lead_id: inserted.id,
           scheduled_by: ap.scheduled_by,
@@ -107,7 +111,12 @@ export async function syncOfflineQueue(): Promise<string[]> {
           idade: ap.idade || identity.idade || "",
           valor: ap.valor,
           forma_pagamento: ap.forma_pagamento,
+          forma_pagamento_oculos: ap.forma_pagamento_oculos || ap.forma_pagamento,
           canal_agendamento: ap.canal_agendamento,
+          consulta_paga: ap.consulta_paga ?? false,
+          consulta_paga_no_agendamento: ap.consulta_paga_no_agendamento ?? false,
+          consulta_paga_em: ap.consulta_paga ? nowIso : null,
+          consulta_paga_por: ap.consulta_paga ? ap.scheduled_by : null,
           resumo: ap.resumo || "",
           previous_status: ap.previous_status,
         });
@@ -115,6 +124,7 @@ export async function syncOfflineQueue(): Promise<string[]> {
       // Resolve any standalone offline appointments referencing this temp lead id
       const linked = apptQueue.filter((a) => a.offline_lead_temp_id === lead.id);
       for (const a of linked) {
+        const nowIso = new Date().toISOString();
         const { error: aErr } = await supabase.from("crm_appointments").insert({
           lead_id: inserted.id,
           scheduled_by: a.scheduled_by,
@@ -124,7 +134,12 @@ export async function syncOfflineQueue(): Promise<string[]> {
           idade: a.idade || "",
           valor: a.valor,
           forma_pagamento: a.forma_pagamento,
+          forma_pagamento_oculos: a.forma_pagamento_oculos || a.forma_pagamento,
           canal_agendamento: a.canal_agendamento,
+          consulta_paga: a.consulta_paga ?? false,
+          consulta_paga_no_agendamento: a.consulta_paga_no_agendamento ?? false,
+          consulta_paga_em: a.consulta_paga ? nowIso : null,
+          consulta_paga_por: a.consulta_paga ? a.scheduled_by : null,
           resumo: a.resumo || "",
           previous_status: a.previous_status,
         });
@@ -140,6 +155,7 @@ export async function syncOfflineQueue(): Promise<string[]> {
   const remaining = getOfflineAppointmentQueue();
   for (const a of remaining) {
     if (!a.lead_id) continue;
+    const nowIso = new Date().toISOString();
     const { error } = await supabase.from("crm_appointments").insert({
       lead_id: a.lead_id,
       scheduled_by: a.scheduled_by,
@@ -149,7 +165,12 @@ export async function syncOfflineQueue(): Promise<string[]> {
       idade: a.idade || "",
       valor: a.valor,
       forma_pagamento: a.forma_pagamento,
+      forma_pagamento_oculos: a.forma_pagamento_oculos || a.forma_pagamento,
       canal_agendamento: a.canal_agendamento,
+      consulta_paga: a.consulta_paga ?? false,
+      consulta_paga_no_agendamento: a.consulta_paga_no_agendamento ?? false,
+      consulta_paga_em: a.consulta_paga ? nowIso : null,
+      consulta_paga_por: a.consulta_paga ? a.scheduled_by : null,
       resumo: a.resumo || "",
       previous_status: a.previous_status,
     });

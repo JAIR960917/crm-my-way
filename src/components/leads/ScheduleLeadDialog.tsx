@@ -5,70 +5,61 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CalendarIcon, Clock } from "lucide-react";
-
-const CANAIS_AGENDAMENTO = [
-  "Ligação Leads",
-  "Ligação Renovação",
-  "Loja",
-  "Rede Social",
-  "Ação Adam",
-  "Convênios",
-  "PAP",
-  "Reavaliação",
-  "Recomendação",
-  "Teste de Visão Online",
-  "Tráfego Pago",
-  "Cortesia",
-];
-
-const FORMAS_PAGAMENTO = [
-  "Dinheiro",
-  "Cartão de Crédito",
-  "Cartão de Débito",
-  "PIX",
-  "Convênio",
-  "Boleto",
-  "Cortesia",
-];
+import { FORMAS_PAGAMENTO_OCULOS } from "@/lib/appointmentUtils";
 
 type Props = {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   leadName: string;
   leadPhone: string;
+  canalAgendamento: string;
   saving: boolean;
   onSubmit: (data: {
     scheduled_datetime: string;
     forma_pagamento: string;
+    forma_pagamento_oculos: string;
     canal_agendamento: string;
+    consulta_paga: boolean;
+    consulta_paga_no_agendamento: boolean;
   }) => void;
 };
 
-export default function ScheduleLeadDialog({ open, onOpenChange, leadName, leadPhone, saving, onSubmit }: Props) {
+export default function ScheduleLeadDialog({
+  open,
+  onOpenChange,
+  leadName,
+  leadPhone,
+  canalAgendamento,
+  saving,
+  onSubmit,
+}: Props) {
   const [dateStr, setDateStr] = useState("");
   const [time, setTime] = useState("09:00");
   const [formaPagamento, setFormaPagamento] = useState("");
-  const [canal, setCanal] = useState("");
+  const [consultaPaga, setConsultaPaga] = useState<"sim" | "nao" | "">("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!dateStr || !formaPagamento || !canal) return;
+    if (!dateStr || !formaPagamento || !consultaPaga || !canalAgendamento) return;
 
     const [y, mo, d] = dateStr.split("-").map(Number);
     const [h, m] = time.split(":").map(Number);
     const dt = new Date(y, mo - 1, d, h, m, 0, 0);
+    const paga = consultaPaga === "sim";
 
     onSubmit({
       scheduled_datetime: dt.toISOString(),
       forma_pagamento: formaPagamento,
-      canal_agendamento: canal,
+      forma_pagamento_oculos: formaPagamento,
+      canal_agendamento: canalAgendamento,
+      consulta_paga: paga,
+      consulta_paga_no_agendamento: paga,
     });
 
-    // Reset
     setDateStr("");
     setTime("09:00");
     setFormaPagamento("");
-    setCanal("");
+    setConsultaPaga("");
   };
 
   return (
@@ -81,6 +72,9 @@ export default function ScheduleLeadDialog({ open, onOpenChange, leadName, leadP
           <div className="rounded-lg border bg-muted/30 p-3 space-y-1">
             <p className="text-sm"><span className="text-muted-foreground">Cliente:</span> <span className="font-medium">{leadName}</span></p>
             {leadPhone && <p className="text-sm"><span className="text-muted-foreground">Telefone:</span> <span className="font-medium">{leadPhone}</span></p>}
+            {canalAgendamento && (
+              <p className="text-sm"><span className="text-muted-foreground">Canal:</span> <span className="font-medium">{canalAgendamento}</span></p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -108,11 +102,11 @@ export default function ScheduleLeadDialog({ open, onOpenChange, leadName, leadP
           </div>
 
           <div className="space-y-2">
-            <Label>Forma de Pagamento <span className="text-destructive">*</span></Label>
+            <Label>Forma de pagamento do Óculos <span className="text-destructive">*</span></Label>
             <Select value={formaPagamento} onValueChange={setFormaPagamento} required>
               <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
-                {FORMAS_PAGAMENTO.map((fp) => (
+                {FORMAS_PAGAMENTO_OCULOS.map((fp) => (
                   <SelectItem key={fp} value={fp}>{fp}</SelectItem>
                 ))}
               </SelectContent>
@@ -120,18 +114,17 @@ export default function ScheduleLeadDialog({ open, onOpenChange, leadName, leadP
           </div>
 
           <div className="space-y-2">
-            <Label>Canal de Agendamento <span className="text-destructive">*</span></Label>
-            <Select value={canal} onValueChange={setCanal} required>
+            <Label>Consulta paga no agendamento? <span className="text-destructive">*</span></Label>
+            <Select value={consultaPaga} onValueChange={(v) => setConsultaPaga(v as "sim" | "nao")} required>
               <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
-                {CANAIS_AGENDAMENTO.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
+                <SelectItem value="sim">Sim</SelectItem>
+                <SelectItem value="nao">Não</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          <Button type="submit" className="w-full" disabled={saving || !dateStr || !formaPagamento || !canal}>
+          <Button type="submit" className="w-full" disabled={saving || !dateStr || !formaPagamento || !consultaPaga || !canalAgendamento}>
             {saving ? "Agendando..." : "Confirmar Agendamento"}
           </Button>
         </form>

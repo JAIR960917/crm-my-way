@@ -7,31 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Phone, PhoneOff, CalendarCheck, CalendarX, CalendarIcon, Clock, Check } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-
-const CANAIS_AGENDAMENTO = [
-  "Ligação Leads",
-  "Ligação Renovação",
-  "Loja",
-  "Rede Social",
-  "Ação Adam",
-  "Convênios",
-  "PAP",
-  "Reavaliação",
-  "Recomendação",
-  "Teste de Visão Online",
-  "Tráfego Pago",
-  "Cortesia",
-];
-
-const FORMAS_PAGAMENTO = [
-  "Dinheiro",
-  "Cartão de Crédito",
-  "Cartão de Débito",
-  "PIX",
-  "Convênio",
-  "Boleto",
-  "Cortesia",
-];
+import {
+  FORMAS_PAGAMENTO_OCULOS,
+  resolveCanalFromLeadData,
+} from "@/lib/appointmentUtils";
 
 type Props = {
   leadId: string;
@@ -53,8 +32,18 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
   const [dateStr, setDateStr] = useState("");
   const [time, setTime] = useState("09:00");
   const [formaPagamento, setFormaPagamento] = useState("");
-  const [canal, setCanal] = useState("Ligação Leads");
+  const [consultaPaga, setConsultaPaga] = useState<"sim" | "nao" | "">("");
+  const [canalAgendamento, setCanalAgendamento] = useState("Ligação Leads");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!leadId) return;
+    supabase.from("crm_leads").select("data").eq("id", leadId).maybeSingle().then(({ data }) => {
+      if (data?.data) {
+        setCanalAgendamento(resolveCanalFromLeadData(data.data as Record<string, unknown>));
+      }
+    });
+  }, [leadId]);
 
   const isDirty = atendeu !== null || tratativa.trim() !== "" || tentativasObs.trim() !== "" || marcou !== null || dateStr !== "" || formaPagamento !== "";
   useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
@@ -67,7 +56,7 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
     setDateStr("");
     setTime("09:00");
     setFormaPagamento("");
-    setCanal("Ligação Leads");
+    setConsultaPaga("");
     onDirtyChange?.(false);
   };
 
@@ -104,7 +93,7 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
     }
 
     if (atendeu === "sim" && marcou === "sim") {
-      if (!dateStr || !time || !formaPagamento || !canal) {
+      if (!dateStr || !time || !formaPagamento || !consultaPaga) {
         toast.error("Preencha todos os campos do agendamento");
         return;
       }
@@ -146,13 +135,20 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
         const [h, m] = time.split(":").map(Number);
         const dt = new Date(y, mo - 1, d, h, m, 0, 0);
 
+        const nowIso = new Date().toISOString();
+        const pagaNoAgendamento = consultaPaga === "sim";
         const { error: apptErr } = await supabase.from("crm_appointments").insert({
           lead_id: leadId,
           scheduled_by: userId,
           scheduled_datetime: dt.toISOString(),
           valor: 0,
           forma_pagamento: formaPagamento,
-          canal_agendamento: canal,
+          forma_pagamento_oculos: formaPagamento,
+          canal_agendamento: canalAgendamento,
+          consulta_paga: pagaNoAgendamento,
+          consulta_paga_no_agendamento: pagaNoAgendamento,
+          consulta_paga_em: pagaNoAgendamento ? nowIso : null,
+          consulta_paga_por: pagaNoAgendamento ? userId : null,
           previous_status: leadStatus,
           nome: leadSnapshot.nome,
           telefone: leadSnapshot.telefone,
@@ -300,11 +296,11 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
           </div>
 
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Forma de Pagamento <span className="text-destructive">*</span></Label>
+            <Label className="text-xs text-muted-foreground">Forma de pagamento do Óculos <span className="text-destructive">*</span></Label>
             <Select value={formaPagamento} onValueChange={setFormaPagamento}>
               <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
-                {FORMAS_PAGAMENTO.map((fp) => (
+                {FORMAS_PAGAMENTO_OCULOS.map((fp) => (
                   <SelectItem key={fp} value={fp}>{fp}</SelectItem>
                 ))}
               </SelectContent>
@@ -312,13 +308,12 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
           </div>
 
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Canal de Agendamento <span className="text-destructive">*</span></Label>
-            <Select value={canal} onValueChange={setCanal}>
+            <Label className="text-xs text-muted-foreground">Consulta paga no agendamento? <span className="text-destructive">*</span></Label>
+            <Select value={consultaPaga} onValueChange={(v) => setConsultaPaga(v as "sim" | "nao")}>
               <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
-                {CANAIS_AGENDAMENTO.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
+                <SelectItem value="sim">Sim</SelectItem>
+                <SelectItem value="nao">Não</SelectItem>
               </SelectContent>
             </Select>
           </div>

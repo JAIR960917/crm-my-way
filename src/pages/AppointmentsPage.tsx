@@ -19,6 +19,13 @@ import { ptBR } from "date-fns/locale";
 import { CalendarCheck, Plus, Pencil, Trash2, CalendarIcon, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isRealtimeEnabled } from "@/lib/runtime-config";
+import {
+  FORMAS_PAGAMENTO_OCULOS,
+  getAppointmentRowColor,
+  glassesPaymentLabel,
+  logAppointmentHistory,
+} from "@/lib/appointmentUtils";
+import AppointmentHistoryPanel from "@/components/appointments/AppointmentHistoryPanel";
 
 type ProdutoItem = { nome: string; valor: string };
 
@@ -34,6 +41,11 @@ type Appointment = {
   consulta_a_receber: string | null;
   consulta_a_receber_updated_at: string | null;
   consulta_paga: boolean | null;
+  consulta_paga_em: string | null;
+  consulta_paga_por: string | null;
+  created_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
   canal_agendamento: string;
   confirmacao: string;
   comparecimento: string;
@@ -58,35 +70,9 @@ type Profile = { user_id: string; full_name: string };
 const CONFIRMACAO_OPTIONS = ["Pendente", "Confirmado", "Cancelado"];
 const COMPARECIMENTO_OPTIONS = ["Pendente", "Compareceu", "Não Compareceu"];
 const VENDA_OPTIONS = ["Pendente", "Vendido", "Gerou Orçamento", "Não Gerou Orçamento", "Laudo", "Doença no Olho"];
-const FORMA_PAGAMENTO_OCULOS_OPTIONS = ["Cartão", "Pix", "Crediário Cora"];
-
-const FORMA_PAGAMENTO_CONSULTA_OPTIONS = ["PIX", "Cartão", "Dinheiro"];
-
-const RECEBIMENTO_CONSULTA_OPTIONS: { value: string; label: string }[] = [
-  { value: "consulta_paga", label: "Consulta paga no dia do agendamento" },
-  { value: "pagamento_no_dia", label: "Consulta paga no dia do exame" },
-];
-
-const CANAIS = [
-  "Ligação Leads", "Ligação Renovação", "Loja", "Rede Social", "Ação Adam",
-  "Convênios", "PAP", "Reavaliação", "Recomendação", "Teste de Visão Online",
-  "Tráfego Pago", "Cortesia",
-];
-const FORMAS_PAGAMENTO = [
+const FORMAS_PAGAMENTO_VENDA = [
   "Dinheiro", "Cartão de Crédito", "Cartão de Débito", "PIX", "Convênio", "Boleto", "Cortesia",
 ];
-
-const isSameDay = (a: string | null | undefined, b: string | null | undefined) => {
-  if (!a || !b) return false;
-  try {
-    const da = new Date(a), db = new Date(b);
-    return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
-  } catch { return false; }
-};
-
-const recebimentoLabel = (v: string | null | undefined) =>
-  RECEBIMENTO_CONSULTA_OPTIONS.find(o => o.value === v)?.label || "—";
-
 
 type Company = { id: string; name: string };
 type ProfileFull = { user_id: string; full_name: string; company_id: string | null };
@@ -111,8 +97,7 @@ export default function AppointmentsPage() {
   const [formDate, setFormDate] = useState<Date | undefined>();
   const [formTime, setFormTime] = useState("09:00");
   const [formValor, setFormValor] = useState("");
-  const [formPagamentoConsulta, setFormPagamentoConsulta] = useState("");
-  const [formCanal, setFormCanal] = useState("");
+  const [formPagamentoOculos, setFormPagamentoOculos] = useState("");
 
   // Delete
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -144,6 +129,9 @@ export default function AppointmentsPage() {
   const fetchAll = async () => {
     setLoading(true);
     let query = supabase.from("crm_appointments").select("*").eq("status", "agendado").order("scheduled_datetime");
+    if (!isAdmin) {
+      query = query.is("deleted_at", null);
+    }
     if (filterDate) {
       const dayStart = new Date(filterDate);
       dayStart.setHours(0, 0, 0, 0);
@@ -197,6 +185,53 @@ export default function AppointmentsPage() {
   const getProfileName = (userId: string) => profiles.find(p => p.user_id === userId)?.full_name || "—";
 
   const updateField = async (id: string, field: string, value: string) => {
+    const apptBefore = appointments.find((a) => a.id === id);
+    if (!apptBefore || !user) return;
+
+    if (field === "consulta_paga") {
+      if (!isAdmin && apptBefore.consulta_paga === true) {
+        toast.error("Somente administradores podem alterar consulta paga após marcada.");
+        return;
+      }
+      if (value === "sim" && apptBefore.consulta_paga !== true) {
+        const nowIso = new Date().toISOString();
+        const payload = {
+          consulta_paga: true,
+          consulta_paga_em: nowIso,
+          consulta_paga_por: user.id,
+        };
+        const { error } = await supabase.from("crm_appointments").update(payload).eq("id", id);
+        if (error) { toast.error("Erro ao atualizar"); return; }
+        setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, ...payload } : a)));
+        await logAppointmentHistory(
+          id,
+          user.id,
+          "consulta_paga",
+          `${getProfileName(user.id)} marcou consulta paga como Sim`,
+        );
+        return;
+      }
+      if (value === "nao") {
+        if (!isAdmin && apptBefore.consulta_paga === true) {
+          toast.error("Somente administradores podem alterar consulta paga após marcada.");
+          return;
+        }
+        const payload = {
+          consulta_paga: false,
+          consulta_paga_em: null,
+          consulta_paga_por: null,
+        };
+        const { error } = await supabase.from("crm_appointments").update(payload).eq("id", id);
+        if (error) { toast.error("Erro ao atualizar"); return; }
+        setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, ...payload } : a)));
+        if (isAdmin) {
+          await logAppointmentHistory(id, user.id, "consulta_paga", `${getProfileName(user.id)} marcou consulta paga como Não`);
+        }
+        return;
+      }
+      return;
+    }
+
     if (field === "venda" && (value === "Gerou Orçamento" || value === "Não Gerou Orçamento")) {
       const appt = appointments.find(a => a.id === id);
       setNvApptId(id);
@@ -209,16 +244,19 @@ export default function AppointmentsPage() {
       setNvDialogOpen(true);
       return;
     }
-    const payload: any = { [field]: value };
-    if (field === "consulta_a_receber") {
-      payload.consulta_a_receber_updated_at = new Date().toISOString();
-    }
-    if (field === "consulta_paga") {
-      payload.consulta_paga = value === "sim" ? true : value === "nao" ? false : null;
-    }
+    const payload: Record<string, unknown> = { [field]: value };
     const { error } = await supabase.from("crm_appointments").update(payload).eq("id", id);
     if (error) toast.error("Erro ao atualizar");
-    setAppointments(prev => prev.map(a => a.id === id ? { ...a, ...payload } : a));
+    else {
+      setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, ...payload } : a)));
+      await logAppointmentHistory(
+        id,
+        user.id,
+        "field_update",
+        `${getProfileName(user.id)} alterou ${field}`,
+        { field, value },
+      );
+    }
     if (field === "venda" && value === "Vendido") {
       const appt = appointments.find(a => a.id === id);
       if (appt?.lead_id) {
@@ -269,9 +307,22 @@ export default function AppointmentsPage() {
     } else if (returnAppt.lead_id) {
       await supabase.from("crm_leads").update({ status: returnAppt.previous_status || "novo", scheduled_date: null } as any).eq("id", returnAppt.lead_id);
     }
-    const { error } = await supabase.from("crm_appointments").delete().eq("id", returnId);
+    const { error } = await supabase.from("crm_appointments").update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: user?.id || null,
+    }).eq("id", returnId);
     if (error) toast.error("Erro ao retornar");
-    else toast.success(isFromRenovacao ? "Cliente retornado para Renovações" : "Lead retornado para a tela de Leads");
+    else {
+      if (user) {
+        await logAppointmentHistory(
+          returnId,
+          user.id,
+          "returned",
+          `${getProfileName(user.id)} retornou o lead à coluna anterior`,
+        );
+      }
+      toast.success(isFromRenovacao ? "Cliente retornado para Renovações" : "Lead retornado para a tela de Leads");
+    }
     setReturning(false);
     setReturnId(null);
     fetchAll();
@@ -301,7 +352,7 @@ export default function AppointmentsPage() {
     setEditingAppt(null);
     setFormNome(""); setFormTelefone(""); setFormIdade("");
     setFormDate(undefined); setFormTime("09:00");
-    setFormValor(""); setFormPagamentoConsulta(""); setFormCanal("");
+    setFormValor(""); setFormPagamentoOculos("");
     setDialogOpen(true);
   };
 
@@ -314,14 +365,13 @@ export default function AppointmentsPage() {
       setFormTime(format(dt, "HH:mm"));
     } catch { setFormDate(undefined); setFormTime("09:00"); }
     setFormValor(String(appt.valor));
-    setFormPagamentoConsulta(appt.forma_pagamento_consulta || "");
-    setFormCanal(appt.canal_agendamento);
+    setFormPagamentoOculos(appt.forma_pagamento_oculos || appt.forma_pagamento || "");
     setDialogOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formDate || !formPagamentoConsulta || !formCanal || !user) return;
+    if (!formDate || !formPagamentoOculos || !user) return;
     setSaving(true);
     const [h, m] = formTime.split(":").map(Number);
     const dt = new Date(formDate);
@@ -332,24 +382,32 @@ export default function AppointmentsPage() {
         nome: formNome, telefone: formTelefone, idade: formIdade,
         scheduled_datetime: dt.toISOString(),
         valor: parseFloat(formValor) || 0,
-        forma_pagamento_consulta: formPagamentoConsulta,
-        canal_agendamento: formCanal,
+        forma_pagamento: formPagamentoOculos,
+        forma_pagamento_oculos: formPagamentoOculos,
       } as any).eq("id", editingAppt.id);
       if (error) toast.error("Erro ao atualizar");
-      else toast.success("Agendamento atualizado");
+      else {
+        toast.success("Agendamento atualizado");
+        await logAppointmentHistory(
+          editingAppt.id,
+          user.id,
+          "updated",
+          `${getProfileName(user.id)} editou o agendamento de ${formNome}`,
+        );
+      }
     } else {
       const { error } = await supabase.from("crm_appointments").insert({
         lead_id: null,
         scheduled_by: user.id,
         scheduled_datetime: dt.toISOString(),
         valor: parseFloat(formValor) || 0,
-        forma_pagamento_consulta: formPagamentoConsulta,
-        canal_agendamento: formCanal,
+        forma_pagamento: formPagamentoOculos,
+        forma_pagamento_oculos: formPagamentoOculos,
+        canal_agendamento: "Loja",
         nome: formNome, telefone: formTelefone, idade: formIdade,
         previous_status: "manual",
       } as any);
       if (error) toast.error("Erro ao criar agendamento");
-
       else toast.success("Agendamento criado");
     }
     setSaving(false);
@@ -364,9 +422,22 @@ export default function AppointmentsPage() {
     if (appt && appt.lead_id) {
       await supabase.from("crm_leads").update({ status: appt.previous_status } as any).eq("id", appt.lead_id);
     }
-    const { error } = await supabase.from("crm_appointments").delete().eq("id", deleteId);
+    const { error } = await supabase.from("crm_appointments").update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: user?.id || null,
+    }).eq("id", deleteId);
     if (error) toast.error("Erro ao excluir");
-    else toast.success("Agendamento excluído");
+    else {
+      if (user) {
+        await logAppointmentHistory(
+          deleteId,
+          user.id,
+          "deleted",
+          `${getProfileName(user.id)} excluiu o agendamento de ${appt?.nome || "lead"}`,
+        );
+      }
+      toast.success(isAdmin ? "Agendamento marcado como excluído" : "Agendamento removido da sua lista");
+    }
     setDeleteId(null);
     fetchAll();
   };
@@ -432,14 +503,12 @@ export default function AppointmentsPage() {
                 <th className="text-left px-3 py-2.5 font-medium">Horário</th>
                 <th className="text-left px-3 py-2.5 font-medium">Agendado por</th>
                 <th className="text-left px-3 py-2.5 font-medium">Valor</th>
-                <th className="text-left px-3 py-2.5 font-medium">Forma de pagamento da consulta</th>
-                <th className="text-left px-3 py-2.5 font-medium">Recebimento da consulta</th>
                 <th className="text-left px-3 py-2.5 font-medium">Consulta paga</th>
+                <th className="text-left px-3 py-2.5 font-medium">Forma de pagamento do Óculos</th>
                 <th className="text-left px-3 py-2.5 font-medium">Canal de Agendamento</th>
                 <th className="text-left px-3 py-2.5 font-medium">Confirmação</th>
                 <th className="text-left px-3 py-2.5 font-medium">Comparecimento</th>
                 <th className="text-left px-3 py-2.5 font-medium">Venda</th>
-                <th className="text-left px-3 py-2.5 font-medium">Forma de Pagamento do Óculos</th>
                 <th className="text-left px-3 py-2.5 font-medium">Resumo</th>
                 <th className="text-left px-3 py-2.5 font-medium">Ações</th>
               </tr>
@@ -448,19 +517,18 @@ export default function AppointmentsPage() {
               {filteredAppointments.map((appt) => {
                 let dtFormatted = "—";
                 try { dtFormatted = format(new Date(appt.scheduled_datetime), "dd/MM/yyyy HH:mm", { locale: ptBR }); } catch {}
-                const fpc = appt.forma_pagamento_consulta;
-                const car = appt.consulta_a_receber;
                 const cpaga = appt.consulta_paga;
-                const carChangedSameDay = isSameDay(appt.consulta_a_receber_updated_at, appt.scheduled_datetime);
-                let rowColor = "";
-                if (cpaga === false) {
-                  rowColor = "bg-red-700/30 hover:bg-red-700/40";
-                } else if (cpaga === true) {
-                  if (car === "pagamento_no_dia") rowColor = "bg-cyan-600/30 hover:bg-cyan-600/40";
-                  else rowColor = "bg-green-700/40 hover:bg-green-700/50";
-                }
+                const rowColor = getAppointmentRowColor(appt);
+                const consultaPagaLocked = cpaga === true && !isAdmin;
                 return (
-                  <tr key={appt.id} className={cn("transition-colors", rowColor || "hover:bg-muted/30")}>
+                  <tr
+                    key={appt.id}
+                    className={cn(
+                      "transition-colors",
+                      rowColor,
+                      appt.deleted_at && isAdmin ? "opacity-60" : "",
+                    )}
+                  >
                     <td className="px-3 py-2 font-medium">{appt.nome || "—"}</td>
                     <td className="px-3 py-2">{appt.telefone || "—"}</td>
                     <td className="px-3 py-2">{appt.idade || "—"}</td>
@@ -468,25 +536,20 @@ export default function AppointmentsPage() {
                     <td className="px-3 py-2">{getProfileName(appt.scheduled_by)}</td>
                     <td className="px-3 py-2">R$ {Number(appt.valor).toFixed(2)}</td>
                     <td className="px-3 py-2">
-                      <Select value={fpc || ""} onValueChange={(v) => updateField(appt.id, "forma_pagamento_consulta", v)}>
-                        <SelectTrigger className="h-8 text-xs w-[140px]"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                        <SelectContent>{FORMA_PAGAMENTO_CONSULTA_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
-                      </Select>
-                    </td>
-                    <td className="px-3 py-2">
-                      <Select value={car || ""} onValueChange={(v) => updateField(appt.id, "consulta_a_receber", v)}>
-                        <SelectTrigger className="h-8 text-xs w-[180px]"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                        <SelectContent>{RECEBIMENTO_CONSULTA_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
-                      </Select>
-                    </td>
-                    <td className="px-3 py-2">
-                      <Select value={cpaga === true ? "sim" : cpaga === false ? "nao" : ""} onValueChange={(v) => updateField(appt.id, "consulta_paga", v)}>
+                      <Select
+                        value={cpaga === true ? "sim" : cpaga === false ? "nao" : ""}
+                        onValueChange={(v) => updateField(appt.id, "consulta_paga", v)}
+                        disabled={consultaPagaLocked}
+                      >
                         <SelectTrigger className="h-8 text-xs w-[100px]"><SelectValue placeholder="—" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="sim">Sim</SelectItem>
                           <SelectItem value="nao">Não</SelectItem>
                         </SelectContent>
                       </Select>
+                    </td>
+                    <td className="px-3 py-2 text-xs whitespace-nowrap">
+                      {glassesPaymentLabel(appt)}
                     </td>
                     <td className="px-3 py-2">{appt.canal_agendamento}</td>
                     <td className="px-3 py-2">
@@ -505,12 +568,6 @@ export default function AppointmentsPage() {
                       <Select value={appt.venda} onValueChange={(v) => updateField(appt.id, "venda", v)}>
                         <SelectTrigger className="h-8 text-xs w-[120px]"><SelectValue /></SelectTrigger>
                         <SelectContent>{VENDA_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
-                      </Select>
-                    </td>
-                    <td className="px-3 py-2">
-                      <Select value={appt.forma_pagamento_oculos || ""} onValueChange={(v) => updateField(appt.id, "forma_pagamento_oculos", v)}>
-                        <SelectTrigger className="h-8 text-xs w-[160px]"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                        <SelectContent>{FORMA_PAGAMENTO_OCULOS_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
                       </Select>
                     </td>
                     <td className="px-3 py-2">
@@ -553,11 +610,12 @@ export default function AppointmentsPage() {
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className={cn(editingAppt && isAdmin ? "sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" : "sm:max-w-md")}>
           <DialogHeader>
             <DialogTitle>{editingAppt ? "Editar Agendamento" : "Novo Agendamento"}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-3">
+          <div className={cn(editingAppt && isAdmin ? "flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden" : "")}>
+          <form onSubmit={handleSubmit} className={cn("space-y-3", editingAppt && isAdmin ? "flex-1 overflow-y-auto pr-0 md:pr-4" : "")}>
             <div className="space-y-1.5">
               <Label>Nome <span className="text-destructive">*</span></Label>
               <Input value={formNome} onChange={e => setFormNome(e.target.value)} required />
@@ -597,24 +655,21 @@ export default function AppointmentsPage() {
               <Input type="number" step="0.01" min="0" value={formValor} onChange={e => setFormValor(e.target.value)} required />
             </div>
             <div className="space-y-1.5">
-              <Label>Forma de pagamento da consulta <span className="text-destructive">*</span></Label>
-              <Select value={formPagamentoConsulta} onValueChange={setFormPagamentoConsulta}>
+              <Label>Forma de pagamento do Óculos <span className="text-destructive">*</span></Label>
+              <Select value={formPagamentoOculos} onValueChange={setFormPagamentoOculos}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{FORMA_PAGAMENTO_CONSULTA_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
+                <SelectContent>{FORMAS_PAGAMENTO_OCULOS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Canal de Agendamento <span className="text-destructive">*</span></Label>
-              <Select value={formCanal} onValueChange={setFormCanal}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{CANAIS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <Button type="submit" className="w-full" disabled={saving || !formDate || !formPagamentoConsulta || !formCanal || !formNome}>
+            <Button type="submit" className="w-full" disabled={saving || !formDate || !formPagamentoOculos || !formNome}>
               {saving ? "Salvando..." : editingAppt ? "Atualizar" : "Criar Agendamento"}
             </Button>
 
           </form>
+          {editingAppt && isAdmin && (
+            <AppointmentHistoryPanel appointmentId={editingAppt.id} profiles={profiles} />
+          )}
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -674,7 +729,7 @@ export default function AppointmentsPage() {
               <Select value={salePagamento} onValueChange={setSalePagamento}>
                 <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
                 <SelectContent>
-                  {FORMAS_PAGAMENTO.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                  {FORMAS_PAGAMENTO_VENDA.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

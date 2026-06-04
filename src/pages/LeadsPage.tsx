@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { usePaginatedColumns } from "@/hooks/use-paginated-columns";
 import { useVisibleStatusKeys } from "@/hooks/use-visible-status-keys";
 import { normalizeLeadData, resolveLeadIdentity } from "@/lib/leadIdentity";
+import { resolveCanalFromLeadData } from "@/lib/appointmentUtils";
 import { getLeadExamTimestamp, sortKanbanByExamAndTratativa } from "@/lib/kanbanCardSort";
 
 type CrmColumn = {
@@ -611,17 +612,30 @@ export default function LeadsPage() {
     };
   }, [formFields]);
 
-  const handleScheduleSubmit = async (schedData: { scheduled_datetime: string; forma_pagamento: string; canal_agendamento: string }) => {
+  const handleScheduleSubmit = async (schedData: {
+    scheduled_datetime: string;
+    forma_pagamento: string;
+    forma_pagamento_oculos: string;
+    canal_agendamento: string;
+    consulta_paga: boolean;
+    consulta_paga_no_agendamento: boolean;
+  }) => {
     if (!schedulingLead || !user) return;
     setScheduleSaving(true);
     const { nome, telefone, idade } = getLeadSnapshot(schedulingLead);
+    const nowIso = new Date().toISOString();
     const { error } = await supabase.from("crm_appointments").insert({
       lead_id: schedulingLead.id,
       scheduled_by: user.id,
       scheduled_datetime: schedData.scheduled_datetime,
       valor: 0,
       forma_pagamento: schedData.forma_pagamento,
+      forma_pagamento_oculos: schedData.forma_pagamento_oculos,
       canal_agendamento: schedData.canal_agendamento,
+      consulta_paga: schedData.consulta_paga,
+      consulta_paga_no_agendamento: schedData.consulta_paga_no_agendamento,
+      consulta_paga_em: schedData.consulta_paga ? nowIso : null,
+      consulta_paga_por: schedData.consulta_paga ? user.id : null,
       previous_status: schedulingLead.status,
       nome,
       telefone,
@@ -1081,6 +1095,16 @@ export default function LeadsPage() {
         onOpenChange={setScheduleOpen}
         leadName={getLeadSnapshot(schedulingLead).nome}
         leadPhone={getLeadSnapshot(schedulingLead).telefone}
+        canalAgendamento={
+          schedulingLead
+            ? resolveCanalFromLeadData(
+                normalizeLeadData(
+                  typeof schedulingLead.data === "object" ? (schedulingLead.data as Record<string, unknown>) : {},
+                  formFields,
+                ),
+              )
+            : "Ligação Leads"
+        }
         saving={scheduleSaving}
         onSubmit={handleScheduleSubmit}
       />
