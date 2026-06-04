@@ -133,11 +133,21 @@ export function translateWhatsAppError(message: string): string {
   }
   if (/api access blocked|access blocked|blocked by meta/i.test(raw)) {
     return (
-      "Meta bloqueou o envio (API access blocked). Confira no Meta for Developers: " +
-      "(1) app em modo Desenvolvimento — cadastre o celular do cliente em «Números de teste» em WhatsApp → API Setup; " +
-      "(2) token permanente do System User com whatsapp_business_messaging; " +
-      "(3) conta WABA sem restrição em business.facebook.com → Suporte. " +
-      "Para produção, publique o app ou use modo Live após verificação."
+      "Meta bloqueou o envio (API access blocked). Veja business.facebook.com → Suporte da conta: " +
+      "se a WABA estiver «desativada permanentemente», nenhum ajuste no CRM resolve — só revisão Meta ou nova conta/número. " +
+      "Se o app estiver só em Desenvolvimento, cadastre o destinatário em WhatsApp → API Setup → números de teste."
+    );
+  }
+  if (/\b131031\b/.test(raw) || /account (is )?locked|conta.*bloqueada|desativad/i.test(raw)) {
+    return (
+      "Conta WhatsApp Business (WABA) bloqueada ou desativada pela Meta. " +
+      "Envio e recebimento ficam suspensos até a revisão ser aprovada ou até usar outra WABA/número aprovado."
+    );
+  }
+  if (/\b368\b/.test(raw) || /temporarily blocked|policy|política/i.test(raw)) {
+    return (
+      "Meta restringiu a conta por política (spam, template ou qualidade). " +
+      "Abra business.facebook.com → Suporte → violações e solicite revisão com evidências."
     );
   }
   return raw;
