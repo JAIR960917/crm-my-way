@@ -73,85 +73,14 @@ export function isConsultaPaga(appt: { consulta_paga: boolean | null }) {
   return appt.consulta_paga === true;
 }
 
-/** Duração padrão exibida no grid quando não há horário de término */
-export const CALENDAR_EVENT_DURATION_MIN = 30;
 
 export const CALENDAR_GRID_START_HOUR = 7;
 export const CALENDAR_GRID_END_HOUR = 20;
 
-type TimedEvent<T> = {
-  item: T;
-  startMin: number;
-  endMin: number;
-};
-
-function timedEventsOverlap(a: TimedEvent<unknown>, b: TimedEvent<unknown>) {
-  return a.startMin < b.endMin && b.startMin < a.endMin;
-}
-
-function toTimedEvent<T extends { scheduled_datetime: string }>(item: T): TimedEvent<T> {
-  const dt = new Date(item.scheduled_datetime);
-  const startMin = dt.getHours() * 60 + dt.getMinutes();
-  return {
-    item,
-    startMin,
-    endMin: startMin + CALENDAR_EVENT_DURATION_MIN,
-  };
-}
-
-function overlapClusters<T>(events: TimedEvent<T>[]): TimedEvent<T>[][] {
-  if (events.length === 0) return [];
-  const parent = events.map((_, i) => i);
-  const find = (i: number): number => {
-    if (parent[i] !== i) parent[i] = find(parent[i]);
-    return parent[i];
-  };
-  const union = (a: number, b: number) => {
-    const ra = find(a);
-    const rb = find(b);
-    if (ra !== rb) parent[ra] = rb;
-  };
-  for (let i = 0; i < events.length; i++) {
-    for (let j = i + 1; j < events.length; j++) {
-      if (timedEventsOverlap(events[i], events[j])) union(i, j);
-    }
-  }
-  const groups = new Map<number, TimedEvent<T>[]>();
-  events.forEach((ev, i) => {
-    const root = find(i);
-    if (!groups.has(root)) groups.set(root, []);
-    groups.get(root)!.push(ev);
-  });
-  return [...groups.values()];
-}
-
-function layoutCluster<T extends { scheduled_datetime: string }>(
-  cluster: TimedEvent<T>[],
-): Array<{ item: T; column: number; columns: number; startMin: number; endMin: number }> {
-  const sorted = [...cluster].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
-  const columnEnds: number[] = [];
-  const placed: Array<{ ev: TimedEvent<T>; column: number }> = [];
-
-  for (const ev of sorted) {
-    let col = columnEnds.findIndex((end) => end <= ev.startMin);
-    if (col === -1) {
-      col = columnEnds.length;
-      columnEnds.push(ev.endMin);
-    } else {
-      columnEnds[col] = ev.endMin;
-    }
-    placed.push({ ev, column: col });
-  }
-
-  const totalCols = columnEnds.length;
-  return placed.map(({ ev, column }) => ({
-    item: ev.item,
-    column,
-    columns: totalCols,
-    startMin: ev.startMin,
-    endMin: ev.endMin,
-  }));
-}
+export const HOUR_CHIP_HEIGHT = 22;
+export const HOUR_ROW_GAP = 2;
+export const HOUR_ROW_PADDING = 4;
+export const HOUR_ROW_MIN_HEIGHT = 48;
 
 export type CalendarEventLayout<T extends { scheduled_datetime: string }> = {
   item: T;
@@ -161,35 +90,126 @@ export type CalendarEventLayout<T extends { scheduled_datetime: string }> = {
   columns: number;
 };
 
-/** Posiciona eventos lado a lado quando compartilham o mesmo horário */
-export function layoutTimedAppointments<T extends { scheduled_datetime: string }>(
-  items: T[],
-  slotHeightPx: number,
-): CalendarEventLayout<T>[] {
-  const gridStart = CALENDAR_GRID_START_HOUR * 60;
-  const gridEnd = CALENDAR_GRID_END_HOUR * 60;
+function parseApptDate(iso: string) {
+  return new Date(iso);
+}
 
-  const inRange = items
-    .map(toTimedEvent)
-    .filter((e) => e.startMin >= gridStart && e.startMin < gridEnd);
+function apptStartMinutes(item: { scheduled_datetime: string }) {
+  const d = parseApptDate(item.scheduled_datetime);
+  return d.getHours() * 60 + d.getMinutes();
+}
 
-  const layouts: CalendarEventLayout<T>[] = [];
-  for (const cluster of overlapClusters(inRange)) {
-    for (const slot of layoutCluster(cluster)) {
-      const durationMin = slot.endMin - slot.startMin;
-      const top = (slot.startMin - gridStart) * (slotHeightPx / 60);
-      // Altura exata pela duração — não usar mínimo maior que o slot (evita invadir horário seguinte)
-      const height = (durationMin / 60) * slotHeightPx;
-      layouts.push({
-        item: slot.item,
-        top,
-        height,
-        column: slot.column,
-        columns: slot.columns,
-      });
+function apptLocalHour(item: { scheduled_datetime: string }) {
+  return parseApptDate(item.scheduled_datetime).getHours();
+}
+
+function apptsInHour<T extends { scheduled_datetime: string }>(appts: T[], hour: number): T[] {
+  return appts
+    .filter((a) => apptLocalHour(a) === hour)
+    .sort((a, b) => apptStartMinutes(a) - apptStartMinutes(b));
+}
+
+function rowsNeededInHour<T extends { scheduled_datetime: string }>(appts: T[]): number {
+  if (appts.length === 0) return 0;
+  return new Set(appts.map(apptStartMinutes)).size;
+}
+
+function hourHeightFromAppts<T extends { scheduled_datetime: string }>(appts: T[]): number {
+  if (appts.length === 0) return HOUR_ROW_MIN_HEIGHT;
+  // Uma linha por horário distinto; vários no mesmo horário dividem a linha (lado a lado)
+  const rows = rowsNeededInHour(appts);
+  return Math.max(
+    HOUR_ROW_MIN_HEIGHT,
+    HOUR_ROW_PADDING * 2 + rows * HOUR_CHIP_HEIGHT + (rows - 1) * HOUR_ROW_GAP,
+  );
+}
+
+/** Altura de cada faixa horária = maior necessidade entre os dias visíveis */
+export function computeHourHeights<T extends { scheduled_datetime: string }>(
+  daysAppts: T[][],
+): Record<number, number> {
+  const heights: Record<number, number> = {};
+  for (const h of HOUR_SLOTS) {
+    let maxH = HOUR_ROW_MIN_HEIGHT;
+    for (const dayAppts of daysAppts) {
+      maxH = Math.max(maxH, hourHeightFromAppts(apptsInHour(dayAppts, h)));
     }
+    heights[h] = maxH;
+  }
+  return heights;
+}
+
+function layoutApptsForDay<T extends { scheduled_datetime: string }>(
+  dayAppts: T[],
+  hourHeights: Record<number, number>,
+): CalendarEventLayout<T>[] {
+  const layouts: CalendarEventLayout<T>[] = [];
+  let hourTop = 0;
+
+  for (const h of HOUR_SLOTS) {
+    const hHeight = hourHeights[h];
+    const inHour = apptsInHour(dayAppts, h);
+
+    const groups = new Map<number, T[]>();
+    for (const a of inHour) {
+      const key = apptStartMinutes(a);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(a);
+    }
+
+    const sortedGroups = [...groups.entries()].sort((a, b) => a[0] - b[0]);
+    const rowCount = sortedGroups.length;
+    const available = hHeight - HOUR_ROW_PADDING * 2;
+    const rowH = rowCount > 0
+      ? (available - (rowCount - 1) * HOUR_ROW_GAP) / rowCount
+      : 0;
+
+    let y = hourTop + HOUR_ROW_PADDING;
+    for (const [, group] of sortedGroups) {
+      for (let col = 0; col < group.length; col++) {
+        layouts.push({
+          item: group[col],
+          top: y,
+          height: rowH,
+          column: col,
+          columns: group.length,
+        });
+      }
+      y += rowH + HOUR_ROW_GAP;
+    }
+    hourTop += hHeight;
   }
   return layouts;
+}
+
+export function buildTimeGridLayout<T extends { scheduled_datetime: string }>(
+  days: Date[],
+  byDay: Map<string, T[]>,
+) {
+  const daysAppts = days.map((d) => byDay.get(dayKey(d)) || []);
+  const hourHeights = computeHourHeights(daysAppts);
+  const totalHeight = HOUR_SLOTS.reduce((sum, h) => sum + hourHeights[h], 0);
+  const layoutsByDay = new Map<string, CalendarEventLayout<T>[]>();
+
+  for (const day of days) {
+    const key = dayKey(day);
+    layoutsByDay.set(key, layoutApptsForDay(byDay.get(key) || [], hourHeights));
+  }
+
+  return { hourHeights, totalHeight, layoutsByDay };
+}
+
+export function getNowLineTop(now: Date, hourHeights: Record<number, number>): number | null {
+  const h = now.getHours();
+  const m = now.getMinutes();
+  if (h < CALENDAR_GRID_START_HOUR || h > CALENDAR_GRID_END_HOUR) return null;
+
+  let top = 0;
+  for (const slotH of HOUR_SLOTS) {
+    if (slotH === h) return top + (m / 60) * hourHeights[slotH];
+    top += hourHeights[slotH];
+  }
+  return null;
 }
 
 export { isSameDay, isSameMonth, format, ptBR, startOfDay };

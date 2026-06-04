@@ -4,14 +4,16 @@ import { getAppointmentCalendarColor, formatRescheduleNote } from "@/lib/appoint
 import {
   buildMonthGrid,
   buildWeekDays,
+  buildTimeGridLayout,
   dayKey,
   format,
+  getNowLineTop,
   HOUR_SLOTS,
   isConsultaPaga,
   isSameDay,
   isSameMonth,
-  layoutTimedAppointments,
   ptBR,
+  type CalendarEventLayout,
   WEEKDAY_LABELS,
   type CalendarViewMode,
 } from "@/lib/appointmentCalendarUtils";
@@ -37,7 +39,6 @@ type Props = {
   onDayClick?: (date: Date) => void;
 };
 
-const SLOT_HEIGHT = 48;
 const MONTH_MAX_VISIBLE = 5;
 
 function apptsByDay(appts: CalendarAppointment[]) {
@@ -54,9 +55,9 @@ function apptsByDay(appts: CalendarAppointment[]) {
 }
 
 function groupLayoutsBySlot<T extends { scheduled_datetime: string }>(
-  layouts: ReturnType<typeof layoutTimedAppointments<T>>,
+  layouts: CalendarEventLayout<T>[],
 ) {
-  const groups = new Map<string, typeof layouts>();
+  const groups = new Map<string, CalendarEventLayout<T>[]>();
   for (const layout of layouts) {
     const key = `${layout.top}:${layout.height}`;
     if (!groups.has(key)) groups.set(key, []);
@@ -174,11 +175,19 @@ function TimeGridView({
   view,
   onSelectAppointment,
 }: Props & { view: "week" | "day" }) {
-  const days = view === "week" ? buildWeekDays(focusDate) : [focusDate];
+  const days = useMemo(
+    () => (view === "week" ? buildWeekDays(focusDate) : [focusDate]),
+    [view, focusDate],
+  );
   const byDay = useMemo(() => apptsByDay(appointments), [appointments]);
+  const gridLayout = useMemo(
+    () => buildTimeGridLayout(days, byDay),
+    [days, byDay],
+  );
+  const { hourHeights, totalHeight, layoutsByDay } = gridLayout;
   const now = new Date();
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const showNowLine = days.some((d) => isSameDay(d, now));
+  const nowTop = getNowLineTop(now, hourHeights);
+  const showNowLine = days.some((d) => isSameDay(d, now)) && nowTop != null;
 
   return (
     <div className="rounded-lg border overflow-hidden bg-card flex flex-col max-h-[calc(100vh-220px)]">
@@ -204,26 +213,30 @@ function TimeGridView({
         })}
       </div>
       <div className="flex-1 overflow-y-auto relative">
-        <div className="flex min-h-[672px]">
+        <div className="flex" style={{ minHeight: totalHeight }}>
           <div className="w-14 shrink-0 border-r bg-muted/20">
             {HOUR_SLOTS.map((h) => (
               <div
                 key={h}
-                className="text-[10px] text-muted-foreground text-right pr-1 border-b border-border/50"
-                style={{ height: SLOT_HEIGHT }}
+                className="text-[10px] text-muted-foreground text-right pr-1 border-b border-border/50 flex items-start justify-end pt-0.5"
+                style={{ height: hourHeights[h] }}
               >
                 {h <= 12 ? `${h === 12 ? 12 : h} ${h < 12 ? "AM" : "PM"}` : `${h - 12} PM`}
               </div>
             ))}
           </div>
           {days.map((day) => {
-            const dayAppts = byDay.get(dayKey(day)) || [];
-            const layouts = layoutTimedAppointments(dayAppts, SLOT_HEIGHT);
+            const key = dayKey(day);
+            const layouts = layoutsByDay.get(key) || [];
             const slotGroups = groupLayoutsBySlot(layouts);
             return (
-              <div key={dayKey(day)} className="flex-1 min-w-[100px] border-r last:border-r-0 relative isolate">
+              <div
+                key={key}
+                className="flex-1 min-w-[100px] border-r last:border-r-0 relative isolate"
+                style={{ minHeight: totalHeight }}
+              >
                 {HOUR_SLOTS.map((h) => (
-                  <div key={h} className="border-b border-border/40" style={{ height: SLOT_HEIGHT }} />
+                  <div key={h} className="border-b border-border/40" style={{ height: hourHeights[h] }} />
                 ))}
                 {slotGroups.map((group) => (
                   <div
@@ -236,7 +249,7 @@ function TimeGridView({
                     }}
                   >
                     {group.map(({ item: a }) => (
-                      <div key={a.id} className="flex-1 min-w-0">
+                      <div key={a.id} className="flex-1 min-w-0 min-h-0">
                         <EventChip appt={a} onClick={() => onSelectAppointment(a)} />
                       </div>
                     ))}
@@ -246,10 +259,10 @@ function TimeGridView({
             );
           })}
         </div>
-        {showNowLine && now.getHours() >= 7 && now.getHours() <= 20 && (
+        {showNowLine && (
           <div
             className="absolute left-14 right-0 border-t-2 border-red-500 z-20 pointer-events-none"
-            style={{ top: ((now.getHours() - 7) * 60 + now.getMinutes()) * (SLOT_HEIGHT / 60) }}
+            style={{ top: nowTop! }}
           >
             <span className="absolute -left-2 -top-1.5 h-2.5 w-2.5 rounded-full bg-red-500" />
           </div>
