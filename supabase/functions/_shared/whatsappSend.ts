@@ -131,6 +131,15 @@ export function translateWhatsAppError(message: string): string {
       "Configure o nome do template na campanha/gatilho ou aguarde resposta do cliente."
     );
   }
+  if (/api access blocked|access blocked|blocked by meta/i.test(raw)) {
+    return (
+      "Meta bloqueou o envio (API access blocked). Confira no Meta for Developers: " +
+      "(1) app em modo Desenvolvimento — cadastre o celular do cliente em «Números de teste» em WhatsApp → API Setup; " +
+      "(2) token permanente do System User com whatsapp_business_messaging; " +
+      "(3) conta WABA sem restrição em business.facebook.com → Suporte. " +
+      "Para produção, publique o app ou use modo Live após verificação."
+    );
+  }
   return raw;
 }
 
