@@ -68,24 +68,24 @@ export default function AppointmentsListTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border w-fit max-w-full">
-      <table className="text-xs w-auto table-fixed">
+    <div className="overflow-x-auto rounded-lg border w-full">
+      <table className="text-xs w-full table-fixed">
         <thead>
           <tr className="bg-muted/70 border-b">
-            <th className="text-left px-2 py-1.5 font-medium w-[120px]">Nome</th>
-            <th className="text-left px-2 py-1.5 font-medium w-[100px]">Telefone</th>
-            <th className="text-left px-2 py-1.5 font-medium w-[40px]">Idade</th>
-            <th className="text-left px-2 py-1.5 font-medium w-[110px]">Horário</th>
-            <th className="text-left px-2 py-1.5 font-medium w-[90px]">Agendado por</th>
-            <th className="text-left px-2 py-1.5 font-medium w-[70px]">Valor</th>
-            <th className="text-left px-2 py-1.5 font-medium w-[90px]">Consulta paga</th>
-            <th className="text-left px-2 py-1.5 font-medium w-[100px]">Pag. Óculos</th>
-            <th className="text-left px-2 py-1.5 font-medium w-[50px]">Canal</th>
-            <th className="text-left px-2 py-1.5 font-medium w-[100px]">Confirmação</th>
-            <th className="text-left px-2 py-1.5 font-medium w-[110px]">Comparecimento</th>
-            <th className="text-left px-2 py-1.5 font-medium w-[100px]">Venda</th>
-            <th className="text-left px-2 py-1.5 font-medium w-[100px]">Resumo</th>
-            <th className="text-left px-2 py-1.5 font-medium w-[80px]">Ações</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[12%]">Nome</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[9%]">Telefone</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[4%]">Idade</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[9%]">Horário</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[8%]">Agendado por</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[6%]">Valor</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[7%]">Consulta paga</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[8%]">Pag. Óculos</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[5%]">Canal</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[8%]">Confirmação</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[9%]">Comparecimento</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[8%]">Venda</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[10%]">Resumo</th>
+            <th className="text-left px-2 py-1.5 font-medium w-[7%]">Ações</th>
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -140,7 +140,7 @@ export default function AppointmentsListTable({
                       onValueChange={(v) => onUpdateField(appt.id, "consulta_paga", v)}
                       disabled={consultaPagaLocked}
                     >
-                      <SelectTrigger className="h-7 text-[11px] w-[72px] px-2"><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectTrigger className="h-7 text-[11px] w-full min-w-0 px-2"><SelectValue placeholder="—" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="sim">Sim</SelectItem>
                         <SelectItem value="nao">Não</SelectItem>
@@ -153,7 +153,7 @@ export default function AppointmentsListTable({
                 <td className="px-2 py-0 align-middle">
                   {isSnapshot ? appt.confirmacao : (
                     <Select value={appt.confirmacao} onValueChange={(v) => onUpdateField(appt.id, "confirmacao", v)}>
-                      <SelectTrigger className="h-7 text-[11px] w-[88px] px-2"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 text-[11px] w-full min-w-0 px-2"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {confirmacaoOptions.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
                       </SelectContent>
@@ -163,7 +163,7 @@ export default function AppointmentsListTable({
                 <td className="px-2 py-0 align-middle">
                   {isSnapshot ? appt.comparecimento : (
                     <Select value={appt.comparecimento} onValueChange={(v) => onUpdateField(appt.id, "comparecimento", v)}>
-                      <SelectTrigger className="h-7 text-[11px] w-[100px] px-2"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 text-[11px] w-full min-w-0 px-2"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {comparecimentoOptions.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
                       </SelectContent>
@@ -173,7 +173,7 @@ export default function AppointmentsListTable({
                 <td className="px-2 py-0 align-middle">
                   {isSnapshot ? appt.venda : (
                     <Select value={appt.venda} onValueChange={(v) => onUpdateField(appt.id, "venda", v)}>
-                      <SelectTrigger className="h-7 text-[11px] w-[88px] px-2"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 text-[11px] w-full min-w-0 px-2"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {vendaOptions.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
                       </SelectContent>
@@ -182,11 +182,11 @@ export default function AppointmentsListTable({
                 </td>
                 <td className="px-2 py-0 align-middle">
                   {isSnapshot ? (
-                    <span className="truncate block max-w-[100px]" title={appt.resumo || undefined}>{appt.resumo || "—"}</span>
+                    <span className="truncate block" title={appt.resumo || undefined}>{appt.resumo || "—"}</span>
                   ) : (
                     <input
                       type="text"
-                      className="border rounded px-1.5 h-7 text-[11px] w-[100px] bg-background"
+                      className="border rounded px-1.5 h-7 text-[11px] w-full min-w-0 bg-background"
                       defaultValue={appt.resumo}
                       onBlur={(e) => {
                         if (e.target.value !== appt.resumo) onUpdateField(appt.id, "resumo", e.target.value);
