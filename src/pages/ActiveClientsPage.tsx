@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Search, Pencil, Trash2, Phone, UserCheck, CalendarHeart, AlertTriangle, CalendarClock, Clock, CheckCircle2, Shuffle, Loader2, CalendarPlus, RotateCcw, ArrowRightLeft } from "lucide-react";
+import { Search, Pencil, Trash2, Phone, UserCheck, CalendarHeart, AlertTriangle, CalendarClock, Clock, CheckCircle2, Shuffle, Loader2, CalendarPlus, RotateCcw, ArrowRightLeft, Store } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -19,9 +19,16 @@ import ScheduleLeadDialog from "@/components/leads/ScheduleLeadDialog";
 import { usePaginatedColumns } from "@/hooks/use-paginated-columns";
 import { useVisibleStatusKeys } from "@/hooks/use-visible-status-keys";
 import { logTransition } from "@/lib/transitionLogs";
-import { getRenovacaoExamTimestamp, sortKanbanByExamAndTratativa } from "@/lib/kanbanCardSort";
+import { sortKanbanByExamAndTratativa } from "@/lib/kanbanCardSort";
 import { resolveCanalFromLeadData } from "@/lib/appointmentUtils";
 import BulkTransferDialog from "@/components/crm/BulkTransferDialog";
+import RenovacaoOutraOticaDialog from "@/components/renovacoes/RenovacaoOutraOticaDialog";
+import {
+  DIRECIONAMENTO_STATUS,
+  getRenovacaoExamTimestampFromItem,
+  getRenovacaoFlowStatusFromItem,
+  RENOVACAO_OUTRA_OTICA_FOLLOWUP_DAYS,
+} from "@/lib/renovacaoFlow";
 
 type Renovacao = {
   id: string;
@@ -31,6 +38,8 @@ type Renovacao = {
   created_by: string | null;
   valor: number;
   data_ultima_compra: string | null;
+  renovou_outra_otica?: boolean;
+  data_exame_outra_otica?: string | null;
   created_at: string;
   updated_at: string;
   ssotica_cliente_id?: number | null;
@@ -82,23 +91,6 @@ const parseStoredDate = (value: unknown): Date | undefined => {
   return Number.isNaN(p.getTime()) ? undefined : p;
 };
 
-const DIRECIONAMENTO_STATUS = "fazer_direcionamento_para_o_vendedor";
-
-const statusKeyForRenovacao = (diasDesdeUltimaCompra: number | null): string => {
-  if (diasDesdeUltimaCompra === null) return "novo";
-  if (diasDesdeUltimaCompra < 365) return "em_contato";
-  if (diasDesdeUltimaCompra < 730) return "agendado";
-  if (diasDesdeUltimaCompra < 1095) return "renovado";
-  return "mais_de_3_anos";
-};
-
-const getRenovacaoFlowStatus = (lastPurchaseDate: unknown): string => {
-  const parsedDate = parseStoredDate(lastPurchaseDate);
-  if (!parsedDate) return "novo";
-  const diasDesdeUltimaCompra = Math.floor((Date.now() - parsedDate.getTime()) / 86400000);
-  return statusKeyForRenovacao(diasDesdeUltimaCompra);
-};
-
 export default function ActiveClientsPage() {
   const { user, isAdmin, isGerente } = useAuth();
   const [statuses, setStatuses] = useState<CrmStatus[]>([]);
@@ -128,6 +120,7 @@ export default function ActiveClientsPage() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkTransferOpen, setBulkTransferOpen] = useState(false);
+  const [outraOticaItem, setOutraOticaItem] = useState<Renovacao | null>(null);
 
   const confirmBulkDelete = async () => {
     setBulkDeleting(true);
@@ -200,7 +193,7 @@ export default function ActiveClientsPage() {
     buildSearchOr,
     refreshKey,
     pollingIntervalMs: 30000,
-    select: "id,data,status,assigned_to,created_by,valor,data_ultima_compra,created_at,updated_at,ssotica_cliente_id,ssotica_company_id",
+    select: "id,data,status,assigned_to,created_by,valor,data_ultima_compra,renovou_outra_otica,data_exame_outra_otica,created_at,updated_at,ssotica_cliente_id,ssotica_company_id",
   });
 
   const loadActivityMeta = useCallback(async () => {
@@ -428,7 +421,14 @@ export default function ActiveClientsPage() {
     const lastVisitValue = lastVisitField ? formData[`field_${lastVisitField.id}`] : null;
     const assignedTo = formAssigned || null;
     const hasAssignedUser = !!assignedTo;
-    const flowStatus = getRenovacaoFlowStatus(lastVisitValue || editingItem?.data_ultima_compra || null);
+    const flowStatus = getRenovacaoFlowStatusFromItem(
+      {
+        ...editingItem,
+        data: dataToSave,
+        data_ultima_compra: lastVisitValue || editingItem?.data_ultima_compra || null,
+      },
+      lastVisitField,
+    );
 
     let resolvedStatus = formStatus;
     if (!hasAssignedUser) {
@@ -629,7 +629,7 @@ export default function ActiveClientsPage() {
         toast.info("Cards sem responsável ficam em 'Fazer direcionamento para o vendedor'.");
       }
     } else if (newStatus === DIRECIONAMENTO_STATUS) {
-      resolvedStatus = getRenovacaoFlowStatus(currentItem.data_ultima_compra);
+      resolvedStatus = getRenovacaoFlowStatusFromItem(currentItem as Renovacao, lastVisitField);
     }
 
     updateItemStatus(itemId, fromStatus, resolvedStatus, currentItem);
@@ -668,7 +668,7 @@ export default function ActiveClientsPage() {
   const sortRenovacoesInColumn = useCallback(
     (items: Renovacao[]) =>
       sortKanbanByExamAndTratativa(items, {
-        getExamTs: (item) => getRenovacaoExamTimestamp(item, lastVisitField),
+        getExamTs: (item) => getRenovacaoExamTimestampFromItem(item, lastVisitField),
         taskPriority: renovacaoTaskPriority,
         requireTratativaStatusMatch: true,
       }),
@@ -703,9 +703,13 @@ export default function ActiveClientsPage() {
 
   const renderCard = (item: Renovacao) => {
     const d = item.data as Record<string, any>;
-    const lastVisit = item.data_ultima_compra
-      ? parseStoredDate(item.data_ultima_compra)
-      : (lastVisitField ? parseStoredDate(d[`field_${lastVisitField.id}`]) : undefined);
+    const outraOticaDate = item.renovou_outra_otica && item.data_exame_outra_otica
+      ? parseStoredDate(item.data_exame_outra_otica)
+      : undefined;
+    const lastVisit = outraOticaDate
+      ?? (item.data_ultima_compra
+        ? parseStoredDate(item.data_ultima_compra)
+        : (lastVisitField ? parseStoredDate(d[`field_${lastVisitField.id}`]) : undefined));
 
     const cardFields = fields.filter(f => f.show_on_card && !f.is_name_field && !f.is_phone_field && !f.is_last_visit_field);
 
@@ -749,11 +753,22 @@ export default function ActiveClientsPage() {
         </div>
 
         {lastVisit && (
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/10 border border-primary/30">
-            <CalendarHeart className="h-3.5 w-3.5 text-primary shrink-0" />
+          <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md border ${outraOticaDate ? "bg-amber-500/10 border-amber-500/40" : "bg-primary/10 border-primary/30"}`}>
+            {outraOticaDate ? (
+              <Store className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+            ) : (
+              <CalendarHeart className="h-3.5 w-3.5 text-primary shrink-0" />
+            )}
             <div className="min-w-0">
-              <p className="text-[10px] uppercase font-bold text-primary leading-none">Última receita</p>
+              <p className={`text-[10px] uppercase font-bold leading-none ${outraOticaDate ? "text-amber-700 dark:text-amber-300" : "text-primary"}`}>
+                {outraOticaDate ? "Exame outra ótica" : "Última receita"}
+              </p>
               <p className="text-xs font-semibold text-foreground mt-0.5">{format(lastVisit, "dd/MM/yyyy", { locale: ptBR })}</p>
+              {outraOticaDate && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Retorno em {RENOVACAO_OUTRA_OTICA_FOLLOWUP_DAYS} dias
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -825,6 +840,15 @@ export default function ActiveClientsPage() {
         </div>
 
         <div className="flex gap-1 justify-end pt-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`h-7 w-7 ${item.renovou_outra_otica ? "text-amber-600 hover:text-amber-700 hover:bg-amber-500/10" : "text-muted-foreground hover:text-foreground"}`}
+            title="Renovou em outra ótica"
+            onClick={() => setOutraOticaItem(item)}
+          >
+            <Store className="h-3.5 w-3.5" />
+          </Button>
           {item.status !== "agendado" && (
             <Button
               variant="ghost"
@@ -1165,6 +1189,17 @@ export default function ActiveClientsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {outraOticaItem && (
+        <RenovacaoOutraOticaDialog
+          open={!!outraOticaItem}
+          onOpenChange={(open) => { if (!open) setOutraOticaItem(null); }}
+          item={outraOticaItem}
+          clientName={String((outraOticaItem.data as Record<string, unknown>)?.nome || "")}
+          userId={user?.id}
+          onSaved={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
 
       {(isAdmin || isGerente) && (
         <BulkTransferDialog

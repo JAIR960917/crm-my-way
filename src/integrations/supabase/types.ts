@@ -1021,7 +1021,9 @@ export type Database = {
           created_at: string
           created_by: string | null
           data: Json
+          data_exame_outra_otica: string | null
           data_ultima_compra: string | null
+          renovou_outra_otica: boolean
           excluded_at: string | null
           excluded_by: string | null
           id: string
@@ -1040,7 +1042,9 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           data?: Json
+          data_exame_outra_otica?: string | null
           data_ultima_compra?: string | null
+          renovou_outra_otica?: boolean
           excluded_at?: string | null
           excluded_by?: string | null
           id?: string
@@ -1059,7 +1063,9 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           data?: Json
+          data_exame_outra_otica?: string | null
           data_ultima_compra?: string | null
+          renovou_outra_otica?: boolean
           excluded_at?: string | null
           excluded_by?: string | null
           id?: string
