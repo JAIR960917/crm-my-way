@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { CalendarClock, AlertTriangle, Receipt, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import CobrancaRenegociacaoReportCard from "@/components/dashboard/CobrancaRenegociacaoReportCard";
 
 type Activity = {
   id: string;
@@ -111,13 +112,13 @@ export default function CobrancaDashboardPage() {
   }, [user?.id]);
 
   const StatCard = ({ icon: Icon, label, value, tone }: any) => (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-        <Icon className={`h-4 w-4 ${tone || "text-muted-foreground"}`} />
+    <Card className="min-w-0">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-4 sm:p-6 sm:pb-2">
+        <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground leading-tight">{label}</CardTitle>
+        <Icon className={`h-4 w-4 shrink-0 ${tone || "text-muted-foreground"}`} />
       </CardHeader>
-      <CardContent>
-        <div className="text-3xl font-bold">{value}</div>
+      <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+        <div className="text-2xl sm:text-3xl font-bold">{value}</div>
       </CardContent>
     </Card>
   );
@@ -158,7 +159,7 @@ export default function CobrancaDashboardPage() {
           <p className="text-sm text-muted-foreground">Suas tarefas de cobrança agendadas e atrasadas.</p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
           <StatCard
             icon={CalendarClock}
             label="Tarefas para hoje"
@@ -178,6 +179,8 @@ export default function CobrancaDashboardPage() {
             tone="text-emerald-500"
           />
         </div>
+
+        {user && <CobrancaRenegociacaoReportCard userId={user.id} />}
 
         <Card>
           <CardHeader>
