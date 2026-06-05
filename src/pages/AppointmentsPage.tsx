@@ -381,7 +381,7 @@ export default function AppointmentsPage() {
     } as any).eq("id", editingAppt.id);
 
     if (updateErr) {
-      toast.error("Erro ao reagendar");
+      toast.error(updateErr.message || "Erro ao reagendar");
       setRescheduling(false);
       return;
     }
@@ -394,10 +394,19 @@ export default function AppointmentsPage() {
       .maybeSingle();
 
     const shadowPayload = buildShadowPayload(editingAppt, originalFirst, newDtIso);
+    let shadowErr: { message: string } | null = null;
     if (existingShadow?.id) {
-      await supabase.from("crm_appointments").update(shadowPayload as any).eq("id", existingShadow.id);
+      const { error } = await supabase.from("crm_appointments").update(shadowPayload as any).eq("id", existingShadow.id);
+      shadowErr = error;
     } else {
-      await supabase.from("crm_appointments").insert(shadowPayload as any);
+      const { error } = await supabase.from("crm_appointments").insert(shadowPayload as any);
+      shadowErr = error;
+    }
+
+    if (shadowErr) {
+      toast.error(shadowErr.message || "Erro ao salvar histórico do reagendamento");
+      setRescheduling(false);
+      return;
     }
 
     if (editingAppt.lead_id) {
@@ -409,12 +418,21 @@ export default function AppointmentsPage() {
 
     const origLabel = format(new Date(originalFirst), "dd/MM/yyyy", { locale: ptBR });
     const newLabel = format(newDt, "dd/MM/yyyy", { locale: ptBR });
+    const actorName = getProfileName(user.id);
+    const leadName = editingAppt.nome?.trim() || "Lead";
+    const vendedorName = getProfileName(editingAppt.scheduled_by);
+    const vendedorPart = user.id !== editingAppt.scheduled_by ? ` (vendedor: ${vendedorName})` : "";
     await logAppointmentHistory(
       editingAppt.id,
       user.id,
       "rescheduled",
-      `${getProfileName(user.id)} reagendou de ${origLabel} para ${newLabel}`,
-      { from: originalFirst, to: newDtIso },
+      `${actorName} reagendou o agendamento de ${leadName}${vendedorPart} de ${origLabel} para ${newLabel}`,
+      {
+        from: originalFirst,
+        to: newDtIso,
+        lead_nome: leadName,
+        scheduled_by: editingAppt.scheduled_by,
+      },
     );
 
     toast.success(`Reagendado para ${newLabel}`);
