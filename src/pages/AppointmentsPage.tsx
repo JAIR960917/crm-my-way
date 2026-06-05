@@ -241,6 +241,12 @@ export default function AppointmentsPage() {
     return { leadName, vendedorPart };
   };
 
+  /** Admin e vendedor (próprio) usam update direto; gerente em agendamento da equipe usa RPC. */
+  const usesTeamAppointmentRpc = (appt: Appointment) => {
+    if (!user || isAdmin) return false;
+    return appt.scheduled_by !== user.id;
+  };
+
   const updateField = async (id: string, field: string, value: string) => {
     const apptBefore = appointments.find((a) => a.id === id);
     if (!apptBefore || !user) return;
@@ -257,10 +263,12 @@ export default function AppointmentsPage() {
           consulta_paga_em: nowIso,
           consulta_paga_por: user.id,
         };
-        const { error } = await supabase.rpc("set_crm_appointment_consulta_paga", {
-          p_appointment_id: id,
-          p_paga: true,
-        });
+        const { error } = usesTeamAppointmentRpc(apptBefore)
+          ? await supabase.rpc("set_crm_appointment_consulta_paga", {
+              p_appointment_id: id,
+              p_paga: true,
+            })
+          : await supabase.from("crm_appointments").update(payload).eq("id", id);
         if (error) { toast.error(error.message || "Erro ao atualizar"); return; }
         setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, ...payload } : a)));
         const { leadName, vendedorPart } = appointmentActionContext(apptBefore, user.id);
@@ -283,10 +291,12 @@ export default function AppointmentsPage() {
           consulta_paga_em: null,
           consulta_paga_por: null,
         };
-        const { error } = await supabase.rpc("set_crm_appointment_consulta_paga", {
-          p_appointment_id: id,
-          p_paga: false,
-        });
+        const { error } = usesTeamAppointmentRpc(apptBefore)
+          ? await supabase.rpc("set_crm_appointment_consulta_paga", {
+              p_appointment_id: id,
+              p_paga: false,
+            })
+          : await supabase.from("crm_appointments").update(payload).eq("id", id);
         if (error) { toast.error(error.message || "Erro ao atualizar"); return; }
         setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, ...payload } : a)));
         if (isAdmin) {
@@ -325,11 +335,13 @@ export default function AppointmentsPage() {
       return;
     }
     const payload: Record<string, unknown> = { [field]: value };
-    const { error } = await supabase.rpc("update_crm_appointment_field", {
-      p_appointment_id: id,
-      p_field: field,
-      p_value: value,
-    });
+    const { error } = usesTeamAppointmentRpc(apptBefore)
+      ? await supabase.rpc("update_crm_appointment_field", {
+          p_appointment_id: id,
+          p_field: field,
+          p_value: value,
+        })
+      : await supabase.from("crm_appointments").update(payload).eq("id", id);
     if (error) toast.error(error.message || "Erro ao atualizar");
     else {
       setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, ...payload } : a)));
@@ -640,9 +652,25 @@ export default function AppointmentsPage() {
   const confirmDelete = async () => {
     if (!deleteId || !user) return;
     const appt = appointments.find(a => a.id === deleteId);
-    const { error } = await supabase.rpc("soft_delete_crm_appointment", {
-      p_appointment_id: deleteId,
-    });
+    if (!appt) return;
+
+    let error: { message: string } | null = null;
+    if (usesTeamAppointmentRpc(appt)) {
+      const res = await supabase.rpc("soft_delete_crm_appointment", {
+        p_appointment_id: deleteId,
+      });
+      error = res.error;
+    } else {
+      if (appt.lead_id) {
+        await supabase.from("crm_leads").update({ status: appt.previous_status } as any).eq("id", appt.lead_id);
+      }
+      const res = await supabase.from("crm_appointments").update({
+        deleted_at: new Date().toISOString(),
+        deleted_by: user.id,
+      }).eq("id", deleteId);
+      error = res.error;
+    }
+
     if (error) toast.error(error.message || "Erro ao excluir");
     else {
       const actorName = getProfileName(user.id);
