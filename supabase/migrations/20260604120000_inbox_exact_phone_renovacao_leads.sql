@@ -1,5 +1,8 @@
 -- Inbox: renovação e leads pelo telefone nacional EXATO (evita falso positivo / sempre o mesmo cliente)
 
+DROP FUNCTION IF EXISTS public.find_renovacao_by_phone(text);
+DROP FUNCTION IF EXISTS public.find_lead_by_phone(text);
+
 CREATE OR REPLACE FUNCTION public.find_renovacao_by_phone(p_phone text)
 RETURNS TABLE (
   id uuid,
@@ -41,6 +44,8 @@ $$;
 COMMENT ON FUNCTION public.find_renovacao_by_phone(text) IS
   'Inbox: renovação pelo telefone exato (sem match por últimos 8 dígitos).';
 
+GRANT EXECUTE ON FUNCTION public.find_renovacao_by_phone(text) TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.find_lead_by_phone(_phone text)
 RETURNS TABLE(lead_id uuid, owner_user_id uuid, owner_name text, is_mine boolean)
 LANGUAGE plpgsql
@@ -71,3 +76,5 @@ $$;
 
 COMMENT ON FUNCTION public.find_lead_by_phone(text) IS
   'Inbox: lead pelo telefone exato no JSON (sem sufixo de 8 dígitos).';
+
+GRANT EXECUTE ON FUNCTION public.find_lead_by_phone(text) TO authenticated;
