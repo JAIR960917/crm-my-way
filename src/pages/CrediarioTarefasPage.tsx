@@ -25,6 +25,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -59,7 +60,7 @@ export default function CrediarioTarefasPage() {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [focusDate, setFocusDate] = useState(() => new Date());
-  const [calendarView] = useState<CalendarViewMode>("month");
+  const [calendarView, setCalendarView] = useState<CalendarViewMode>("month");
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<TaskRow | null>(null);
@@ -71,6 +72,7 @@ export default function CrediarioTarefasPage() {
   const [formTelefone, setFormTelefone] = useState("");
   const [formCpf, setFormCpf] = useState("");
   const [formObservacao, setFormObservacao] = useState("");
+  const [formTime, setFormTime] = useState("09:00");
 
   const { queryStart, queryEnd, label: calendarLabel } = useMemo(
     () => getCalendarQueryRange(focusDate, calendarView),
@@ -84,7 +86,7 @@ export default function CrediarioTarefasPage() {
     const end = toDateString(queryEnd);
     const { data, error } = await supabase
       .from("crediario_tasks")
-      .select("id, lead_name, scheduled_date, phone, cpf, observacao")
+      .select("id, lead_name, scheduled_date, scheduled_time, phone, cpf, observacao")
       .eq("user_id", user.id)
       .gte("scheduled_date", start)
       .lte("scheduled_date", end)
@@ -106,6 +108,7 @@ export default function CrediarioTarefasPage() {
     setFormTelefone("");
     setFormCpf("");
     setFormObservacao("");
+    setFormTime("09:00");
     setEditing(null);
   };
 
@@ -122,6 +125,7 @@ export default function CrediarioTarefasPage() {
     setFormTelefone(task.phone ? formatPhoneBR(task.phone) : "");
     setFormCpf(task.cpf ? formatCpfBR(task.cpf) : "");
     setFormObservacao(task.observacao || "");
+    setFormTime((task.scheduled_time || "09:00:00").slice(0, 5));
     setDialogOpen(true);
   };
 
@@ -142,6 +146,7 @@ export default function CrediarioTarefasPage() {
       user_id: user.id,
       lead_name: nome,
       scheduled_date: toDateString(formDate),
+      scheduled_time: `${formTime}:00`,
       phone: unformatPhone(formTelefone) || null,
       cpf: formCpf.replace(/\D/g, "") || null,
       observacao: formObservacao.trim() || null,
@@ -222,6 +227,16 @@ export default function CrediarioTarefasPage() {
             </Button>
             <span className="text-sm font-semibold capitalize ml-1">{calendarLabel}</span>
           </div>
+          <Select value={calendarView} onValueChange={(v) => setCalendarView(v as CalendarViewMode)}>
+            <SelectTrigger className="h-8 w-[120px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="month">Mês</SelectItem>
+              <SelectItem value="week">Semana</SelectItem>
+              <SelectItem value="day">Dia</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {loading ? (
@@ -229,12 +244,16 @@ export default function CrediarioTarefasPage() {
         ) : (
           <CrediarioTasksCalendar
             tasks={tasks}
+            view={calendarView}
             focusDate={focusDate}
             onSelectTask={(t) => {
               const full = tasks.find((x) => x.id === t.id);
               if (full) openEdit(full);
             }}
-            onDayClick={(d) => openAdd(d)}
+            onDayClick={(d) => {
+              setFocusDate(d);
+              setCalendarView("day");
+            }}
           />
         )}
       </div>
@@ -260,9 +279,10 @@ export default function CrediarioTarefasPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Data do agendamento *</Label>
-              <Popover>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Data do agendamento *</Label>
+                <Popover>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
@@ -276,6 +296,11 @@ export default function CrediarioTarefasPage() {
                   <Calendar mode="single" selected={formDate} onSelect={setFormDate} locale={ptBR} />
                 </PopoverContent>
               </Popover>
+              </div>
+              <div className="space-y-2">
+                <Label>Horário</Label>
+                <Input type="time" value={formTime} onChange={(e) => setFormTime(e.target.value)} />
+              </div>
             </div>
 
             <div className="space-y-2">

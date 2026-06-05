@@ -67,6 +67,7 @@ export type Database = {
           observacao: string | null
           phone: string | null
           scheduled_date: string
+          scheduled_time: string
           updated_at: string
           user_id: string
         }
@@ -78,6 +79,7 @@ export type Database = {
           observacao?: string | null
           phone?: string | null
           scheduled_date: string
+          scheduled_time?: string
           updated_at?: string
           user_id: string
         }
@@ -89,6 +91,7 @@ export type Database = {
           observacao?: string | null
           phone?: string | null
           scheduled_date?: string
+          scheduled_time?: string
           updated_at?: string
           user_id?: string
         }
