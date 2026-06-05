@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { resolveStoragePublicUrl } from "@/lib/storage-url";
 import { Camera, Loader2, Save, Lock } from "lucide-react";
 
 interface ProfileData {
@@ -47,7 +48,7 @@ export default function ProfilePage() {
       setProfile(data);
       setFullName(data.full_name || "");
       setPhone(data.phone || "");
-      setAvatarUrl(data.avatar_url);
+      setAvatarUrl(data.avatar_url ? resolveStoragePublicUrl(data.avatar_url) : null);
     }
   };
 
@@ -79,7 +80,7 @@ export default function ProfilePage() {
         .from("avatars")
         .getPublicUrl(path);
 
-      const url = `${publicUrl}?t=${Date.now()}`;
+      const url = `${resolveStoragePublicUrl(publicUrl)}?t=${Date.now()}`;
       setAvatarUrl(url);
 
       await supabase

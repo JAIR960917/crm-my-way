@@ -6,16 +6,22 @@ export function resolveStoragePublicUrl(url: string | null | undefined): string 
 
   const cfg = getRuntimeConfig();
   const base = (cfg.supabaseUrl || import.meta.env.VITE_SUPABASE_URL || "").replace(/\/$/, "");
-  const storagePath = url.match(/\/storage\/v1\/object\/public\/(.+)$/i);
-  if (base && storagePath) {
-    return `${base}/storage/v1/object/public/${storagePath[1]}`;
+  if (!base) return url;
+
+  const [pathPart, ...queryParts] = url.split("?");
+  const query = queryParts.length ? `?${queryParts.join("?")}` : "";
+
+  // Qualquer host *.supabase.co legado → mesmo path no backend atual
+  const legacyHost = pathPart.match(/^https?:\/\/[^/]*supabase\.co(\/.*)$/i);
+  if (legacyHost) {
+    return `${base}${legacyHost[1]}${query}`;
   }
-  // URLs legadas do Lovable Cloud ainda gravadas no banco
-  if (base && /supabase\.co/i.test(url)) {
-    const legacyPath = url.match(/supabase\.co(\/storage\/v1\/object\/public\/.+)$/i);
-    if (legacyPath) {
-      return `${base}${legacyPath[1]}`;
-    }
+
+  // URL absoluta de outro host self-hosted → reescreve só o host
+  const storageOnOtherHost = pathPart.match(/^https?:\/\/[^/]+(\/storage\/v1\/.+)$/i);
+  if (storageOnOtherHost && !pathPart.startsWith(base)) {
+    return `${base}${storageOnOtherHost[1]}${query}`;
   }
+
   return url;
 }

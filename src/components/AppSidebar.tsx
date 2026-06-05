@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { resolveStoragePublicUrl } from "@/lib/storage-url";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 import { pageKeyForPath } from "@/lib/pagePermissions";
@@ -165,7 +166,7 @@ export default function AppSidebar({ onNavigate }: Props) {
       {/* ===== Topo: logo + nome do sistema ===== */}
       <div className="flex items-center gap-2 px-5 py-5 flex-shrink-0">
         {settings.logo_url ? (
-          <img src={settings.logo_url} alt="Logo" className="h-8 w-8 rounded-lg object-contain" />
+          <img src={resolveStoragePublicUrl(settings.logo_url)} alt="Logo" className="h-8 w-8 rounded-lg object-contain" />
         ) : (
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary">
             <LayoutDashboard className="h-4 w-4 text-sidebar-primary-foreground" />
