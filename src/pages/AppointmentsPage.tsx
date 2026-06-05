@@ -233,6 +233,14 @@ export default function AppointmentsPage() {
 
   const getProfileName = (userId: string) => profiles.find(p => p.user_id === userId)?.full_name || "—";
 
+  const appointmentActionContext = (appt: Appointment, actorId: string) => {
+    const leadName = appt.nome?.trim() || "Lead";
+    const vendedorPart = actorId !== appt.scheduled_by
+      ? ` (vendedor: ${getProfileName(appt.scheduled_by)})`
+      : "";
+    return { leadName, vendedorPart };
+  };
+
   const updateField = async (id: string, field: string, value: string) => {
     const apptBefore = appointments.find((a) => a.id === id);
     if (!apptBefore || !user) return;
@@ -249,14 +257,19 @@ export default function AppointmentsPage() {
           consulta_paga_em: nowIso,
           consulta_paga_por: user.id,
         };
-        const { error } = await supabase.from("crm_appointments").update(payload).eq("id", id);
-        if (error) { toast.error("Erro ao atualizar"); return; }
+        const { error } = await supabase.rpc("set_crm_appointment_consulta_paga", {
+          p_appointment_id: id,
+          p_paga: true,
+        });
+        if (error) { toast.error(error.message || "Erro ao atualizar"); return; }
         setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, ...payload } : a)));
+        const { leadName, vendedorPart } = appointmentActionContext(apptBefore, user.id);
         await logAppointmentHistory(
           id,
           user.id,
           "consulta_paga",
-          `${getProfileName(user.id)} marcou consulta paga como Sim`,
+          `${getProfileName(user.id)} marcou consulta paga como Sim no agendamento de ${leadName}${vendedorPart}`,
+          { lead_nome: leadName, scheduled_by: apptBefore.scheduled_by },
         );
         return;
       }
@@ -270,11 +283,21 @@ export default function AppointmentsPage() {
           consulta_paga_em: null,
           consulta_paga_por: null,
         };
-        const { error } = await supabase.from("crm_appointments").update(payload).eq("id", id);
-        if (error) { toast.error("Erro ao atualizar"); return; }
+        const { error } = await supabase.rpc("set_crm_appointment_consulta_paga", {
+          p_appointment_id: id,
+          p_paga: false,
+        });
+        if (error) { toast.error(error.message || "Erro ao atualizar"); return; }
         setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, ...payload } : a)));
         if (isAdmin) {
-          await logAppointmentHistory(id, user.id, "consulta_paga", `${getProfileName(user.id)} marcou consulta paga como Não`);
+          const { leadName, vendedorPart } = appointmentActionContext(apptBefore, user.id);
+          await logAppointmentHistory(
+            id,
+            user.id,
+            "consulta_paga",
+            `${getProfileName(user.id)} marcou consulta paga como Não no agendamento de ${leadName}${vendedorPart}`,
+            { lead_nome: leadName, scheduled_by: apptBefore.scheduled_by },
+          );
         }
         return;
       }
@@ -302,16 +325,21 @@ export default function AppointmentsPage() {
       return;
     }
     const payload: Record<string, unknown> = { [field]: value };
-    const { error } = await supabase.from("crm_appointments").update(payload).eq("id", id);
-    if (error) toast.error("Erro ao atualizar");
+    const { error } = await supabase.rpc("update_crm_appointment_field", {
+      p_appointment_id: id,
+      p_field: field,
+      p_value: value,
+    });
+    if (error) toast.error(error.message || "Erro ao atualizar");
     else {
       setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, ...payload } : a)));
+      const { leadName, vendedorPart } = appointmentActionContext(apptBefore, user.id);
       await logAppointmentHistory(
         id,
         user.id,
         "field_update",
-        `${getProfileName(user.id)} alterou ${field}`,
-        { field, value },
+        `${getProfileName(user.id)} alterou ${field} do agendamento de ${leadName}${vendedorPart}`,
+        { field, value, lead_nome: leadName, scheduled_by: apptBefore.scheduled_by },
       );
     }
   };
@@ -612,14 +640,9 @@ export default function AppointmentsPage() {
   const confirmDelete = async () => {
     if (!deleteId || !user) return;
     const appt = appointments.find(a => a.id === deleteId);
-    // Return lead to original column if it has a real lead_id
-    if (appt && appt.lead_id) {
-      await supabase.from("crm_leads").update({ status: appt.previous_status } as any).eq("id", appt.lead_id);
-    }
-    const { error } = await supabase.from("crm_appointments").update({
-      deleted_at: new Date().toISOString(),
-      deleted_by: user.id,
-    }).eq("id", deleteId);
+    const { error } = await supabase.rpc("soft_delete_crm_appointment", {
+      p_appointment_id: deleteId,
+    });
     if (error) toast.error(error.message || "Erro ao excluir");
     else {
       const actorName = getProfileName(user.id);
