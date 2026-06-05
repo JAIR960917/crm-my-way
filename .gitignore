@@ -17,6 +17,9 @@ dist-ssr
 .env.*
 !.env.vps.example
 
+# Gerado pelo deploy.sh na VPS (não versionar)
+public/runtime-config.js
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

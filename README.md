@@ -40,7 +40,7 @@ docker compose up -d
 
 ### Importante
 
-- O frontend lê `public/runtime-config.js`. No deploy, o `deploy.sh` grava esse arquivo para apontar o app para o Supabase da VPS.
+- O frontend lê `public/runtime-config.js`. Na VPS, o `deploy.sh` **gera** esse arquivo (não fica no Git). Para dev local, copie `public/runtime-config.example.js` ou use `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` no `.env`.
 - O client do Supabase (`src/integrations/supabase/client.ts`) já suporta **runtime-config.js**, então você não precisa rebuildar o frontend só para mudar a URL do backend.
 
 ### Reverse proxy (TLS)
