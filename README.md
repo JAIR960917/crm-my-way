@@ -32,6 +32,16 @@ docker compose up -d
 ./deploy.sh
 ```
 
+**Atualizar a VPS após `git push`:** use `./scripts/vps-update.sh` (evita conflito no `runtime-config.js`). Se o `git pull` falhar com *"local changes would be overwritten"*, rode:
+
+```bash
+cd /opt/crm
+git fetch origin
+git reset --hard origin/main
+rm -f public/runtime-config.js
+./deploy.sh
+```
+
 ### URLs (padrão)
 
 - **Frontend**: `https://crm.joonker.com.br` (internamente o container escuta em `:8080`)
