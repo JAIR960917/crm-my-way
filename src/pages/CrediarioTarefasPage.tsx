@@ -1,0 +1,347 @@
+/**
+ * Tarefas — Crediário (usuário financeiro).
+ * Calendário mensal para agendar follow-ups com leads: nome, data, telefone, CPF e observação.
+ */
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { format, parseISO } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { CalendarClock, CalendarIcon, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import AppLayout from "@/components/AppLayout";
+import CrediarioTasksCalendar, { type CrediarioTask } from "@/components/crediario/CrediarioTasksCalendar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  getCalendarQueryRange,
+  shiftFocusDate,
+  type CalendarViewMode,
+} from "@/lib/appointmentCalendarUtils";
+import { formatPhoneBR, unformatPhone } from "@/lib/phoneFormat";
+import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+
+type TaskRow = CrediarioTask & {
+  phone: string | null;
+  cpf: string | null;
+  observacao: string | null;
+};
+
+function formatCpfBR(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+}
+
+function toDateString(d: Date): string {
+  return format(d, "yyyy-MM-dd");
+}
+
+export default function CrediarioTarefasPage() {
+  const { user } = useAuth();
+  const [tasks, setTasks] = useState<TaskRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [focusDate, setFocusDate] = useState(() => new Date());
+  const [calendarView] = useState<CalendarViewMode>("month");
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<TaskRow | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const [formNome, setFormNome] = useState("");
+  const [formDate, setFormDate] = useState<Date | undefined>();
+  const [formTelefone, setFormTelefone] = useState("");
+  const [formCpf, setFormCpf] = useState("");
+  const [formObservacao, setFormObservacao] = useState("");
+
+  const { queryStart, queryEnd, label: calendarLabel } = useMemo(
+    () => getCalendarQueryRange(focusDate, calendarView),
+    [focusDate, calendarView],
+  );
+
+  const fetchTasks = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    const start = toDateString(queryStart);
+    const end = toDateString(queryEnd);
+    const { data, error } = await supabase
+      .from("crediario_tasks")
+      .select("id, lead_name, scheduled_date, phone, cpf, observacao")
+      .eq("user_id", user.id)
+      .gte("scheduled_date", start)
+      .lte("scheduled_date", end)
+      .order("scheduled_date", { ascending: true })
+      .order("lead_name", { ascending: true });
+
+    if (error) toast.error("Erro ao carregar tarefas");
+    else setTasks((data || []) as TaskRow[]);
+    setLoading(false);
+  }, [user, queryStart, queryEnd]);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  const resetForm = () => {
+    setFormNome("");
+    setFormDate(undefined);
+    setFormTelefone("");
+    setFormCpf("");
+    setFormObservacao("");
+    setEditing(null);
+  };
+
+  const openAdd = (prefillDate?: Date) => {
+    resetForm();
+    if (prefillDate) setFormDate(prefillDate);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (task: TaskRow) => {
+    setEditing(task);
+    setFormNome(task.lead_name);
+    setFormDate(parseISO(task.scheduled_date));
+    setFormTelefone(task.phone ? formatPhoneBR(task.phone) : "");
+    setFormCpf(task.cpf ? formatCpfBR(task.cpf) : "");
+    setFormObservacao(task.observacao || "");
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!user) return;
+    const nome = formNome.trim();
+    if (!nome) {
+      toast.error("Informe o nome do lead");
+      return;
+    }
+    if (!formDate) {
+      toast.error("Informe a data do agendamento");
+      return;
+    }
+
+    setSaving(true);
+    const payload = {
+      user_id: user.id,
+      lead_name: nome,
+      scheduled_date: toDateString(formDate),
+      phone: unformatPhone(formTelefone) || null,
+      cpf: formCpf.replace(/\D/g, "") || null,
+      observacao: formObservacao.trim() || null,
+    };
+
+    if (editing) {
+      const { error } = await supabase
+        .from("crediario_tasks")
+        .update(payload)
+        .eq("id", editing.id);
+      if (error) toast.error("Erro ao salvar tarefa");
+      else {
+        toast.success("Tarefa atualizada");
+        setDialogOpen(false);
+        resetForm();
+        fetchTasks();
+      }
+    } else {
+      const { error } = await supabase.from("crediario_tasks").insert(payload);
+      if (error) toast.error("Erro ao criar tarefa");
+      else {
+        toast.success("Tarefa criada");
+        setDialogOpen(false);
+        resetForm();
+        fetchTasks();
+      }
+    }
+    setSaving(false);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    const { error } = await supabase.from("crediario_tasks").delete().eq("id", deleteId);
+    if (error) toast.error("Erro ao excluir tarefa");
+    else {
+      toast.success("Tarefa excluída");
+      setDialogOpen(false);
+      resetForm();
+      fetchTasks();
+    }
+    setDeleteId(null);
+  };
+
+  return (
+    <AppLayout>
+      <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <CalendarClock className="h-6 w-6 text-primary" />
+            <h1 className="text-xl sm:text-2xl font-bold">Tarefas</h1>
+          </div>
+          <p className="text-sm text-muted-foreground">{tasks.length} tarefa(s) no período</p>
+        </div>
+        <Button size="sm" onClick={() => openAdd()}>
+          <Plus className="mr-1 h-4 w-4" /> Nova Tarefa
+        </Button>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2">
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="sm" onClick={() => setFocusDate(new Date())}>Hoje</Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setFocusDate((d) => shiftFocusDate(d, calendarView, -1))}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setFocusDate((d) => shiftFocusDate(d, calendarView, 1))}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <span className="text-sm font-semibold capitalize ml-1">{calendarLabel}</span>
+          </div>
+        </div>
+
+        {loading ? (
+          <p className="text-center text-muted-foreground py-8">Carregando...</p>
+        ) : (
+          <CrediarioTasksCalendar
+            tasks={tasks}
+            focusDate={focusDate}
+            onSelectTask={(t) => {
+              const full = tasks.find((x) => x.id === t.id);
+              if (full) openEdit(full);
+            }}
+            onDayClick={(d) => openAdd(d)}
+          />
+        )}
+      </div>
+
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          if (!open) resetForm();
+          setDialogOpen(open);
+        }}
+      >
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editing ? "Editar Tarefa" : "Nova Tarefa"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nome do lead *</Label>
+              <Input
+                value={formNome}
+                onChange={(e) => setFormNome(e.target.value)}
+                placeholder="Nome completo"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Data do agendamento *</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn("w-full justify-start text-left font-normal", !formDate && "text-muted-foreground")}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {formDate ? format(formDate, "PPP", { locale: ptBR }) : "Selecione a data"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar mode="single" selected={formDate} onSelect={setFormDate} locale={ptBR} />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Telefone</Label>
+              <Input
+                value={formTelefone}
+                onChange={(e) => setFormTelefone(formatPhoneBR(e.target.value))}
+                placeholder="(00) 00000-0000"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>CPF</Label>
+              <Input
+                value={formCpf}
+                onChange={(e) => setFormCpf(formatCpfBR(e.target.value))}
+                placeholder="000.000.000-00"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Observação</Label>
+              <Textarea
+                value={formObservacao}
+                onChange={(e) => setFormObservacao(e.target.value)}
+                placeholder="O que foi agendado para fazer com o lead"
+                rows={4}
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2 justify-end pt-2">
+              {editing && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setDeleteId(editing.id)}
+                >
+                  <Trash2 className="mr-1 h-4 w-4" /> Excluir
+                </Button>
+              )}
+              <Button type="button" variant="outline" size="sm" onClick={() => setDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
+                {saving ? "Salvando..." : "Salvar"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir tarefa?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. A tarefa será removida do calendário.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete}>Excluir</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </AppLayout>
+  );
+}

@@ -23,7 +23,7 @@ import {
   Sun, Moon, Download, Settings, UserCircle, Bell, MessageSquare,
   CalendarCheck, UserCheck, Upload, Receipt, Plug, CalendarHeart,
   History, BarChart3, FileBarChart, RefreshCw, Workflow, Activity,
-  ChevronDown, SlidersHorizontal,
+  ChevronDown, SlidersHorizontal, CalendarClock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -46,6 +46,7 @@ const mainNavItems: NavItem[] = [
   { path: "/relatorio-vendas",     label: "Relatório de Vendas",    icon: FileBarChart },
   { path: "/",                     label: "Leads",                  icon: LayoutDashboard },
   { path: "/cobrancas",            label: "Cobranças",              icon: Receipt },
+  { path: "/tarefas-crediario",    label: "Tarefas",                icon: CalendarClock },
   { path: "/agendamentos",         label: "Agendamentos",           icon: CalendarCheck },
   { path: "/orcamentos",           label: "Orçamentos",             icon: Receipt },
   { path: "/clientes-ativos",      label: "Renovação",              icon: UserCheck },

@@ -58,6 +58,42 @@ export type Database = {
           },
         ]
       }
+      crediario_tasks: {
+        Row: {
+          cpf: string | null
+          created_at: string
+          id: string
+          lead_name: string
+          observacao: string | null
+          phone: string | null
+          scheduled_date: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cpf?: string | null
+          created_at?: string
+          id?: string
+          lead_name: string
+          observacao?: string | null
+          phone?: string | null
+          scheduled_date: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cpf?: string | null
+          created_at?: string
+          id?: string
+          lead_name?: string
+          observacao?: string | null
+          phone?: string | null
+          scheduled_date?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       companies: {
         Row: {
           address: string | null

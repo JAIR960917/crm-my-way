@@ -58,6 +58,7 @@ import DashboardPage from "./pages/DashboardPage";
 import SalesReportPage from "./pages/SalesReportPage";
 import MeuDashboardPage from "./pages/MeuDashboardPage";
 import CobrancaDashboardPage from "./pages/CobrancaDashboardPage";
+import CrediarioTarefasPage from "./pages/CrediarioTarefasPage";
 import MaintenancePage from "./pages/MaintenancePage";
 import NotFound from "./pages/NotFound";
 
@@ -159,6 +160,7 @@ const AppRoutes = () => {
       <Route path="/importar" element={<RoleGate><ImportLeadsPage /></RoleGate>} />
       <Route path="/cobrancas" element={<RoleGate><CobrancasPage /></RoleGate>} />
       <Route path="/cobrancas/fluxo" element={<RoleGate><CobrancaFlowPage /></RoleGate>} />
+      <Route path="/tarefas-crediario" element={<RoleGate><CrediarioTarefasPage /></RoleGate>} />
       <Route path="/integracoes-ssotica" element={<RoleGate><SSoticaIntegrationsPage /></RoleGate>} />
       <Route path="/status-ssotica" element={<RoleGate><SSoticaStatusPage /></RoleGate>} />
       <Route path="/logs-movimentacao" element={<RoleGate><TransitionLogsPage /></RoleGate>} />
