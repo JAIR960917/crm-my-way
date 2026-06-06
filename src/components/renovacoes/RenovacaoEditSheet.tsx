@@ -23,6 +23,7 @@ import ClientProductsTab from "@/components/ClientProductsTab";
 import { recordCardOpen } from "@/lib/cardOpens";
 import RenovacaoContactAttemptForm from "./RenovacaoContactAttemptForm";
 import RenovacaoOutraOticaFields from "./RenovacaoOutraOticaFields";
+import { isOpenCobrancaStatus } from "@/lib/cobrancaStatus";
 
 type Profile = { user_id: string; full_name: string; avatar_url?: string | null };
 type CrmStatus = { id: string; key: string; label: string };
@@ -111,6 +112,8 @@ export default function RenovacaoEditSheet(props: Props) {
   const [tratativaRegistrada, setTratativaRegistrada] = useState(false);
   const [taskAddedThisSession, setTaskAddedThisSession] = useState(false);
   const [contactDirty, setContactDirty] = useState(false);
+  const [openCobrancaConflict, setOpenCobrancaConflict] = useState<{ id: string; status: string } | null>(null);
+  const [removingConflict, setRemovingConflict] = useState(false);
   const requiresTratativa = isEditing && !isAdmin;
   const hasPendingTasks = useMemo(() => activities.some(a => !a.completed_at), [activities]);
   const sessionRequirementMet = tratativaRegistrada || taskAddedThisSession;
@@ -135,10 +138,26 @@ export default function RenovacaoEditSheet(props: Props) {
       setTratativaRegistrada(false);
       setTaskAddedThisSession(false);
       setContactDirty(false);
+      setOpenCobrancaConflict(null);
       // Track card open for daily salesperson report
       if (user?.id) {
         recordCardOpen({ userId: user.id, cardType: "renovacao", renovacaoId });
       }
+
+      const phoneField = fields.find((f) => f.is_phone_field);
+      const phone = phoneField
+        ? String(formData[`field_${phoneField.id}`] ?? "")
+        : String(formData.telefone ?? "");
+      if (phone.replace(/\D/g, "").length >= 10) {
+        void supabase.rpc("find_cobranca_by_phone", { p_phone: phone }).then(({ data }) => {
+          const row = Array.isArray(data) ? data[0] : data;
+          if (row?.id && isOpenCobrancaStatus(row.status)) {
+            setOpenCobrancaConflict({ id: row.id, status: row.status });
+          }
+        });
+      }
+    } else {
+      setOpenCobrancaConflict(null);
     }
   }, [open, renovacaoId]);
 
@@ -152,6 +171,20 @@ export default function RenovacaoEditSheet(props: Props) {
       return;
     }
     onOpenChange(next);
+  };
+
+  const handleRemoveFromRenovacao = async () => {
+    if (!renovacaoId || removingConflict) return;
+    setRemovingConflict(true);
+    const { error } = await supabase.rpc("soft_delete_renovacao", { _renovacao_id: renovacaoId });
+    setRemovingConflict(false);
+    if (error) {
+      toast.error("Erro ao remover da Renovação");
+      return;
+    }
+    toast.success("Cliente removido da Renovação — continue o atendimento em Cobranças.");
+    onOpenChange(false);
+    onCardUpdated?.();
   };
 
   const timeline = useMemo(() => {
@@ -369,6 +402,27 @@ export default function RenovacaoEditSheet(props: Props) {
               }
               onSave(e);
             }} id="renovacao-form" className="p-5 space-y-4">
+              {openCobrancaConflict && (
+                <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 space-y-2">
+                  <div className="flex items-start gap-2 text-sm">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                    <p>
+                      Este cliente possui <strong>cobrança em aberto</strong> e não deveria estar na Renovação.
+                      Atenda-o na tela de Cobranças.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={removingConflict}
+                    onClick={() => void handleRemoveFromRenovacao()}
+                  >
+                    {removingConflict ? "Removendo..." : "Remover da Renovação"}
+                  </Button>
+                </div>
+              )}
               {fields.length === 0 && (
                 <p className="text-xs text-muted-foreground text-center py-4">
                   Nenhuma pergunta configurada. Configure em <strong>Formulário Renovação</strong>.

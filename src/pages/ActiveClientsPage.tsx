@@ -32,6 +32,7 @@ import {
   RENOVACAO_OUTRA_OTICA_FOLLOWUP_DAYS,
 } from "@/lib/renovacaoFlow";
 import { syncRenovacaoOutraOticaFollowup } from "@/lib/renovacaoOutraOticaSave";
+import { isOpenCobrancaStatus } from "@/lib/cobrancaStatus";
 
 type Renovacao = {
   id: string;
@@ -499,6 +500,17 @@ export default function ActiveClientsPage() {
         toast.success("Renovação atualizada");
       }
     } else {
+      const phoneForCheck = String(dataToSave.telefone ?? "").trim();
+      if (phoneForCheck) {
+        const { data: cobMatch } = await supabase.rpc("find_cobranca_by_phone", { p_phone: phoneForCheck });
+        const cob = Array.isArray(cobMatch) ? cobMatch[0] : cobMatch;
+        if (cob && isOpenCobrancaStatus(cob.status)) {
+          toast.error("Este cliente já está na Cobrança (dívida em aberto). Atenda-o na tela de Cobranças.");
+          setSaving(false);
+          return;
+        }
+      }
+
       const { data: created, error } = await supabase
         .from("crm_renovacoes")
         .insert({ ...payload, created_by: user?.id })
