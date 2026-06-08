@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import AppLayout from "@/components/AppLayout";
@@ -109,6 +109,8 @@ export default function AppointmentsPage() {
   const [calendarView, setCalendarView] = useState<CalendarViewMode>("month");
   const [listDay, setListDay] = useState<Date | null>(null);
   const [filterCompanyId, setFilterCompanyId] = useState<string>("all");
+  const [userCompanyId, setUserCompanyId] = useState<string | null>(null);
+  const [eyeExamDayKeys, setEyeExamDayKeys] = useState<Set<string>>(new Set());
 
   // Add/Edit dialog
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -157,6 +159,39 @@ export default function AppointmentsPage() {
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
 
+
+  const fetchEyeExamDays = useCallback(async () => {
+    const { queryStart, queryEnd } = getCalendarQueryRange(focusDate, calendarView);
+    let query = supabase
+      .from("company_eye_exam_days")
+      .select("exam_date")
+      .gte("exam_date", format(queryStart, "yyyy-MM-dd"))
+      .lte("exam_date", format(queryEnd, "yyyy-MM-dd"));
+    if (isAdmin && filterCompanyId !== "all") {
+      query = query.eq("company_id", filterCompanyId);
+    } else if (!isAdmin && userCompanyId) {
+      query = query.eq("company_id", userCompanyId);
+    }
+    const { data } = await query;
+    setEyeExamDayKeys(
+      new Set((data || []).map((r) => String((r as { exam_date: string }).exam_date).slice(0, 10))),
+    );
+  }, [focusDate, calendarView, isAdmin, filterCompanyId, userCompanyId]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (isAdmin) return;
+    void supabase
+      .from("profiles")
+      .select("company_id")
+      .eq("user_id", user.id)
+      .maybeSingle()
+      .then(({ data }) => setUserCompanyId(data?.company_id ?? null));
+  }, [user, isAdmin]);
+
+  useEffect(() => {
+    void fetchEyeExamDays();
+  }, [fetchEyeExamDays]);
 
   const fetchAll = async () => {
     setLoading(true);
@@ -824,6 +859,14 @@ export default function AppointmentsPage() {
               </SelectContent>
             </Select>
           </div>
+          {eyeExamDayKeys.size > 0 && (
+            <p className="text-[11px] text-muted-foreground flex items-center gap-2 px-1">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-semibold text-white">
+                {format(focusDate, "d")}
+              </span>
+              Dia com exame de vista agendado na empresa
+            </p>
+          )}
           {loading ? (
             <p className="text-center text-muted-foreground py-8">Carregando...</p>
           ) : (
@@ -831,6 +874,7 @@ export default function AppointmentsPage() {
               appointments={filteredAppointments}
               view={calendarView}
               focusDate={focusDate}
+              eyeExamDayKeys={eyeExamDayKeys}
               onSelectAppointment={(a) => {
                 const full = appointments.find((x) => x.id === a.id);
                 if (full) openEdit(full);

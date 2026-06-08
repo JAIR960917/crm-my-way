@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Save, Upload, Trash2, Clock, Wrench, RotateCcw } from "lucide-react";
 import RolePermissionsManager from "@/components/settings/RolePermissionsManager";
+import CompanyEyeExamDaysManager from "@/components/settings/CompanyEyeExamDaysManager";
 
 type SettingField = {
   key: string;
@@ -461,6 +462,10 @@ export default function SettingsPage() {
           <Save className="mr-2 h-4 w-4" />
           {saving ? "Salvando..." : "Salvar Configurações"}
         </Button>
+      </div>
+
+      <div className="mt-10 border-t pt-8">
+        <CompanyEyeExamDaysManager />
       </div>
 
       <div className="mt-10 border-t pt-8">

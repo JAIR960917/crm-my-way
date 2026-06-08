@@ -41,6 +41,8 @@ type Props = {
   focusDate: Date;
   onSelectAppointment: (appt: CalendarAppointment) => void;
   onDayClick?: (date: Date) => void;
+  /** YYYY-MM-DD — dias com exame de vista configurado */
+  eyeExamDayKeys?: Set<string>;
 };
 
 const MONTH_MAX_VISIBLE = 5;
@@ -108,7 +110,7 @@ function EventChip({
   );
 }
 
-function MonthView({ appointments, focusDate, onSelectAppointment, onDayClick }: Props) {
+function MonthView({ appointments, focusDate, onSelectAppointment, onDayClick, eyeExamDayKeys }: Props) {
   const byDay = useMemo(() => apptsByDay(appointments), [appointments]);
   const grid = buildMonthGrid(focusDate);
   const today = new Date();
@@ -130,6 +132,7 @@ function MonthView({ appointments, focusDate, onSelectAppointment, onDayClick }:
           const total = dayAppts.length;
           const inMonth = isSameMonth(day, focusDate);
           const isToday = isSameDay(day, today);
+          const isEyeExamDay = eyeExamDayKeys?.has(key) ?? false;
 
           return (
             <div
@@ -146,7 +149,9 @@ function MonthView({ appointments, focusDate, onSelectAppointment, onDayClick }:
                   onClick={(e) => { e.stopPropagation(); onDayClick?.(day); }}
                   className={cn(
                     "h-7 w-7 rounded-full text-sm font-medium flex items-center justify-center",
-                    isToday && "bg-primary text-primary-foreground",
+                    isEyeExamDay && "bg-amber-500 text-white hover:bg-amber-600",
+                    isToday && !isEyeExamDay && "bg-primary text-primary-foreground",
+                    isToday && isEyeExamDay && "ring-2 ring-primary ring-offset-1 ring-offset-background",
                   )}
                 >
                   {format(day, "d")}
@@ -180,6 +185,7 @@ function TimeGridView({
   focusDate,
   view,
   onSelectAppointment,
+  eyeExamDayKeys,
 }: Props & { view: "week" | "day" }) {
   const days = useMemo(
     () => (view === "week" ? buildWeekDays(focusDate) : [focusDate]),
@@ -201,15 +207,19 @@ function TimeGridView({
         <div className="w-14 shrink-0 border-r" />
         {days.map((day) => {
           const isToday = isSameDay(day, now);
+          const key = dayKey(day);
+          const isEyeExamDay = eyeExamDayKeys?.has(key) ?? false;
           return (
-            <div key={dayKey(day)} className="flex-1 min-w-[100px] text-center py-2 border-r last:border-r-0">
+            <div key={key} className="flex-1 min-w-[100px] text-center py-2 border-r last:border-r-0">
               <div className="text-[11px] font-semibold text-muted-foreground">
                 {WEEKDAY_LABELS[day.getDay()]}
               </div>
               <div
                 className={cn(
                   "inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium mt-0.5",
-                  isToday && "bg-primary text-primary-foreground",
+                  isEyeExamDay && "bg-amber-500 text-white",
+                  isToday && !isEyeExamDay && "bg-primary text-primary-foreground",
+                  isToday && isEyeExamDay && "ring-2 ring-primary ring-offset-1 ring-offset-background bg-amber-500 text-white",
                 )}
               >
                 {format(day, "d")}
