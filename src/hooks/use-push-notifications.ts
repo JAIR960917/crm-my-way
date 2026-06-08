@@ -17,6 +17,10 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
+function isNotificationSupported() {
+  return typeof window !== "undefined" && "Notification" in window;
+}
+
 function isStandaloneMode() {
   return window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
 }
@@ -46,6 +50,10 @@ export function usePushNotifications() {
     }
 
     if (isIOSDevice() && !isStandaloneMode()) {
+      return false;
+    }
+
+    if (!isNotificationSupported()) {
       return false;
     }
 
@@ -147,6 +155,7 @@ export function usePushNotifications() {
   // Re-subscribe on every app load to keep push subscription fresh
   useEffect(() => {
     if (!user) return;
+    if (!isNotificationSupported()) return;
     if (Notification.permission !== "granted") return;
     if (isIOSDevice() && !isStandaloneMode()) return;
 
