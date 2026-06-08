@@ -440,7 +440,9 @@ export default function ActiveClientsPage() {
     );
     if (nameField) dataToSave.nome = formData[`field_${nameField.id}`] || "";
     if (phoneField) dataToSave.telefone = formData[`field_${phoneField.id}`] || "";
-    const lastVisitValue = lastVisitField ? formData[`field_${lastVisitField.id}`] : null;
+    const lastVisitValue = lastVisitField
+      ? (editingItem?.data_ultima_compra ?? formData[`field_${lastVisitField.id}`] ?? null)
+      : null;
     const assignedTo = formAssigned || null;
     const hasAssignedUser = !!assignedTo;
 

@@ -358,7 +358,18 @@ export default function RenovacaoEditSheet(props: Props) {
             })}
           </div>
         )}
-        {field.field_type === "date" && (
+        {field.field_type === "date" && isLastVisit && (
+          <div
+            className={cn(
+              "flex h-9 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm",
+              !selectedDate && "text-muted-foreground",
+            )}
+          >
+            <CalendarIcon className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+            {selectedDate ? format(selectedDate, "dd/MM/yyyy", { locale: ptBR }) : "—"}
+          </div>
+        )}
+        {field.field_type === "date" && !isLastVisit && (
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" className={cn("w-full justify-start text-left font-normal h-9 text-sm", !value && "text-muted-foreground")}>
