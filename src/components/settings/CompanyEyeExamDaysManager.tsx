@@ -2,7 +2,6 @@
  * Configuração de dias com exame de vista por empresa, especialistas e cores por loja.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CalendarDays, ChevronLeft, ChevronRight, Eye, Plus, Trash2, UserRound } from "lucide-react";
 import { toast } from "sonner";
@@ -14,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Calendar } from "@/components/ui/calendar";
 import EyeExamDaySpecialistDialog from "@/components/settings/EyeExamDaySpecialistDialog";
 import {
+  formatExamDateLabel,
+  parseExamDate,
   resolveCompanyExamColor,
   toExamDateKey,
   type CompanyWithExamColor,
@@ -129,7 +130,7 @@ export default function CompanyEyeExamDaysManager() {
 
   const examDateKeys = useMemo(() => new Set(examDays.map((d) => d.exam_date)), [examDays]);
   const selectedDates = useMemo(
-    () => [...examDateKeys].map((d) => parseISO(`${d}T12:00:00`)),
+    () => [...examDateKeys].map((d) => parseExamDate(d)).filter((d): d is Date => !!d),
     [examDateKeys],
   );
   const sortedDays = useMemo(
@@ -344,7 +345,7 @@ export default function CompanyEyeExamDaysManager() {
             {sortedDays.map((day) => (
               <li key={day.id} className="flex items-start justify-between gap-2 px-3 py-2 text-sm">
                 <div>
-                  <p>{format(parseISO(`${day.exam_date}T12:00:00`), "dd/MM/yyyy (EEEE)", { locale: ptBR })}</p>
+                  <p>{formatExamDateLabel(day.exam_date)}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {day.specialistNames.length > 0 ? day.specialistNames.join(", ") : "Sem especialistas"}
                   </p>
@@ -369,18 +370,20 @@ export default function CompanyEyeExamDaysManager() {
         </div>
       )}
 
-      <EyeExamDaySpecialistDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        companyId={companyId}
-        examDate={dialogDate}
-        specialists={specialists}
-        assignedIds={dialogAssignedIds}
-        eyeExamDayId={dialogDayId}
-        onSaved={() => {
-          if (companyId) void loadExamDays(companyId);
-        }}
-      />
+      {dialogOpen && dialogDate && (
+        <EyeExamDaySpecialistDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          companyId={companyId}
+          examDate={dialogDate}
+          specialists={specialists}
+          assignedIds={dialogAssignedIds}
+          eyeExamDayId={dialogDayId}
+          onSaved={() => {
+            if (companyId) void loadExamDays(companyId);
+          }}
+        />
+      )}
     </div>
   );
 }

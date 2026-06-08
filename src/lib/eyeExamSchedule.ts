@@ -1,4 +1,5 @@
-import { format } from "date-fns";
+import { format, isValid, parseISO } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 export const DEFAULT_COMPANY_EXAM_COLORS = [
   "#3B82F6",
@@ -35,6 +36,18 @@ export type SpecialistScheduleEntry = {
 
 export function toExamDateKey(d: Date): string {
   return format(d, "yyyy-MM-dd");
+}
+
+export function parseExamDate(value: string | null | undefined): Date | undefined {
+  if (!value?.trim()) return undefined;
+  const d = parseISO(`${value.trim().slice(0, 10)}T12:00:00`);
+  return isValid(d) ? d : undefined;
+}
+
+export function formatExamDateLabel(value: string | null | undefined, fallback = "—"): string {
+  const d = parseExamDate(value);
+  if (!d) return fallback;
+  return format(d, "dd/MM/yyyy (EEEE)", { locale: ptBR });
 }
 
 export function resolveCompanyExamColor(

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { format, parseISO } from "date-fns";
-import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
+import { formatExamDateLabel } from "@/lib/eyeExamSchedule";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -114,7 +113,7 @@ export default function EyeExamDaySpecialistDialog({
     }
   };
 
-  const dateLabel = format(parseISO(`${examDate}T12:00:00`), "dd/MM/yyyy (EEEE)", { locale: ptBR });
+  const dateLabel = formatExamDateLabel(examDate);
   const activeSpecialists = specialists.filter((s) => s.active);
 
   return (
