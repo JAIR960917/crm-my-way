@@ -32,7 +32,8 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
   const [dateStr, setDateStr] = useState("");
   const [time, setTime] = useState("09:00");
   const [formaPagamento, setFormaPagamento] = useState("");
-  const [consultaPaga, setConsultaPaga] = useState<"sim" | "nao" | "">("");
+  const [consultaPaga, setConsultaPaga] = useState<"sim" | "nao" | "cortesia" | "">("");
+  const [valorConsulta, setValorConsulta] = useState("");
   const [canalAgendamento, setCanalAgendamento] = useState("Ligação Leads");
   const [saving, setSaving] = useState(false);
 
@@ -45,7 +46,14 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
     });
   }, [leadId]);
 
-  const isDirty = atendeu !== null || tratativa.trim() !== "" || tentativasObs.trim() !== "" || marcou !== null || dateStr !== "" || formaPagamento !== "";
+  const isDirty =
+    atendeu !== null
+    || tratativa.trim() !== ""
+    || tentativasObs.trim() !== ""
+    || marcou !== null
+    || dateStr !== ""
+    || formaPagamento !== ""
+    || valorConsulta.trim() !== "";
   useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
 
   const reset = () => {
@@ -57,6 +65,7 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
     setTime("09:00");
     setFormaPagamento("");
     setConsultaPaga("");
+    setValorConsulta("");
     onDirtyChange?.(false);
   };
 
@@ -97,6 +106,13 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
         toast.error("Preencha todos os campos do agendamento");
         return;
       }
+      if (consultaPaga !== "cortesia") {
+        const valorNum = parseFloat(valorConsulta.replace(",", "."));
+        if (!valorConsulta.trim() || Number.isNaN(valorNum) || valorNum < 0) {
+          toast.error("Informe o valor da consulta");
+          return;
+        }
+      }
     }
 
     setSaving(true);
@@ -136,12 +152,16 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
         const dt = new Date(y, mo - 1, d, h, m, 0, 0);
 
         const nowIso = new Date().toISOString();
-        const pagaNoAgendamento = consultaPaga === "sim";
+        const pagaNoAgendamento = consultaPaga === "sim" || consultaPaga === "cortesia";
+        const valor =
+          consultaPaga === "cortesia"
+            ? 0
+            : parseFloat(valorConsulta.replace(",", ".")) || 0;
         const { error: apptErr } = await supabase.from("crm_appointments").insert({
           lead_id: leadId,
           scheduled_by: userId,
           scheduled_datetime: dt.toISOString(),
-          valor: 0,
+          valor,
           forma_pagamento: formaPagamento,
           forma_pagamento_oculos: formaPagamento,
           canal_agendamento: canalAgendamento,
@@ -309,14 +329,37 @@ export default function ContactAttemptForm({ leadId, userId, leadStatus, leadSna
 
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Consulta paga no agendamento? <span className="text-destructive">*</span></Label>
-            <Select value={consultaPaga} onValueChange={(v) => setConsultaPaga(v as "sim" | "nao")}>
+            <Select
+              value={consultaPaga}
+              onValueChange={(v) => {
+                const opt = v as "sim" | "nao" | "cortesia";
+                setConsultaPaga(opt);
+                if (opt === "cortesia") setValorConsulta("");
+              }}
+            >
               <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="sim">Sim</SelectItem>
                 <SelectItem value="nao">Não</SelectItem>
+                <SelectItem value="cortesia">Cortesia</SelectItem>
               </SelectContent>
             </Select>
           </div>
+
+          {consultaPaga && consultaPaga !== "cortesia" && (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Valor da consulta (R$) <span className="text-destructive">*</span></Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={valorConsulta}
+                onChange={(e) => setValorConsulta(e.target.value)}
+                placeholder="0,00"
+                className="h-9 text-sm"
+              />
+            </div>
+          )}
         </div>
       )}
 
