@@ -8,21 +8,6 @@ import { Phone, PhoneOff, CalendarCheck, CalendarX, CalendarIcon, Clock, Check }
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-const CANAIS_AGENDAMENTO = [
-  "Ligação Leads",
-  "Ligação Renovação",
-  "Loja",
-  "Rede Social",
-  "Ação Adam",
-  "Convênios",
-  "PAP",
-  "Reavaliação",
-  "Recomendação",
-  "Teste de Visão Online",
-  "Tráfego Pago",
-  "Cortesia",
-];
-
 const FORMAS_PAGAMENTO = [
   "Dinheiro",
   "Cartão de Crédito",
@@ -56,10 +41,18 @@ export default function RenovacaoContactAttemptForm({
   const [dateStr, setDateStr] = useState("");
   const [time, setTime] = useState("09:00");
   const [formaPagamento, setFormaPagamento] = useState("");
-  const [canal, setCanal] = useState("Ligação Renovação");
+  const [consultaPaga, setConsultaPaga] = useState<"sim" | "nao" | "">("");
+  const [valorConsulta, setValorConsulta] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const isDirty = atendeu !== null || tratativa.trim() !== "" || naoAtendeuObs.trim() !== "" || marcou !== null || dateStr !== "" || formaPagamento !== "";
+  const isDirty =
+    atendeu !== null
+    || tratativa.trim() !== ""
+    || naoAtendeuObs.trim() !== ""
+    || marcou !== null
+    || dateStr !== ""
+    || formaPagamento !== ""
+    || valorConsulta.trim() !== "";
   useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
 
   const reset = () => {
@@ -71,7 +64,8 @@ export default function RenovacaoContactAttemptForm({
     setDateStr("");
     setTime("09:00");
     setFormaPagamento("");
-    setCanal("Ligação Renovação");
+    setConsultaPaga("");
+    setValorConsulta("");
     onDirtyChange?.(false);
   };
 
@@ -107,8 +101,13 @@ export default function RenovacaoContactAttemptForm({
       return;
     }
     if (atendeu === "sim" && marcou === "sim") {
-      if (!dateStr || !time || !formaPagamento || !canal) {
+      if (!dateStr || !time || !formaPagamento || !consultaPaga) {
         toast.error("Preencha todos os campos do agendamento");
+        return;
+      }
+      const valorNum = parseFloat(valorConsulta.replace(",", "."));
+      if (!valorConsulta.trim() || Number.isNaN(valorNum) || valorNum < 0) {
+        toast.error("Informe o valor da consulta");
         return;
       }
     }
@@ -152,13 +151,21 @@ export default function RenovacaoContactAttemptForm({
         const [h, m] = time.split(":").map(Number);
         const dt = new Date(y, mo - 1, d, h, m, 0, 0);
 
+        const nowIso = new Date().toISOString();
+        const pagaNoAgendamento = consultaPaga === "sim";
+        const valor = parseFloat(valorConsulta.replace(",", ".")) || 0;
         const { error: apptErr } = await supabase.from("crm_appointments").insert({
           renovacao_id: renovacaoId,
           scheduled_by: userId,
           scheduled_datetime: dt.toISOString(),
-          valor: 0,
+          valor,
           forma_pagamento: formaPagamento,
-          canal_agendamento: canal,
+          forma_pagamento_oculos: formaPagamento,
+          canal_agendamento: "Ligação Renovação",
+          consulta_paga: pagaNoAgendamento,
+          consulta_paga_no_agendamento: pagaNoAgendamento,
+          consulta_paga_em: pagaNoAgendamento ? nowIso : null,
+          consulta_paga_por: pagaNoAgendamento ? userId : null,
           previous_status: renovacaoStatus,
           nome: renovacaoSnapshot.nome,
           telefone: renovacaoSnapshot.telefone,
@@ -335,16 +342,30 @@ export default function RenovacaoContactAttemptForm({
           </div>
 
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Canal de Agendamento <span className="text-destructive">*</span></Label>
-            <Select value={canal} onValueChange={setCanal}>
+            <Label className="text-xs text-muted-foreground">Exame pago no agendamento? <span className="text-destructive">*</span></Label>
+            <Select value={consultaPaga} onValueChange={(v) => setConsultaPaga(v as "sim" | "nao")}>
               <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
-                {CANAIS_AGENDAMENTO.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
+                <SelectItem value="sim">Sim</SelectItem>
+                <SelectItem value="nao">Não</SelectItem>
               </SelectContent>
             </Select>
           </div>
+
+          {consultaPaga && (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Valor da consulta (R$) <span className="text-destructive">*</span></Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={valorConsulta}
+                onChange={(e) => setValorConsulta(e.target.value)}
+                placeholder="0,00"
+                className="h-9 text-sm"
+              />
+            </div>
+          )}
         </div>
       )}
 
