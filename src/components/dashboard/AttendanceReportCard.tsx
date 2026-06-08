@@ -29,6 +29,7 @@ import {
   type AttendanceSellerRow,
   type AttendanceProfile,
   type AttendanceCompany,
+  type AttendanceReportTotals,
 } from "@/lib/attendanceReport";
 
 export type AttendanceReportMode = "admin" | "gerente" | "vendedor";
@@ -56,6 +57,7 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [allRows, setAllRows] = useState<SellerRow[]>([]);
+  const [uniqueTotals, setUniqueTotals] = useState<AttendanceReportTotals | null>(null);
   const [vendedorIds, setVendedorIds] = useState<Set<string>>(new Set());
   const [myCompanyId, setMyCompanyId] = useState<string | null>(null);
   const [dateMode, setDateMode] = useState<"day" | "range">("day");
@@ -96,6 +98,7 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
     setCompanies(result.companies);
     setVendedorIds(result.vendedorIds);
     setAllRows(result.rows);
+    setUniqueTotals(result.uniqueTotals);
   };
 
   useEffect(() => {
@@ -187,22 +190,57 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
     return filtered;
   }, [allRows, companyFilter, sellerFilter, mode, userId, myCompanyId, availableSellers, profiles, companies]);
 
-  const reportTotals = useMemo(
-    () =>
-      filteredRows.reduce(
-        (acc, r) => ({
-          adicionados: acc.adicionados + r.adicionados,
-          tratados: acc.tratados + r.tratados,
-          naoAtenderam: acc.naoAtenderam + r.naoAtenderam,
-          atenderam: acc.atenderam + r.atenderam,
-          agendaram: acc.agendaram + r.agendaram,
-          naoAgendaram: acc.naoAgendaram + r.naoAgendaram,
-          agendamentos: acc.agendamentos + r.agendamentos,
-        }),
-        { adicionados: 0, tratados: 0, naoAtenderam: 0, atenderam: 0, agendaram: 0, naoAgendaram: 0, agendamentos: 0 },
-      ),
-    [filteredRows],
-  );
+  const reportTotals = useMemo(() => {
+    const empty = {
+      adicionados: 0,
+      tratados: 0,
+      naoAtenderam: 0,
+      atenderam: 0,
+      agendaram: 0,
+      naoAgendaram: 0,
+      agendamentos: 0,
+    };
+    if (sellerFilter.length === 1) {
+      const row = filteredRows.find((r) => r.user_id === sellerFilter[0]);
+      return row
+        ? {
+            adicionados: row.adicionados,
+            tratados: row.tratados,
+            naoAtenderam: row.naoAtenderam,
+            atenderam: row.atenderam,
+            agendaram: row.agendaram,
+            naoAgendaram: row.naoAgendaram,
+            agendamentos: row.agendamentos,
+          }
+        : empty;
+    }
+    const summed = filteredRows.reduce(
+      (acc, r) => ({
+        adicionados: acc.adicionados + r.adicionados,
+        tratados: acc.tratados + r.tratados,
+        naoAtenderam: acc.naoAtenderam + r.naoAtenderam,
+        atenderam: acc.atenderam + r.atenderam,
+        agendaram: acc.agendaram + r.agendaram,
+        naoAgendaram: acc.naoAgendaram + r.naoAgendaram,
+        agendamentos: acc.agendamentos + r.agendamentos,
+      }),
+      empty,
+    );
+    const useUniqueLeadTotals =
+      uniqueTotals &&
+      sellerFilter.length === 0 &&
+      (mode !== "admin" || companyFilter === ALL);
+    if (!useUniqueLeadTotals) return summed;
+    return {
+      ...summed,
+      adicionados: uniqueTotals.adicionados,
+      tratados: uniqueTotals.tratados,
+      naoAtenderam: uniqueTotals.naoAtenderam,
+      atenderam: uniqueTotals.atenderam,
+      agendaram: uniqueTotals.agendaram,
+      naoAgendaram: uniqueTotals.naoAgendaram,
+    };
+  }, [filteredRows, sellerFilter, uniqueTotals, mode, companyFilter]);
 
   const toggleSeller = (uid: string) => {
     setSellerFilter((prev) => (prev.includes(uid) ? prev.filter((x) => x !== uid) : [...prev, uid]));
@@ -323,7 +361,7 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
           <SummaryStat label="Agendamentos CRM" value={reportTotals.agendamentos} icon={CalendarClock} tone="default" />
         </div>
         <p className="text-[11px] text-muted-foreground mb-4 -mt-1">
-          Tratados = tentativa de contato (atendeu/não atendeu) ou tarefa criada/alterada no card.
+          Tratados = leads únicos com tentativa de contato ou tarefa manual no card (renovações e mudanças automáticas de coluna não entram).
           Agendamentos CRM = consultas registradas no sistema no período.
         </p>
         {loading ? (

@@ -52,9 +52,51 @@ const classifyContactNote = (content: string): ContactCat | null => {
 
 const isContactAttemptNote = (content: string) => content.startsWith("📞 Tentativa de contato");
 
+const isSystemColumnActivity = (title: string | null | undefined) =>
+  (title || "").startsWith("Mudou de coluna:");
+
+const activityCountsAsTratado = (
+  a: { created_at: string; updated_at: string; title?: string | null },
+  startISO: string,
+  endISO: string,
+) => {
+  if (isSystemColumnActivity(a.title)) return false;
+  if (a.created_at >= startISO && a.created_at <= endISO) return true;
+  if (a.updated_at >= startISO && a.updated_at <= endISO && a.updated_at !== a.created_at) return true;
+  return false;
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  admin: "Administrador",
+  gerente: "Gerente",
+  vendedor: "Vendedor",
+};
+
+const resolveUserDisplayName = (
+  uid: string,
+  profById: Map<string, AttendanceProfile>,
+  roleByUser: Map<string, string>,
+): string => {
+  const p = profById.get(uid);
+  if (p?.full_name?.trim()) return p.full_name.trim();
+  const role = roleByUser.get(uid);
+  if (role) return `${ROLE_LABELS[role] || role} (sem perfil)`;
+  return `Conta removida (${uid.slice(0, 8)})`;
+};
+
 const addToSetMap = (map: Map<string, Set<string>>, uid: string, key: string) => {
   if (!map.has(uid)) map.set(uid, new Set());
   map.get(uid)!.add(key);
+};
+
+export type AttendanceReportTotals = {
+  adicionados: number;
+  tratados: number;
+  naoAtenderam: number;
+  atenderam: number;
+  agendaram: number;
+  naoAgendaram: number;
+  agendamentos: number;
 };
 
 export type AttendanceReportResult = {
@@ -62,6 +104,8 @@ export type AttendanceReportResult = {
   profiles: AttendanceProfile[];
   companies: AttendanceCompany[];
   vendedorIds: Set<string>;
+  /** Totais globais (leads únicos, sem somar vendedores) */
+  uniqueTotals: AttendanceReportTotals;
 };
 
 export async function fetchAttendanceReport(startStr: string, endStr: string): Promise<AttendanceReportResult> {
@@ -76,8 +120,12 @@ export async function fetchAttendanceReport(startStr: string, endStr: string): P
     ]);
 
   const profs = (profilesData || []) as AttendanceProfile[];
+  const profById = new Map(profs.map((p) => [p.user_id, p]));
   const comps = (companiesData || []) as AttendanceCompany[];
   const adminSet = new Set<string>((adminRoles || []).map((r: { user_id: string }) => r.user_id));
+  const roleByUser = new Map<string, string>(
+    (rolesData || []).map((r: { user_id: string; role: string }) => [r.user_id, r.role]),
+  );
   const vendSet = new Set(
     (rolesData || [])
       .filter((r: { role: string }) => r.role === "vendedor")
@@ -90,7 +138,6 @@ export async function fetchAttendanceReport(startStr: string, endStr: string): P
     { data: leadNotes },
     { data: renovNotes },
     { data: leadActivities },
-    { data: renovActivities },
     { data: appointments },
   ] = await Promise.all([
     supabase
@@ -110,12 +157,7 @@ export async function fetchAttendanceReport(startStr: string, endStr: string): P
       .lte("created_at", endISO),
     supabase
       .from("lead_activities")
-      .select("lead_id, created_by, created_at, updated_at")
-      .gte("updated_at", startISO)
-      .lte("updated_at", endISO),
-    supabase
-      .from("renovacao_activities")
-      .select("renovacao_id, created_by, created_at, updated_at")
+      .select("lead_id, created_by, created_at, updated_at, title")
       .gte("updated_at", startISO)
       .lte("updated_at", endISO),
     supabase
@@ -130,40 +172,39 @@ export async function fetchAttendanceReport(startStr: string, endStr: string): P
   const renovNotesInRange = (renovNotes || []) as { user_id: string; renovacao_id: string; content: string; created_at: string }[];
 
   const adicionadosMap = new Map<string, Set<string>>();
+  const globalAdicionados = new Set<string>();
   (createdLeads || []).forEach((l: { id: string; created_by: string | null }) => {
     if (!l.created_by || adminSet.has(l.created_by)) return;
     addToSetMap(adicionadosMap, l.created_by, l.id);
+    globalAdicionados.add(l.id);
   });
 
-  /** Tratados = tentativa de contato OU tarefa criada/alterada no card */
+  /** Tratados = leads únicos com tentativa de contato ou tarefa manual no card (sem renovações nem mudança automática de coluna) */
   const tratadosMap = new Map<string, Set<string>>();
+  const globalTratados = new Set<string>();
+
+  const markLeadTratado = (uid: string, leadId: string) => {
+    addToSetMap(tratadosMap, uid, leadId);
+    globalTratados.add(leadId);
+  };
 
   (leadNotes || []).forEach((n: { user_id: string; lead_id: string; content: string }) => {
     if (adminSet.has(n.user_id) || !isContactAttemptNote(n.content || "")) return;
-    addToSetMap(tratadosMap, n.user_id, `lead:${n.lead_id}`);
+    markLeadTratado(n.user_id, n.lead_id);
   });
 
-  renovNotesInRange.forEach((n) => {
-    if (adminSet.has(n.user_id) || !isContactAttemptNote(n.content || "")) return;
-    addToSetMap(tratadosMap, n.user_id, `renovacao:${n.renovacao_id}`);
-  });
-
-  (leadActivities || []).forEach((a: { lead_id: string; created_by: string; created_at: string; updated_at: string }) => {
+  (
+    (leadActivities || []) as {
+      lead_id: string;
+      created_by: string;
+      created_at: string;
+      updated_at: string;
+      title?: string | null;
+    }[]
+  ).forEach((a) => {
     if (adminSet.has(a.created_by)) return;
-    const inRange =
-      (a.created_at >= startISO && a.created_at <= endISO)
-      || (a.updated_at >= startISO && a.updated_at <= endISO);
-    if (!inRange) return;
-    addToSetMap(tratadosMap, a.created_by, `lead:${a.lead_id}`);
-  });
-
-  ((renovActivities || []) as { renovacao_id: string; created_by: string; created_at: string; updated_at: string }[]).forEach((a) => {
-    if (adminSet.has(a.created_by)) return;
-    const inRange =
-      (a.created_at >= startISO && a.created_at <= endISO)
-      || (a.updated_at >= startISO && a.updated_at <= endISO);
-    if (!inRange) return;
-    addToSetMap(tratadosMap, a.created_by, `renovacao:${a.renovacao_id}`);
+    if (!activityCountsAsTratado(a, startISO, endISO)) return;
+    markLeadTratado(a.created_by, a.lead_id);
   });
 
   type LastEntry = { ts: number; cat: ContactCat };
@@ -197,7 +238,10 @@ export async function fetchAttendanceReport(startStr: string, endStr: string): P
   const atendeuSemAgendar = new Map<string, number>();
 
   latestPerCardDay.forEach((entry, key) => {
-    const uid = key.split("|")[0];
+    const parts = key.split("|");
+    const cardKey = parts[2] || "";
+    if (!cardKey.startsWith("lead:")) return;
+    const uid = parts[0];
     const target =
       entry.cat === "agendou" ? agendou : entry.cat === "naoAtendeu" ? naoAtendeu : atendeuSemAgendar;
     target.set(uid, (target.get(uid) || 0) + 1);
@@ -218,13 +262,32 @@ export async function fetchAttendanceReport(startStr: string, endStr: string): P
     ...agendamentosMap.keys(),
   ]);
 
+  const globalNaoAtendeu = new Set<string>();
+  const globalAtendeu = new Set<string>();
+  const globalAgendou = new Set<string>();
+  const globalSemAgendar = new Set<string>();
+  latestPerCardDay.forEach((entry, key) => {
+    const parts = key.split("|");
+    const cardKey = parts[2] || "";
+    if (!cardKey.startsWith("lead:")) return;
+    const leadId = cardKey.slice("lead:".length);
+    if (entry.cat === "naoAtendeu") globalNaoAtendeu.add(leadId);
+    else if (entry.cat === "agendou") {
+      globalAgendou.add(leadId);
+      globalAtendeu.add(leadId);
+    } else if (entry.cat === "atendeuSemAgendar") {
+      globalSemAgendar.add(leadId);
+      globalAtendeu.add(leadId);
+    }
+  });
+
   const rows: AttendanceSellerRow[] = Array.from(userIds).map((uid) => {
-    const p = profs.find((x) => x.user_id === uid);
+    const p = profById.get(uid);
     const ag = agendou.get(uid) || 0;
     const semAg = atendeuSemAgendar.get(uid) || 0;
     return {
       user_id: uid,
-      full_name: p?.full_name || "(usuário desconhecido)",
+      full_name: resolveUserDisplayName(uid, profById, roleByUser),
       avatar_url: p?.avatar_url || null,
       company_id: p?.company_id || null,
       company_name: p?.company_id ? compById.get(p.company_id) || "—" : "—",
@@ -240,10 +303,21 @@ export async function fetchAttendanceReport(startStr: string, endStr: string): P
 
   rows.sort((a, b) => b.tratados - a.tratados);
 
+  const uniqueTotals: AttendanceReportTotals = {
+    adicionados: globalAdicionados.size,
+    tratados: globalTratados.size,
+    naoAtenderam: globalNaoAtendeu.size,
+    atenderam: globalAtendeu.size,
+    agendaram: globalAgendou.size,
+    naoAgendaram: globalSemAgendar.size,
+    agendamentos: Array.from(agendamentosMap.values()).reduce((s, n) => s + n, 0),
+  };
+
   return {
     rows,
     profiles: profs.filter((p) => !adminSet.has(p.user_id)),
     companies: comps,
     vendedorIds: vendSet,
+    uniqueTotals,
   };
 }
