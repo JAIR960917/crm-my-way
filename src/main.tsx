@@ -1,75 +1,73 @@
 /**
- * ============================================================================
- * main.tsx — Ponto de entrada da aplicação React
- * ============================================================================
- * Este é o PRIMEIRO arquivo executado no navegador. Ele:
- *   1) Decide se deve registrar um Service Worker (PWA / cache offline)
- *   2) Monta o componente raiz <App /> dentro do <div id="root"> do index.html
- *
- * Service Worker:
- *   - Em produção (domínio real): registra para habilitar PWA e cache offline.
- *   - Em preview do Lovable / dentro de iframe: NÃO registra, pois causaria
- *     conflito com o ambiente de pré-visualização.
- * ============================================================================
+ * Ponto de entrada: bootstrap PWA (iOS) + montagem do React.
  */
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
-import "./index.css"; // Tailwind + variáveis de tema (HSL)
+import RootErrorBoundary from "./components/RootErrorBoundary.tsx";
+import { isIOSInAppBrowser, registerPushServiceWorker, runPwaBootstrap } from "@/lib/pwaBootstrap";
+import "./index.css";
 
-/** Detecta se a página está rodando dentro de um iframe (preview do Lovable). */
 const isInIframe = (() => {
   try {
     return window.self !== window.top;
   } catch {
-    // Acesso bloqueado por cross-origin = está em iframe
     return true;
   }
 })();
 
-/** Detecta se o host é o ambiente de preview do Lovable (não-produção). */
 const isPreviewHost =
   window.location.hostname.includes("id-preview--") ||
   window.location.hostname.includes("lovableproject.com");
 
-/**
- * Não registramos mais o antigo /sw.js com cache de app shell.
- * Mantemos apenas um worker mínimo para push no domínio publicado.
- */
 const canRegisterServiceWorker =
   "serviceWorker" in navigator && !isPreviewHost && !isInIframe;
 
-if (canRegisterServiceWorker) {
-  window.addEventListener("load", async () => {
-    try {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-
-      await Promise.all(
-        registrations.map(async (registration) => {
-          const activeUrl = registration.active?.scriptURL ?? "";
-          const waitingUrl = registration.waiting?.scriptURL ?? "";
-          const installingUrl = registration.installing?.scriptURL ?? "";
-          const urls = [activeUrl, waitingUrl, installingUrl].filter(Boolean);
-
-          if (urls.some((url) => url.includes("/sw.js"))) {
-            try {
-              await registration.update();
-            } catch {
-              // no-op
-            }
-          }
-        })
-      );
-
-      await navigator.serviceWorker.register("/service-worker.js");
-    } catch {
-      // no-op
-    }
-  });
-} else {
-  navigator.serviceWorker?.getRegistrations().then((registrations) => {
-    registrations.forEach((registration) => registration.unregister());
-  });
+function showBootMessage(html: string) {
+  const root = document.getElementById("root");
+  if (root) root.innerHTML = html;
 }
 
-// Monta a aplicação React no DOM.
-createRoot(document.getElementById("root")!).render(<App />);
+function mountApp() {
+  const rootEl = document.getElementById("root");
+  if (!rootEl) {
+    showBootMessage("<p style='padding:24px;font-family:system-ui'>Elemento root não encontrado.</p>");
+    return;
+  }
+
+  if (isIOSInAppBrowser()) {
+    showBootMessage(`
+      <div style="min-height:100vh;padding:24px;font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc">
+        <h1 style="font-size:1.2rem;margin-bottom:12px">Abra no Safari</h1>
+        <p style="opacity:.85;line-height:1.5;margin-bottom:16px">
+          No iPhone, links abertos pelo <strong>WhatsApp</strong> ou outros apps podem ficar com tela branca.
+          Toque em <strong>Abrir no Safari</strong> ou copie o endereço e abra no Safari.
+        </p>
+        <p style="font-size:.85rem;opacity:.7">Depois você pode usar <strong>Adicionar à Tela de Início</strong> pelo Safari.</p>
+      </div>
+    `);
+    return;
+  }
+
+  createRoot(rootEl).render(
+    <RootErrorBoundary>
+      <App />
+    </RootErrorBoundary>,
+  );
+}
+
+async function boot() {
+  if (canRegisterServiceWorker) {
+    await runPwaBootstrap();
+    window.addEventListener("load", () => {
+      void registerPushServiceWorker();
+    });
+  } else {
+    navigator.serviceWorker?.getRegistrations().then((registrations) => {
+      registrations.forEach((registration) => registration.unregister());
+    });
+  }
+
+  mountApp();
+}
+
+void boot();

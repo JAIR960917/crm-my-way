@@ -32,9 +32,16 @@
 
   <body>
     <script>
-      (function(){var t=localStorage.getItem('theme');if(t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark')}})();
+      (function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})();
     </script>
     <div id="root"></div>
+    <script>
+      window.addEventListener('error', function (e) {
+        var root = document.getElementById('root');
+        if (!root || root.childElementCount > 0) return;
+        root.innerHTML = '<div style="min-height:100vh;padding:24px;font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc"><h1 style="font-size:1.2rem;margin-bottom:12px">Erro ao carregar</h1><p style="opacity:.85;line-height:1.5">No iPhone, abra no Safari e limpe o cache (Ajustes &gt; Safari &gt; Limpar histórico). Se instalou o app, remova da tela inicial e acesse de novo.</p></div>';
+      });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
