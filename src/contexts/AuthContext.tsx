@@ -17,6 +17,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { ALWAYS_ALLOWED_PATHS, pageKeyForPath } from "@/lib/pagePermissions";
+import { refreshSessionIfNeeded, startSessionKeepAlive } from "@/lib/authSession";
 
 type AppRole = "admin" | "vendedor" | "gerente" | "financeiro";
 
@@ -101,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const restoreSession = async () => {
       try {
         syncPersistedAuthWithCurrentBackend();
-        const { data: { session: restoredSession } } = await supabase.auth.getSession();
+        const restoredSession = await refreshSessionIfNeeded();
         if (!mounted) return;
         setSession(restoredSession);
       } finally {
@@ -112,7 +113,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) return;
-      if (event === "INITIAL_SESSION") return;
+      if (event === "INITIAL_SESSION") {
+        setSession(nextSession);
+        setLoading(false);
+        return;
+      }
       if (event === "SIGNED_OUT") {
         setSession(null);
         setRoles([]);
@@ -132,6 +137,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!session) return;
+    return startSessionKeepAlive((next) => {
+      setSession(next);
+    });
+  }, [session?.user?.id]);
 
   useEffect(() => {
     let mounted = true;

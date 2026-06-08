@@ -67,32 +67,42 @@ export default function ProfilePage() {
 
     setUploading(true);
     try {
-      const ext = file.name.split(".").pop();
+      const rawExt = (file.name.split(".").pop() || "jpg").toLowerCase();
+      const ext = /^[a-z0-9]+$/.test(rawExt) ? rawExt : "jpg";
       const path = `${user.id}/avatar.${ext}`;
 
       const { error: uploadError } = await supabase.storage
         .from("avatars")
-        .upload(path, file, { upsert: true });
+        .upload(path, file, {
+          upsert: true,
+          contentType: file.type || `image/${ext}`,
+          cacheControl: "3600",
+        });
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from("avatars")
-        .getPublicUrl(path);
+      const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
+      const storedUrl = resolveStoragePublicUrl(publicUrl);
+      setAvatarUrl(`${storedUrl}?t=${Date.now()}`);
 
-      const url = `${resolveStoragePublicUrl(publicUrl)}?t=${Date.now()}`;
-      setAvatarUrl(url);
-
-      await supabase
+      const { error: profileError } = await supabase
         .from("profiles")
-        .update({ avatar_url: url })
+        .update({ avatar_url: storedUrl })
         .eq("user_id", user.id);
 
+      if (profileError) throw profileError;
+
       toast.success("Foto atualizada!");
-    } catch {
-      toast.error("Erro ao enviar foto");
+    } catch (err: unknown) {
+      const message =
+        (err as { message?: string })?.message ||
+        (err as { error?: string })?.error ||
+        "Erro desconhecido";
+      console.error("[ProfilePage] avatar upload failed:", err);
+      toast.error(`Erro ao enviar foto: ${message}`);
     } finally {
       setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
