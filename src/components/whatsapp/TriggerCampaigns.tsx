@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { Plus, Trash2, Edit2, Send, Users, Clock, Zap, Smartphone, RotateCcw } from "lucide-react";
+import { Plus, Trash2, Edit2, Send, Users, Clock, Zap, Smartphone, RotateCcw, ShieldCheck } from "lucide-react";
 import ImageUploadField from "@/components/whatsapp/ImageUploadField";
 
 type ModuleKey = "leads" | "cobrancas" | "renovacoes";
@@ -34,6 +34,8 @@ type TriggerStep = {
   delay_days: number;
   message: string;
   image_url?: string | null;
+  meta_template_name?: string | null;
+  meta_template_language?: string | null;
 };
 
 type TriggerCampaign = {
@@ -103,8 +105,15 @@ export default function TriggerCampaigns({ instances }: Props) {
   const [steps, setSteps] = useState<TriggerStep[]>([
     { position: 0, delay_days: 0, message: "" },
   ]);
+  const [metaTemplateName, setMetaTemplateName] = useState("");
+  const [metaTemplateLanguage, setMetaTemplateLanguage] = useState("pt_BR");
 
   const canManage = isAdmin;
+
+  const selectedInstanceIds = instanceIds.length > 0 ? instanceIds : instanceId ? [instanceId] : [];
+  const usesMetaInstance = selectedInstanceIds.some(
+    (id) => instances.find((i) => i.id === id)?.provider === "meta",
+  );
 
   const fetchData = async () => {
     setLoading(true);
@@ -171,6 +180,8 @@ export default function TriggerCampaigns({ instances }: Props) {
     setStartTime("08:00");
     setEndTime("18:00");
     setSteps([{ position: 0, delay_days: 0, message: "", image_url: null }]);
+    setMetaTemplateName("");
+    setMetaTemplateLanguage("pt_BR");
     setEditingId(null);
     setShowForm(false);
   };
@@ -185,11 +196,14 @@ export default function TriggerCampaigns({ instances }: Props) {
     setStartTime((c.start_time || "08:00").slice(0, 5));
     setEndTime((c.end_time || "18:00").slice(0, 5));
     const sorted = [...(c.whatsapp_trigger_steps || [])].sort((a, b) => a.position - b.position);
+    const firstStep = sorted[0];
     setSteps(
       sorted.length > 0
         ? sorted.map((s) => ({ id: s.id, position: s.position, delay_days: s.delay_days, message: s.message, image_url: s.image_url || null }))
         : [{ position: 0, delay_days: 0, message: "", image_url: null }]
     );
+    setMetaTemplateName(firstStep?.meta_template_name || "");
+    setMetaTemplateLanguage(firstStep?.meta_template_language || "pt_BR");
     setEditingId(c.id);
     setShowForm(true);
   };
@@ -233,9 +247,18 @@ export default function TriggerCampaigns({ instances }: Props) {
       : effectiveInstanceIds.length === 1
         ? instances.find((i) => i.id === effectiveInstanceIds[0])
         : null;
-    if (primaryInstance?.provider === "meta" && !primaryInstance.meta_default_template?.trim()) {
+    const resolvedMetaTemplate =
+      metaTemplateName.trim() ||
+      (primaryInstance?.provider === "meta" ? primaryInstance.meta_default_template?.trim() : "") ||
+      null;
+    const resolvedMetaLang =
+      metaTemplateLanguage.trim() ||
+      primaryInstance?.meta_template_language?.trim() ||
+      "pt_BR";
+
+    if (usesMetaInstance && !resolvedMetaTemplate) {
       toast.error(
-        "A instância Meta selecionada não tem template padrão. Configure em WhatsApp → API Meta antes de usar o gatilho.",
+        "Informe o nome do template Meta (API oficial) ou configure um template padrão na instância.",
       );
       return;
     }
@@ -243,9 +266,8 @@ export default function TriggerCampaigns({ instances }: Props) {
     setSaving(true);
 
     try {
-      const stepMetaTemplate =
-        primaryInstance?.provider === "meta" ? primaryInstance.meta_default_template?.trim() || null : null;
-      const stepMetaLang = primaryInstance?.meta_template_language?.trim() || "pt_BR";
+      const stepMetaTemplate = resolvedMetaTemplate;
+      const stepMetaLang = resolvedMetaLang;
 
       const basePayload: any = {
         name: name.trim(),
@@ -539,17 +561,6 @@ export default function TriggerCampaigns({ instances }: Props) {
                       ? "🌐 Se nenhuma marcada, usa a instância da empresa de cada lead."
                       : "Marque 2 ou mais para intercalar (alternar) os envios entre elas."}
                 </p>
-                {(instanceId || instanceIds.length > 0) &&
-                instances.some(
-                  (i) =>
-                    (instanceIds.includes(i.id) || i.id === instanceId) &&
-                    i.provider === "meta" &&
-                    !i.meta_default_template?.trim(),
-                ) ? (
-                  <p className="text-[10px] text-amber-700 dark:text-amber-300">
-                    Instância Meta sem template padrão — gatilho não envia para leads novos. Configure em WhatsApp → API Meta.
-                  </p>
-                ) : null}
               </>
             </div>
             <div className="space-y-2">
@@ -561,6 +572,34 @@ export default function TriggerCampaigns({ instances }: Props) {
               <Label>Horário fim diário *</Label>
               <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
               <p className="text-[10px] text-muted-foreground">Hora do dia em que os envios param</p>
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3 rounded-md border border-dashed p-3">
+            <div className="space-y-1 sm:col-span-2">
+              <Label className="text-xs flex items-center gap-1">
+                <ShieldCheck className="h-3 w-3" /> Template Meta (API oficial)
+              </Label>
+              <p className="text-[10px] text-muted-foreground">
+                Obrigatório para envios fora da janela de 24h. Nome exato do template aprovado no WhatsApp Manager.
+                {usesMetaInstance && !metaTemplateName.trim() ? " Se vazio, usa o template padrão da instância." : ""}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Nome do template</Label>
+              <Input
+                placeholder="ex: lembrete_cobranca"
+                value={metaTemplateName}
+                onChange={(e) => setMetaTemplateName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Idioma</Label>
+              <Input
+                placeholder="pt_BR"
+                value={metaTemplateLanguage}
+                onChange={(e) => setMetaTemplateLanguage(e.target.value)}
+              />
             </div>
           </div>
 
@@ -693,6 +732,11 @@ export default function TriggerCampaigns({ instances }: Props) {
                         ) : (
                           <Badge variant="outline" className="text-muted-foreground">Inativa</Badge>
                         )}
+                        {sortedSteps[0]?.meta_template_name ? (
+                          <Badge variant="outline" className="text-[10px] flex items-center gap-1">
+                            <ShieldCheck className="h-3 w-3" /> {sortedSteps[0].meta_template_name}
+                          </Badge>
+                        ) : null}
                       </div>
                     </div>
                     {canManage && (
