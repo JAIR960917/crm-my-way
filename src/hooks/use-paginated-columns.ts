@@ -19,7 +19,7 @@ export type ColumnFilter = {
   // jsonb-aware filters by column name
   // shape: ["assigned_to", "eq", "uuid"] or ["data->>nome", "ilike", "%foo%"]
   // when value is null we apply ".is.null"
-  apply?: (q: any) => any;
+  apply?: (q: any, statusKey?: string) => any;
 };
 
 export type UsePaginatedColumnsOptions = {
@@ -67,7 +67,7 @@ export function usePaginatedColumns<T extends { id: string; status: string }>(
   const queryFor = useCallback(
     (statusKey: string) => {
       let q = supabase.from(table).select(select, { count: "exact" }).eq("status", statusKey);
-      if (filter?.apply) q = filter.apply(q);
+      if (filter?.apply) q = filter.apply(q, statusKey);
       return q.order(orderColumn, { ascending: orderAscending });
     },
     [table, select, filter, orderColumn, orderAscending],
@@ -87,7 +87,7 @@ export function usePaginatedColumns<T extends { id: string; status: string }>(
       }));
       try {
         let listQuery = supabase.from(table).select(select).eq("status", statusKey);
-        if (filter?.apply) listQuery = filter.apply(listQuery);
+        if (filter?.apply) listQuery = filter.apply(listQuery, statusKey);
         listQuery = listQuery.order(orderColumn, { ascending: orderAscending });
 
         const requests: Promise<{ data: T[] | null; error: unknown; count?: number | null }>[] = [
@@ -96,7 +96,7 @@ export function usePaginatedColumns<T extends { id: string; status: string }>(
 
         if (offset === 0) {
           let countQuery = supabase.from(table).select("id", { count: "exact", head: true }).eq("status", statusKey);
-          if (filter?.apply) countQuery = filter.apply(countQuery);
+          if (filter?.apply) countQuery = filter.apply(countQuery, statusKey);
           requests.push(countQuery as Promise<{ data: null; error: unknown; count: number | null }>);
         }
 

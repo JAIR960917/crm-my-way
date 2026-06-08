@@ -73,7 +73,7 @@ export default function LeadsPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLeadId, setHistoryLeadId] = useState<string | null>(null);
   const [historyLeadName, setHistoryLeadName] = useState("");
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteConfirmLead, setDeleteConfirmLead] = useState<Lead | null>(null);
   const [restoreLead, setRestoreLead] = useState<Lead | null>(null);
   const [restoreAssignee, setRestoreAssignee] = useState<string>("");
   const [restoring, setRestoring] = useState(false);
@@ -127,9 +127,14 @@ export default function LeadsPage() {
 
 
   const columnFilter = useMemo(() => ({
-    apply: (q: any) => {
+    apply: (q: any, statusKey?: string) => {
       let res = q;
-      if ((isAdmin || isGerente) && filterVendedor && filterVendedor !== "all") {
+      if (
+        (isAdmin || isGerente)
+        && filterVendedor
+        && filterVendedor !== "all"
+        && statusKey !== "excluidos"
+      ) {
         res = res.or(`assigned_to.eq.${filterVendedor},created_by.eq.${filterVendedor}`);
       }
       if (filterDateFrom) {
@@ -465,17 +470,28 @@ export default function LeadsPage() {
     e.preventDefault();
     setSaving(true);
     if (editingLead) {
+      const isExcluded = editingLead.status === "excluidos";
       // Recalcula apenas via date_status_ranges; mapeamentos por opção (forma
-      // de captação) só valem na criação.
+      // de captação) só valem na criação. Leads excluídos permanecem na coluna.
       const hasDateRangeField = formFields.some(f => !!f.date_status_ranges);
-      const finalStatus = hasDateRangeField
-        ? resolveStatus(formData, [editingLead.status], { skipStatusMapping: true })
-        : formStatus;
+      const finalStatus = isExcluded
+        ? "excluidos"
+        : hasDateRangeField
+          ? resolveStatus(formData, [editingLead.status], { skipStatusMapping: true })
+          : formStatus;
       const { error } = await supabase.from("crm_leads").update({
         data: formData, status: finalStatus, assigned_to: formAssigned || null,
       }).eq("id", editingLead.id);
       if (error) toast.error("Erro ao atualizar");
-      else toast.success("Lead atualizado");
+      else {
+        toast.success("Lead atualizado");
+        patchItem(editingLead.id, {
+          data: formData,
+          status: finalStatus,
+          assigned_to: formAssigned || null,
+        } as Partial<Lead>);
+        setRefreshKey((k) => k + 1);
+      }
     } else {
       const resolvedStatus = resolveStatus(formData);
 
@@ -532,28 +548,36 @@ export default function LeadsPage() {
     fetchAll();
   };
 
-  const handleDelete = async (id: string) => {
-    setDeleteConfirmId(id);
+  const handleDelete = (lead: Lead) => {
+    setDeleteConfirmLead(lead);
   };
 
   const confirmDelete = async () => {
-    if (!deleteConfirmId) return;
-    const idToDelete = deleteConfirmId;
-    // Soft-delete: move para coluna "Excluídos" com comentário de quem excluiu
-    const { error } = await supabase.rpc("soft_delete_lead", { _lead_id: idToDelete });
-    if (error) toast.error("Erro ao excluir");
-    else {
-      await supabase.from("crm_lead_notes").insert({
-        lead_id: idToDelete,
-        user_id: user!.id,
-        content: `🗑️ Card excluído por ${currentUserName || "usuário"}`,
-      });
-      toast.success("Lead movido para Excluídos");
-      // Remove instantaneamente do kanban (sem esperar refetch)
+    if (!deleteConfirmLead) return;
+    const idToDelete = deleteConfirmLead.id;
+    const isPermanentDelete = isAdmin && deleteConfirmLead.status === "excluidos";
+
+    const { error } = isPermanentDelete
+      ? await supabase.rpc("hard_delete_lead", { _lead_id: idToDelete })
+      : await supabase.rpc("soft_delete_lead", { _lead_id: idToDelete });
+
+    if (error) {
+      toast.error(isPermanentDelete ? "Erro ao excluir definitivamente" : "Erro ao excluir");
+    } else {
+      if (!isPermanentDelete) {
+        await supabase.from("crm_lead_notes").insert({
+          lead_id: idToDelete,
+          user_id: user!.id,
+          content: `🗑️ Card excluído por ${currentUserName || "usuário"}`,
+        });
+        toast.success("Lead movido para Excluídos");
+      } else {
+        toast.success("Lead excluído definitivamente");
+      }
       removePaginatedItem(idToDelete);
       setRefreshKey((k) => k + 1);
     }
-    setDeleteConfirmId(null);
+    setDeleteConfirmLead(null);
   };
 
   const openRestore = (lead: Lead) => {
@@ -986,7 +1010,7 @@ export default function LeadsPage() {
                     syncStatus={getSyncStatus(lead.id)}
                     activities={getActivitiesForLead(lead.id)}
                     onEdit={() => openEdit(lead)}
-                    onDelete={() => handleDelete(lead.id)}
+                    onDelete={() => handleDelete(lead)}
                     onHistory={() => {
                       setHistoryLeadId(lead.id);
                       setHistoryLeadName(getLeadSnapshot(lead).nome || "Lead");
@@ -1064,7 +1088,7 @@ export default function LeadsPage() {
                                 syncStatus={getSyncStatus(lead.id)}
                                 activities={getActivitiesForLead(lead.id)}
                                 onEdit={() => openEdit(lead)}
-                                onDelete={() => handleDelete(lead.id)}
+                                onDelete={() => handleDelete(lead)}
                                 onHistory={() => {
                                   setHistoryLeadId(lead.id);
                                   setHistoryLeadName(getLeadSnapshot(lead).nome || "Lead");
@@ -1152,12 +1176,18 @@ export default function LeadsPage() {
         onNoteAdded={fetchAll}
       />
 
-      <AlertDialog open={!!deleteConfirmId} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+      <AlertDialog open={!!deleteConfirmLead} onOpenChange={(open) => !open && setDeleteConfirmLead(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir lead permanentemente?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {deleteConfirmLead?.status === "excluidos" && isAdmin
+                ? "Excluir lead permanentemente?"
+                : "Mover lead para Excluídos?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Esta ação não pode ser desfeita. O lead e todas as suas informações serão removidos permanentemente do sistema.
+              {deleteConfirmLead?.status === "excluidos" && isAdmin
+                ? "Esta ação não pode ser desfeita. O lead e todas as suas informações serão removidos permanentemente do sistema."
+                : "O lead sairá do fluxo e ficará visível apenas para administradores na coluna Excluídos."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
