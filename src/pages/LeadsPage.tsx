@@ -489,7 +489,15 @@ export default function LeadsPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isGerente && !isAdmin && formAssigned && !assignableProfiles.some((p) => p.user_id === formAssigned)) {
+    const assignmentUnchanged =
+      !!editingLead && (formAssigned || "") === (editingLead.assigned_to || "");
+    if (
+      isGerente &&
+      !isAdmin &&
+      formAssigned &&
+      !assignmentUnchanged &&
+      !assignableProfiles.some((p) => p.user_id === formAssigned)
+    ) {
       toast.error("Você só pode atribuir leads aos vendedores da sua loja.");
       return;
     }
@@ -725,6 +733,22 @@ export default function LeadsPage() {
       /* notas/atividades são secundárias */
     }
   }, []);
+
+  useEffect(() => {
+    const refreshAfterReturn = () => {
+      void refreshLeadSecondaryMeta();
+      setRefreshKey((k) => k + 1);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refreshAfterReturn();
+    };
+    window.addEventListener("focus", refreshAfterReturn);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", refreshAfterReturn);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [refreshLeadSecondaryMeta]);
 
   const handleLeadStatusChange = useCallback(
     (fromStatus: string, toStatus: string, raw: Record<string, unknown>) => {

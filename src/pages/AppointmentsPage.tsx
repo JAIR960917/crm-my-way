@@ -39,6 +39,7 @@ import {
   isAppointmentInactive,
   isMovedToOrcamentos,
   isRescheduleSnapshotVisibleToUser,
+  closeAppointmentRescheduleSnapshots,
   logAppointmentHistory,
 } from "@/lib/appointmentUtils";
 import AppointmentHistoryPanel from "@/components/appointments/AppointmentHistoryPanel";
@@ -647,7 +648,19 @@ export default function AppointmentsPage() {
         content: `↩ Retornou da tela de Agendamentos (${apptLabel}) — enviado por ${actorName}`,
       });
     } else if (returnAppt.lead_id) {
-      await supabase.from("crm_leads").update({ status: returnAppt.previous_status || "novo", scheduled_date: null } as any).eq("id", returnAppt.lead_id);
+      const { error: leadErr } = await supabase
+        .from("crm_leads")
+        .update({
+          status: returnAppt.previous_status || "novo",
+          scheduled_date: null,
+          updated_at: nowIso,
+        } as any)
+        .eq("id", returnAppt.lead_id);
+      if (leadErr) {
+        toast.error("Erro ao restaurar lead na tela de Leads");
+        setReturning(false);
+        return;
+      }
       await supabase.from("crm_lead_notes").insert({
         lead_id: returnAppt.lead_id,
         user_id: user.id,
@@ -664,6 +677,7 @@ export default function AppointmentsPage() {
 
     if (error) toast.error("Erro ao retornar");
     else {
+      await closeAppointmentRescheduleSnapshots(returnId, user.id, nowIso);
       const destino = isFromRenovacao ? "Renovações" : "Leads";
       await logAppointmentHistory(
         returnId,
@@ -805,14 +819,22 @@ export default function AppointmentsPage() {
       });
       error = res.error;
     } else {
+      const deletedAt = new Date().toISOString();
       if (appt.lead_id) {
-        await supabase.from("crm_leads").update({ status: appt.previous_status } as any).eq("id", appt.lead_id);
+        await supabase.from("crm_leads").update({
+          status: appt.previous_status,
+          scheduled_date: null,
+          updated_at: deletedAt,
+        } as any).eq("id", appt.lead_id);
       }
       const res = await supabase.from("crm_appointments").update({
-        deleted_at: new Date().toISOString(),
+        deleted_at: deletedAt,
         deleted_by: user.id,
       }).eq("id", deleteId);
       error = res.error;
+      if (!error) {
+        await closeAppointmentRescheduleSnapshots(deleteId, user.id, deletedAt);
+      }
     }
 
     if (error) toast.error(error.message || "Erro ao excluir");

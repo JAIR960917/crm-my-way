@@ -194,6 +194,7 @@ export async function fetchActiveAppointedLeadIds(): Promise<Set<string>> {
     .eq("status", "agendado")
     .is("deleted_at", null)
     .is("returned_at", null)
+    .or("is_reschedule_snapshot.is.null,is_reschedule_snapshot.eq.false")
     .not("lead_id", "is", null);
   if (error) return new Set();
   return new Set(
@@ -201,4 +202,22 @@ export async function fetchActiveAppointedLeadIds(): Promise<Set<string>> {
       .map((row) => row.lead_id)
       .filter((id): id is string => !!id),
   );
+}
+
+/** Encerra snapshots de reagendamento vinculados ao agendamento principal. */
+export async function closeAppointmentRescheduleSnapshots(
+  appointmentId: string,
+  userId: string,
+  whenIso: string,
+) {
+  await supabase
+    .from("crm_appointments")
+    .update({
+      deleted_at: whenIso,
+      deleted_by: userId,
+      returned_at: whenIso,
+      returned_by: userId,
+    })
+    .eq("snapshot_of_appointment_id", appointmentId)
+    .eq("is_reschedule_snapshot", true);
 }
