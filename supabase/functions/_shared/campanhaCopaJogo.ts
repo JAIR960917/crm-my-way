@@ -1,3 +1,5 @@
+import { syncFlagsFromTeamNames } from "./countryFlagCode.ts";
+
 export type CampanhaCopaJogoConfig = {
   team_home_name: string;
   team_away_name: string;
@@ -39,13 +41,13 @@ export function parseJogoConfig(raw: string | null | undefined): CampanhaCopaJog
   if (!raw?.trim()) return { ...DEFAULT_CAMPANHA_COPA_JOGO };
   try {
     const parsed = JSON.parse(raw) as Partial<CampanhaCopaJogoConfig>;
-    return {
+    const base = {
       team_home_name: String(parsed.team_home_name || DEFAULT_CAMPANHA_COPA_JOGO.team_home_name).trim(),
       team_away_name: String(parsed.team_away_name || DEFAULT_CAMPANHA_COPA_JOGO.team_away_name).trim(),
-      team_home_flag: String(parsed.team_home_flag || DEFAULT_CAMPANHA_COPA_JOGO.team_home_flag).trim().toLowerCase(),
-      team_away_flag: String(parsed.team_away_flag || DEFAULT_CAMPANHA_COPA_JOGO.team_away_flag).trim().toLowerCase(),
       match_meta: String(parsed.match_meta ?? DEFAULT_CAMPANHA_COPA_JOGO.match_meta).trim(),
     };
+    const flags = syncFlagsFromTeamNames(base);
+    return { ...base, ...flags };
   } catch {
     return { ...DEFAULT_CAMPANHA_COPA_JOGO };
   }

@@ -127,7 +127,7 @@ export default function CampanhaCopaSubmissionDialog({
           </div>
 
           <CampanhaCopaHistoryPanel
-            submissionId={submission.id}
+            submission={submission}
             profiles={profiles}
             refreshKey={historyRefreshKey}
           />

@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { syncFlagsFromTeamNames } from "@/lib/country-flag-code";
 import {
   CAMPANHA_COPA_JOGO_SETTING_KEY,
   DEFAULT_CAMPANHA_COPA_JOGO,
@@ -20,6 +21,42 @@ type Props = {
   onSaved?: () => void;
 };
 
+function TeamNameInput({
+  id,
+  label,
+  value,
+  flagCode,
+  onChange,
+  placeholder,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  flagCode: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="flex items-center gap-2">
+        <img
+          src={flagUrl(flagCode)}
+          alt=""
+          className="h-6 w-9 rounded-sm object-cover border shrink-0"
+        />
+        <Input
+          id={id}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="flex-1"
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function CampanhaCopaJogoConfigCard({ initialRaw, onSaved }: Props) {
   const [config, setConfig] = useState<CampanhaCopaJogoConfig>(() => parseJogoConfig(initialRaw));
   const [saving, setSaving] = useState(false);
@@ -30,16 +67,21 @@ export default function CampanhaCopaJogoConfigCard({ initialRaw, onSaved }: Prop
 
   const derived = useMemo(() => jogoConfigWithDerived(config), [config]);
 
-  const update = (field: keyof CampanhaCopaJogoConfig, value: string) => {
-    setConfig((prev) => ({ ...prev, [field]: value }));
+  const updateTeamName = (field: "team_home_name" | "team_away_name", value: string) => {
+    setConfig((prev) => {
+      const next = { ...prev, [field]: value };
+      return { ...next, ...syncFlagsFromTeamNames(next) };
+    });
   };
 
   const save = async () => {
-    if (!config.team_home_name.trim() || !config.team_away_name.trim()) {
+    const toSave = { ...config, ...syncFlagsFromTeamNames(config) };
+
+    if (!toSave.team_home_name.trim() || !toSave.team_away_name.trim()) {
       toast.error("Informe o nome dos dois times.");
       return;
     }
-    if (config.team_home_name.trim().toLowerCase() === config.team_away_name.trim().toLowerCase()) {
+    if (toSave.team_home_name.trim().toLowerCase() === toSave.team_away_name.trim().toLowerCase()) {
       toast.error("Os dois times devem ser diferentes.");
       return;
     }
@@ -47,11 +89,11 @@ export default function CampanhaCopaJogoConfigCard({ initialRaw, onSaved }: Prop
     setSaving(true);
     try {
       const payload = JSON.stringify({
-        team_home_name: config.team_home_name.trim(),
-        team_away_name: config.team_away_name.trim(),
-        team_home_flag: config.team_home_flag.trim().toLowerCase().slice(0, 2),
-        team_away_flag: config.team_away_flag.trim().toLowerCase().slice(0, 2),
-        match_meta: config.match_meta.trim(),
+        team_home_name: toSave.team_home_name.trim(),
+        team_away_name: toSave.team_away_name.trim(),
+        team_home_flag: toSave.team_home_flag,
+        team_away_flag: toSave.team_away_flag,
+        match_meta: toSave.match_meta.trim(),
       });
 
       const { error } = await supabase.from("system_settings").upsert(
@@ -85,51 +127,29 @@ export default function CampanhaCopaJogoConfigCard({ initialRaw, onSaved }: Prop
           Configuração do jogo (formulário público)
         </CardTitle>
         <CardDescription>
-          Altere os times quando iniciar um novo palpite. Cada confronto é identificado pelos dois
-          times — o mesmo CPF pode participar de novo se pelo menos um time for diferente.
+          Informe o nome do país — a bandeira é detectada automaticamente. Cada confronto é
+          identificado pelos dois times; o mesmo CPF pode palpitar de novo se pelo menos um time
+          for diferente.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="team_home_name">Time da casa (esquerda)</Label>
-            <Input
-              id="team_home_name"
-              value={config.team_home_name}
-              onChange={(e) => update("team_home_name", e.target.value)}
-              placeholder="Ex.: Brasil"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="team_away_name">Time visitante (direita)</Label>
-            <Input
-              id="team_away_name"
-              value={config.team_away_name}
-              onChange={(e) => update("team_away_name", e.target.value)}
-              placeholder="Ex.: Marrocos"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="team_home_flag">Código da bandeira (casa)</Label>
-            <Input
-              id="team_home_flag"
-              value={config.team_home_flag}
-              onChange={(e) => update("team_home_flag", e.target.value)}
-              placeholder="br"
-              maxLength={2}
-            />
-            <p className="text-xs text-muted-foreground">Código ISO de 2 letras (br, ma, ar, us…)</p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="team_away_flag">Código da bandeira (visitante)</Label>
-            <Input
-              id="team_away_flag"
-              value={config.team_away_flag}
-              onChange={(e) => update("team_away_flag", e.target.value)}
-              placeholder="ma"
-              maxLength={2}
-            />
-          </div>
+          <TeamNameInput
+            id="team_home_name"
+            label="Time da casa (esquerda)"
+            value={config.team_home_name}
+            flagCode={derived.team_home_flag}
+            onChange={(v) => updateTeamName("team_home_name", v)}
+            placeholder="Ex.: Brasil"
+          />
+          <TeamNameInput
+            id="team_away_name"
+            label="Time visitante (direita)"
+            value={config.team_away_name}
+            flagCode={derived.team_away_flag}
+            onChange={(v) => updateTeamName("team_away_name", v)}
+            placeholder="Ex.: Marrocos"
+          />
         </div>
 
         <div className="space-y-2">
@@ -137,7 +157,7 @@ export default function CampanhaCopaJogoConfigCard({ initialRaw, onSaved }: Prop
           <Input
             id="match_meta"
             value={config.match_meta}
-            onChange={(e) => update("match_meta", e.target.value)}
+            onChange={(e) => setConfig((prev) => ({ ...prev, match_meta: e.target.value }))}
             placeholder="Cidade · data · horário"
           />
         </div>
