@@ -89,11 +89,13 @@ WHERE NOT EXISTS (
   WHERE x.role_key = rp.role_key AND x.page_key = 'campanhas_copa'
 );
 
-INSERT INTO public.role_status_permissions (role_key, status_key, allowed)
-SELECT DISTINCT rp.role_key, 'campanha_copa', true
+INSERT INTO public.role_status_permissions (role_key, module, status_key, visible)
+SELECT DISTINCT rp.role_key, 'leads', 'campanha_copa', true
 FROM public.role_page_permissions rp
 WHERE rp.page_key = 'leads'
   AND NOT EXISTS (
     SELECT 1 FROM public.role_status_permissions x
-    WHERE x.role_key = rp.role_key AND x.status_key = 'campanha_copa'
+    WHERE x.role_key = rp.role_key
+      AND x.module = 'leads'
+      AND x.status_key = 'campanha_copa'
   );
