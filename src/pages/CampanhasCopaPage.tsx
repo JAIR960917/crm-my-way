@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ExternalLink, RefreshCw, Search, Trophy, UserPlus } from "lucide-react";
+import { ExternalLink, Pencil, RefreshCw, Search, Trophy, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import AppLayout from "@/components/AppLayout";
+import CampanhaCopaSubmissionDialog, {
+  type CampanhaCopaSubmission,
+} from "@/components/campanha-copa/CampanhaCopaSubmissionDialog";
+import CampanhaCopaJogoConfigCard from "@/components/campanha-copa/CampanhaCopaJogoConfigCard";
 import { supabase } from "@/integrations/supabase/client";
+import { CAMPANHA_COPA_JOGO_SETTING_KEY } from "@/lib/campanha-copa-jogo";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -26,49 +31,43 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-type Submission = {
-  id: string;
-  lead_id: string | null;
-  nome: string;
-  idade: string | null;
-  cidade: string | null;
-  telefone: string;
-  usa_oculos: string | null;
-  ultimo_exame_vista: string | null;
-  palpite_brasil: number | null;
-  palpite_marrocos: number | null;
-  palpite_texto: string | null;
-  assigned_to: string | null;
-  created_at: string;
-};
-
 type Profile = { user_id: string; full_name: string; email?: string };
 
 const NONE = "__none__";
 
 export default function CampanhasCopaPage() {
-  const { isAdmin } = useAuth();
-  const [rows, setRows] = useState<Submission[]>([]);
+  const { isAdmin, user } = useAuth();
+  const [rows, setRows] = useState<CampanhaCopaSubmission[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [defaultUserId, setDefaultUserId] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingDefault, setSavingDefault] = useState(false);
   const [search, setSearch] = useState("");
   const [reassigning, setReassigning] = useState<string | null>(null);
+  const [detailRow, setDetailRow] = useState<CampanhaCopaSubmission | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const [jogoConfigRaw, setJogoConfigRaw] = useState<string | null>(null);
 
   const profileName = useCallback(
     (id: string | null) => {
-      if (!id) return "—";
+      if (!id) return "Sem responsável";
       const p = profiles.find((x) => x.user_id === id);
       return p?.full_name || p?.email || id.slice(0, 8);
     },
     [profiles],
   );
 
+  const currentUserName = useMemo(() => {
+    if (!user?.id) return "Usuário";
+    const p = profiles.find((x) => x.user_id === user.id);
+    return p?.full_name || p?.email || "Usuário";
+  }, [profiles, user?.id]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [subRes, profRes, settingRes] = await Promise.all([
+      const [subRes, profRes, settingRes, jogoRes] = await Promise.all([
         supabase
           .from("campanha_copa_submissions")
           .select("*")
@@ -82,13 +81,23 @@ export default function CampanhasCopaPage() {
               .eq("setting_key", "campanha_copa_default_user_id")
               .maybeSingle()
           : Promise.resolve({ data: null, error: null }),
+        isAdmin
+          ? supabase
+              .from("system_settings")
+              .select("setting_value")
+              .eq("setting_key", CAMPANHA_COPA_JOGO_SETTING_KEY)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
       ]);
 
       if (subRes.error) throw subRes.error;
-      setRows((subRes.data || []) as Submission[]);
+      setRows((subRes.data || []) as CampanhaCopaSubmission[]);
       setProfiles((profRes.data || []) as Profile[]);
       if (settingRes.data?.setting_value) {
         setDefaultUserId(settingRes.data.setting_value);
+      }
+      if (jogoRes.data?.setting_value) {
+        setJogoConfigRaw(jogoRes.data.setting_value);
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao carregar inscrições");
@@ -105,11 +114,16 @@ export default function CampanhasCopaPage() {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((r) =>
-      [r.nome, r.telefone, r.cidade, r.palpite_texto, profileName(r.assigned_to)]
+      [r.nome, r.telefone, r.cidade, r.cpf, r.palpite_texto, r.jogo_label, profileName(r.assigned_to)]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q)),
     );
   }, [rows, search, profileName]);
+
+  const openDetail = (row: CampanhaCopaSubmission) => {
+    setDetailRow(row);
+    setDetailOpen(true);
+  };
 
   const saveDefaultUser = async () => {
     if (!isAdmin) return;
@@ -132,8 +146,13 @@ export default function CampanhasCopaPage() {
     }
   };
 
-  const reassign = async (submission: Submission, newUserId: string) => {
+  const reassign = async (submission: CampanhaCopaSubmission, newUserId: string) => {
     const targetId = newUserId === NONE ? null : newUserId;
+    if (targetId === submission.assigned_to) return;
+
+    const oldName = profileName(submission.assigned_to);
+    const newName = profileName(targetId);
+
     setReassigning(submission.id);
     try {
       const { error: subErr } = await supabase
@@ -150,9 +169,21 @@ export default function CampanhasCopaPage() {
         if (leadErr) throw leadErr;
       }
 
+      const { error: histErr } = await supabase.from("campanha_copa_history" as never).insert({
+        submission_id: submission.id,
+        user_id: user?.id ?? null,
+        action: "reassigned",
+        summary: `${currentUserName} redirecionou de ${oldName} para ${newName}.`,
+      } as never);
+      if (histErr) throw histErr;
+
       setRows((prev) =>
         prev.map((r) => (r.id === submission.id ? { ...r, assigned_to: targetId } : r)),
       );
+      if (detailRow?.id === submission.id) {
+        setDetailRow({ ...submission, assigned_to: targetId });
+        setHistoryRefreshKey((k) => k + 1);
+      }
       toast.success("Lead redirecionado com sucesso.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao redirecionar");
@@ -214,6 +245,13 @@ export default function CampanhasCopaPage() {
         </div>
 
         {isAdmin && (
+          <CampanhaCopaJogoConfigCard
+            initialRaw={jogoConfigRaw}
+            onSaved={() => void load()}
+          />
+        )}
+
+        {isAdmin && (
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
@@ -254,7 +292,7 @@ export default function CampanhasCopaPage() {
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   className="pl-8"
-                  placeholder="Buscar nome, telefone, cidade..."
+                  placeholder="Buscar nome, CPF, telefone..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -266,11 +304,13 @@ export default function CampanhasCopaPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-10" />
                     <TableHead>Data</TableHead>
                     <TableHead>Nome</TableHead>
                     <TableHead>Telefone</TableHead>
                     <TableHead>Cidade</TableHead>
                     <TableHead>Idade</TableHead>
+                    <TableHead>Jogo</TableHead>
                     <TableHead>Palpite</TableHead>
                     <TableHead>Óculos</TableHead>
                     <TableHead>Último exame</TableHead>
@@ -281,19 +321,30 @@ export default function CampanhasCopaPage() {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
                         Carregando...
                       </TableCell>
                     </TableRow>
                   ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
                         Nenhuma inscrição encontrada.
                       </TableCell>
                     </TableRow>
                   ) : (
                     filtered.map((r) => (
                       <TableRow key={r.id}>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            title="Ver inscrição"
+                            onClick={() => openDetail(r)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
                         <TableCell className="whitespace-nowrap text-xs">
                           {format(new Date(r.created_at), "dd/MM/yy HH:mm", { locale: ptBR })}
                         </TableCell>
@@ -301,6 +352,9 @@ export default function CampanhasCopaPage() {
                         <TableCell>{r.telefone}</TableCell>
                         <TableCell>{r.cidade || "—"}</TableCell>
                         <TableCell>{r.idade || "—"}</TableCell>
+                        <TableCell className="text-xs max-w-[120px] truncate">
+                          {r.jogo_label || r.jogo || "—"}
+                        </TableCell>
                         <TableCell>
                           <Badge variant="secondary">
                             {r.palpite_texto || `${r.palpite_brasil ?? "?"} x ${r.palpite_marrocos ?? "?"}`}
@@ -336,8 +390,16 @@ export default function CampanhasCopaPage() {
             </div>
           </CardContent>
         </Card>
-
       </div>
+
+      <CampanhaCopaSubmissionDialog
+        submission={detailRow}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        profiles={profiles}
+        profileName={profileName}
+        historyRefreshKey={historyRefreshKey}
+      />
     </AppLayout>
   );
 }

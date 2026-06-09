@@ -6,6 +6,9 @@
   var successEl = document.getElementById("success-screen");
   var btnSubmit = document.getElementById("btn-submit");
   var btnClear = document.getElementById("btn-clear");
+  var cpfInput = document.getElementById("cpf");
+
+  var currentJogoKey = "";
 
   function getConfig() {
     var cfg = window.__CRM_RUNTIME_CONFIG__ || {};
@@ -13,6 +16,120 @@
       supabaseUrl: (cfg.supabaseUrl || "").replace(/\/$/, ""),
       anonKey: cfg.supabasePublishableKey || "",
     };
+  }
+
+  function flagUrl(code) {
+    var c = (code || "xx").toLowerCase().replace(/[^a-z]/g, "").slice(0, 2);
+    return "https://flagcdn.com/w40/" + c + ".png";
+  }
+
+  function resolveLogoUrl(logoUrl, supabaseUrl) {
+    if (!logoUrl) return "";
+    var url = logoUrl.trim();
+    if (!url) return "";
+
+    var base = (supabaseUrl || "").replace(/\/$/, "");
+    var pathPart = url.split("?")[0];
+    var query = url.indexOf("?") >= 0 ? url.slice(url.indexOf("?")) : "";
+
+    if (/^https?:\/\//i.test(pathPart)) {
+      var legacy = pathPart.match(/^https?:\/\/[^/]*supabase\.co(\/.*)$/i);
+      if (legacy && base) return base + legacy[1] + query;
+      var storageOther = pathPart.match(/^https?:\/\/[^/]+(\/storage\/v1\/.+)$/i);
+      if (storageOther && base && pathPart.indexOf(base) !== 0) {
+        return base + storageOther[1] + query;
+      }
+      return url;
+    }
+
+    if (pathPart.indexOf("/storage/") === 0 && base) {
+      return base + pathPart + query;
+    }
+
+    return url;
+  }
+
+  function applyPublicConfig(data, supabaseUrl) {
+    var name = data.system_name || "Óticas Joonker";
+    var jogoLabel = data.jogo_label || "Brasil x Marrocos";
+    var logoUrl = resolveLogoUrl(data.logo_url || "", supabaseUrl);
+    var homeName = data.team_home_name || "Brasil";
+    var awayName = data.team_away_name || "Marrocos";
+    var homeFlag = data.team_home_flag || "br";
+    var awayFlag = data.team_away_flag || "ma";
+    var matchMeta = data.match_meta || "";
+
+    currentJogoKey = data.jogo_key || "";
+
+    document.title = "Campanha Copa — " + name;
+
+    var nameEl = document.getElementById("system-name");
+    if (nameEl) nameEl.textContent = name;
+
+    ["jogo-label", "palpite-jogo-label"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.textContent = jogoLabel;
+    });
+
+    ["consent-brand", "footer-brand"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.textContent = name;
+    });
+
+    var metaEl = document.getElementById("match-meta");
+    if (metaEl) {
+      metaEl.textContent = matchMeta;
+      metaEl.hidden = !matchMeta;
+    }
+
+    var homeLabel = document.getElementById("team-home-label");
+    var awayLabel = document.getElementById("team-away-label");
+    if (homeLabel) homeLabel.textContent = homeName;
+    if (awayLabel) awayLabel.textContent = awayName;
+
+    var homeFlagEl = document.getElementById("team-home-flag");
+    var awayFlagEl = document.getElementById("team-away-flag");
+    if (homeFlagEl) {
+      homeFlagEl.src = flagUrl(homeFlag);
+      homeFlagEl.alt = homeName;
+    }
+    if (awayFlagEl) {
+      awayFlagEl.src = flagUrl(awayFlag);
+      awayFlagEl.alt = awayName;
+    }
+
+    if (logoUrl) {
+      var favicon = document.getElementById("page-favicon");
+      if (favicon) favicon.href = logoUrl;
+
+      var heroLogo = document.getElementById("hero-logo");
+      if (heroLogo) {
+        heroLogo.src = logoUrl;
+        heroLogo.alt = name;
+        heroLogo.hidden = false;
+      }
+    }
+  }
+
+  async function loadPublicConfig() {
+    var cfg = getConfig();
+    if (!cfg.supabaseUrl || !cfg.anonKey) return;
+
+    try {
+      var url = cfg.supabaseUrl + "/functions/v1/submit-campanha-copa";
+      var res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: "Bearer " + cfg.anonKey,
+          apikey: cfg.anonKey,
+        },
+      });
+      if (!res.ok) return;
+      var data = await res.json();
+      applyPublicConfig(data, cfg.supabaseUrl);
+    } catch (_err) {
+      /* mantém defaults */
+    }
   }
 
   function showError(msg) {
@@ -43,16 +160,26 @@
     return checked ? checked.value : "";
   }
 
+  function maskCpf(value) {
+    var d = (value || "").replace(/\D/g, "").slice(0, 11);
+    if (d.length <= 3) return d;
+    if (d.length <= 6) return d.slice(0, 3) + "." + d.slice(3);
+    if (d.length <= 9) return d.slice(0, 3) + "." + d.slice(3, 6) + "." + d.slice(6);
+    return d.slice(0, 3) + "." + d.slice(3, 6) + "." + d.slice(6, 9) + "-" + d.slice(9);
+  }
+
   function collectPayload() {
     return {
+      jogo_key: currentJogoKey,
       nome: document.getElementById("nome").value.trim(),
+      cpf: document.getElementById("cpf").value.trim(),
       idade: document.getElementById("idade").value.trim(),
       cidade: document.getElementById("cidade").value.trim(),
       telefone: document.getElementById("telefone").value.trim(),
       usa_oculos: getRadioValue("usa_oculos"),
       ultimo_exame_vista: document.getElementById("ultimo_exame_vista").value,
-      palpite_brasil: parseInt(document.getElementById("palpite_brasil").value, 10),
-      palpite_marrocos: parseInt(document.getElementById("palpite_marrocos").value, 10),
+      palpite_home: parseInt(document.getElementById("palpite_home").value, 10),
+      palpite_away: parseInt(document.getElementById("palpite_away").value, 10),
       consentimento_marketing: document.getElementById("consentimento_marketing").checked,
     };
   }
@@ -70,6 +197,14 @@
     if (!cfg.supabaseUrl || !cfg.anonKey) {
       showError("Configuração do servidor indisponível. Tente novamente mais tarde.");
       return;
+    }
+
+    if (!currentJogoKey) {
+      await loadPublicConfig();
+      if (!currentJogoKey) {
+        showError("Não foi possível carregar o jogo. Recarregue a página.");
+        return;
+      }
     }
 
     var payload = collectPayload();
@@ -98,7 +233,7 @@
 
       trackEvent("CompleteRegistration", {
         content_name: "Campanha Copa",
-        palpite: payload.palpite_brasil + "x" + payload.palpite_marrocos,
+        palpite: payload.palpite_home + "x" + payload.palpite_away,
       });
 
       form.hidden = true;
@@ -119,8 +254,15 @@
     trackEvent("CustomizeProduct", { content_name: "Campanha Copa", action: "clear" });
   }
 
+  if (cpfInput) {
+    cpfInput.addEventListener("input", function () {
+      cpfInput.value = maskCpf(cpfInput.value);
+    });
+  }
+
   form.addEventListener("submit", submitForm);
   btnClear.addEventListener("click", clearForm);
 
+  void loadPublicConfig();
   trackEvent("ViewContent", { content_name: "Campanha Copa" });
 })();

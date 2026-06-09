@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { internalCorsHeaders } from "../_shared/internalAuth.ts";
+import { loadCampanhaCopaJogoConfig } from "../_shared/campanhaCopaJogo.ts";
 
 const corsHeaders = internalCorsHeaders;
 
@@ -12,6 +13,25 @@ function cleanPhone(phone: string): string {
   return clean;
 }
 
+function cleanCpf(cpf: string): string {
+  return (cpf || "").replace(/\D/g, "");
+}
+
+function isValidCpf(cpf: string): boolean {
+  if (cpf.length !== 11) return false;
+  if (/^(\d)\1+$/.test(cpf)) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += Number(cpf[i]) * (10 - i);
+  let d1 = (sum * 10) % 11;
+  if (d1 === 10) d1 = 0;
+  if (d1 !== Number(cpf[9])) return false;
+  sum = 0;
+  for (let i = 0; i < 10; i++) sum += Number(cpf[i]) * (11 - i);
+  let d2 = (sum * 10) % 11;
+  if (d2 === 10) d2 = 0;
+  return d2 === Number(cpf[10]);
+}
+
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -19,9 +39,40 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
+async function loadPublicConfig(supabase: ReturnType<typeof createClient>) {
+  const jogo = await loadCampanhaCopaJogoConfig(supabase);
+
+  const { data } = await supabase
+    .from("system_settings")
+    .select("setting_key, setting_value")
+    .in("setting_key", ["system_name", "logo_url"]);
+
+  const map = new Map((data || []).map((r) => [r.setting_key, r.setting_value || ""]));
+
+  return {
+    system_name: map.get("system_name") || "Óticas Joonker",
+    logo_url: map.get("logo_url") || "",
+    jogo_key: jogo.jogo_key,
+    jogo_label: jogo.jogo_label,
+    team_home_name: jogo.team_home_name,
+    team_away_name: jogo.team_away_name,
+    team_home_flag: jogo.team_home_flag,
+    team_away_flag: jogo.team_away_flag,
+    match_meta: jogo.match_meta,
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabase = createClient(supabaseUrl, serviceKey);
+
+  if (req.method === "GET") {
+    return jsonResponse(await loadPublicConfig(supabase));
   }
 
   if (req.method !== "POST") {
@@ -29,25 +80,35 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, serviceKey);
-
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+    const jogoCfg = await loadCampanhaCopaJogoConfig(supabase);
 
     const nome = String(body.nome || "").trim();
+    const cpfRaw = String(body.cpf || "").trim();
     const idade = String(body.idade || "").trim();
     const cidade = String(body.cidade || "").trim();
     const telefoneRaw = String(body.telefone || "").trim();
     const usaOculos = String(body.usa_oculos || "").trim();
     const ultimoExame = String(body.ultimo_exame_vista || "").trim();
-    const palpiteBrasil = Number(body.palpite_brasil);
-    const palpiteMarrocos = Number(body.palpite_marrocos);
+    const palpiteHome = Number(body.palpite_home ?? body.palpite_brasil);
+    const palpiteAway = Number(body.palpite_away ?? body.palpite_marrocos);
     const consentimento = body.consentimento_marketing === true
       || body.consentimento_marketing === "true"
       || body.consentimento_marketing === "on";
 
+    const clientJogoKey = String(body.jogo_key || "").trim();
+    if (clientJogoKey && clientJogoKey !== jogoCfg.jogo_key) {
+      return jsonResponse({
+        error: "O jogo foi atualizado. Recarregue a página e envie seu palpite novamente.",
+      }, 409);
+    }
+
     if (!nome) return jsonResponse({ error: "Informe seu nome completo." }, 400);
+
+    const cpf = cleanCpf(cpfRaw);
+    if (!cpf) return jsonResponse({ error: "Informe seu CPF." }, 400);
+    if (!isValidCpf(cpf)) return jsonResponse({ error: "Informe um CPF válido." }, 400);
+
     if (!idade) return jsonResponse({ error: "Informe sua idade." }, 400);
     if (!cidade) return jsonResponse({ error: "Informe sua cidade." }, 400);
 
@@ -64,19 +125,36 @@ serve(async (req) => {
       return jsonResponse({ error: "Informe quando foi seu último exame de vista." }, 400);
     }
 
-    if (!Number.isFinite(palpiteBrasil) || palpiteBrasil < 0 || palpiteBrasil > 99) {
-      return jsonResponse({ error: "Informe o palpite de gols do Brasil." }, 400);
+    if (!Number.isFinite(palpiteHome) || palpiteHome < 0 || palpiteHome > 99) {
+      return jsonResponse({
+        error: `Informe o palpite de gols do ${jogoCfg.team_home_name}.`,
+      }, 400);
     }
 
-    if (!Number.isFinite(palpiteMarrocos) || palpiteMarrocos < 0 || palpiteMarrocos > 99) {
-      return jsonResponse({ error: "Informe o palpite de gols do Marrocos." }, 400);
+    if (!Number.isFinite(palpiteAway) || palpiteAway < 0 || palpiteAway > 99) {
+      return jsonResponse({
+        error: `Informe o palpite de gols do ${jogoCfg.team_away_name}.`,
+      }, 400);
     }
 
     if (!consentimento) {
       return jsonResponse({ error: "É necessário autorizar o uso dos dados para participar." }, 400);
     }
 
-    const palpiteTexto = `${palpiteBrasil} x ${palpiteMarrocos}`;
+    const jogoKey = jogoCfg.jogo_key;
+
+    const { data: existing } = await supabase
+      .from("campanha_copa_submissions")
+      .select("id")
+      .eq("cpf", cpf)
+      .eq("jogo", jogoKey)
+      .maybeSingle();
+
+    if (existing?.id) {
+      return jsonResponse({ error: "O CPF já registrou um Palpite." }, 409);
+    }
+
+    const palpiteTexto = `${palpiteHome} x ${palpiteAway}`;
     const usaOculosNorm = usaOculos.toLowerCase().startsWith("s") ? "sim" : "nao";
 
     const { data: setting } = await supabase
@@ -90,14 +168,21 @@ serve(async (req) => {
     const leadData: Record<string, unknown> = {
       origem_campanha: "copa",
       nome_lead: nome,
+      cpf,
       telefone,
       idade,
       cidade,
       usa_oculos: usaOculosNorm,
       ultimo_exame_vista: ultimoExame,
-      palpite_brasil: palpiteBrasil,
-      palpite_marrocos: palpiteMarrocos,
+      palpite_home: palpiteHome,
+      palpite_away: palpiteAway,
+      palpite_brasil: palpiteHome,
+      palpite_marrocos: palpiteAway,
       palpite: palpiteTexto,
+      jogo: jogoKey,
+      jogo_label: jogoCfg.jogo_label,
+      team_home_name: jogoCfg.team_home_name,
+      team_away_name: jogoCfg.team_away_name,
       consentimento_marketing: true,
     };
 
@@ -122,14 +207,17 @@ serve(async (req) => {
       .insert({
         lead_id: lead.id,
         nome,
+        cpf,
         idade,
         cidade,
         telefone,
         usa_oculos: usaOculosNorm,
         ultimo_exame_vista: ultimoExame,
-        palpite_brasil: palpiteBrasil,
-        palpite_marrocos: palpiteMarrocos,
+        palpite_brasil: palpiteHome,
+        palpite_marrocos: palpiteAway,
         palpite_texto: palpiteTexto,
+        jogo: jogoKey,
+        jogo_label: jogoCfg.jogo_label,
         consentimento_marketing: true,
         assigned_to: defaultUserId,
       })
@@ -137,9 +225,20 @@ serve(async (req) => {
       .single();
 
     if (subError) {
+      if (subError.code === "23505") {
+        await supabase.from("crm_leads").delete().eq("id", lead.id);
+        return jsonResponse({ error: "O CPF já registrou um Palpite." }, 409);
+      }
       console.error("[submit-campanha-copa] submission insert:", subError);
       return jsonResponse({ error: "Inscrição parcial — contate o suporte." }, 500);
     }
+
+    await supabase.from("campanha_copa_history").insert({
+      submission_id: submission.id,
+      user_id: null,
+      action: "created",
+      summary: `Inscrição recebida via formulário público — palpite ${palpiteTexto} (${jogoCfg.jogo_label}).`,
+    });
 
     return jsonResponse({
       ok: true,
