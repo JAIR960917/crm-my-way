@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useSyncExternalStore } from "react";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -6,9 +6,32 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 let deferredPrompt: BeforeInstallPromptEvent | null = null;
+let canInstallGlobal = false;
+const listeners = new Set<() => void>();
+
+function notify() {
+  listeners.forEach((fn) => fn());
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function getCanInstallSnapshot() {
+  return canInstallGlobal && !isInStandaloneMode();
+}
+
+export function isInStandaloneMode() {
+  if (typeof window === "undefined") return false;
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
+}
 
 function isIOS() {
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as Window & { MSStream?: unknown }).MSStream;
 }
 
 function isSafariOnIOS() {
@@ -21,59 +44,44 @@ function isSafariOnIOS() {
   return isSafari && !excludedBrowsers.test(ua);
 }
 
-function isInStandaloneMode() {
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    (navigator as any).standalone === true
-  );
+/** Captura beforeinstallprompt antes do React montar (Chrome Android). */
+function initGlobalPwaInstallCapture() {
+  if (typeof window === "undefined") return;
+  if ((window as Window & { __crmPwaInstallInit?: boolean }).__crmPwaInstallInit) return;
+  (window as Window & { __crmPwaInstallInit?: boolean }).__crmPwaInstallInit = true;
+
+  if (isInStandaloneMode() || isIOS()) return;
+
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredPrompt = e as BeforeInstallPromptEvent;
+    canInstallGlobal = true;
+    notify();
+  });
+
+  window.addEventListener("appinstalled", () => {
+    deferredPrompt = null;
+    canInstallGlobal = false;
+    notify();
+  });
 }
 
+initGlobalPwaInstallCapture();
+
 export function usePwaInstall() {
-  const [canInstall, setCanInstall] = useState(false);
+  const canInstall = useSyncExternalStore(subscribe, getCanInstallSnapshot, () => false);
   const [showIOSGuide, setShowIOSGuide] = useState(false);
   const isiOSSafari = isSafariOnIOS();
 
   useEffect(() => {
-    // If already in standalone, no install needed
     if (isInStandaloneMode()) return;
 
-    // For iOS: show manual guide
     if (isIOS()) {
       const dismissed = localStorage.getItem("ios-install-dismissed");
       if (!dismissed) {
         setShowIOSGuide(true);
       }
-      return;
     }
-
-    // For Android/Chrome: listen for beforeinstallprompt
-    const handler = (e: Event) => {
-      e.preventDefault();
-      deferredPrompt = e as BeforeInstallPromptEvent;
-      setCanInstall(true);
-    };
-
-    window.addEventListener("beforeinstallprompt", handler);
-
-    const onInstalled = () => {
-      setCanInstall(false);
-      deferredPrompt = null;
-    };
-    window.addEventListener("appinstalled", onInstalled);
-
-    const mq = window.matchMedia("(display-mode: standalone)");
-    const onDisplayChange = (e: MediaQueryListEvent) => {
-      if (!e.matches && deferredPrompt) {
-        setCanInstall(true);
-      }
-    };
-    mq.addEventListener("change", onDisplayChange);
-
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handler);
-      window.removeEventListener("appinstalled", onInstalled);
-      mq.removeEventListener("change", onDisplayChange);
-    };
   }, []);
 
   const install = async () => {
@@ -81,7 +89,8 @@ export function usePwaInstall() {
     await deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
     if (outcome === "accepted") {
-      setCanInstall(false);
+      canInstallGlobal = false;
+      notify();
     }
     deferredPrompt = null;
   };
@@ -99,5 +108,6 @@ export function usePwaInstall() {
     isIOS: isIOS(),
     isIOSSafari: isiOSSafari,
     isIOSExternalBrowser: isIOS() && !isiOSSafari,
+    isStandalone: isInStandaloneMode(),
   };
 }

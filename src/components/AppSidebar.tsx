@@ -31,6 +31,7 @@ import { resolveStoragePublicUrl } from "@/lib/storage-url";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 import { pageKeyForPath } from "@/lib/pagePermissions";
+import { usePwaInstall } from "@/hooks/use-pwa-install";
 
 /** Estrutura de um item do menu. */
 type NavItem = {
@@ -91,6 +92,7 @@ export default function AppSidebar({ onNavigate }: Props) {
   const [configOpen, setConfigOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const { canInstall, install, isStandalone } = usePwaInstall();
 
   /** Decide se o item de menu deve aparecer (com base nas permissões da função). */
   const canSee = (item: NavItem) => {
@@ -246,18 +248,20 @@ export default function AppSidebar({ onNavigate }: Props) {
         </button>
 
         {/* Instalar PWA */}
-        <button
-          onClick={() => handleNav("/instalar")}
-          className={cn(
-            "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-            location.pathname === "/instalar"
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "text-primary hover:bg-sidebar-accent/50"
-          )}
-        >
-          <Download className="h-4 w-4" />
-          Instalar App
-        </button>
+        {!isStandalone && (
+          <button
+            onClick={() => (canInstall ? void install() : handleNav("/instalar"))}
+            className={cn(
+              "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+              canInstall || location.pathname === "/instalar"
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-primary hover:bg-sidebar-accent/50"
+            )}
+          >
+            <Download className="h-4 w-4" />
+            {canInstall ? "Instalar Agora" : "Instalar App"}
+          </button>
+        )}
 
         {/* Toggle de tema dark/light (persistido em localStorage) */}
         <button

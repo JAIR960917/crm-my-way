@@ -4,6 +4,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import RootErrorBoundary from "./components/RootErrorBoundary.tsx";
+import "@/hooks/use-pwa-install";
 import { isIOSInAppBrowser, registerPushServiceWorker, runPwaBootstrap } from "@/lib/pwaBootstrap";
 import "./index.css";
 
@@ -58,9 +59,7 @@ function mountApp() {
 async function boot() {
   if (canRegisterServiceWorker) {
     await runPwaBootstrap();
-    window.addEventListener("load", () => {
-      void registerPushServiceWorker();
-    });
+    void registerPushServiceWorker();
   } else {
     navigator.serviceWorker?.getRegistrations().then((registrations) => {
       registrations.forEach((registration) => registration.unregister());

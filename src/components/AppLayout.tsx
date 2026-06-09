@@ -18,6 +18,7 @@
  */
 import { ReactNode, useState } from "react";
 import AppSidebar from "./AppSidebar";
+import PwaInstallBanner from "./PwaInstallBanner";
 import NotificationBell from "./NotificationBell";
 import { useSystemSettings } from "@/contexts/SystemSettingsContext";
 import { Button } from "@/components/ui/button";
@@ -52,6 +53,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
       {/* Área principal de conteúdo */}
       <main className="flex-1 overflow-auto min-w-0">
+        <PwaInstallBanner />
         {/* Header mobile: botão de menu + nome + sino */}
         <div className="sticky top-0 z-30 flex items-center gap-3 border-b bg-background px-4 py-3 lg:hidden">
           <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setSidebarOpen(true)}>
