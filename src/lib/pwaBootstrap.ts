@@ -1,5 +1,5 @@
 /** Bump quando precisar limpar SW/cache antigo (ex.: tela branca no iPhone). */
-const SW_CACHE_GENERATION = "3";
+const SW_CACHE_GENERATION = "4";
 
 const isIOS = () =>
   /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as Window & { MSStream?: unknown }).MSStream;
@@ -10,6 +10,12 @@ export const isIOSInAppBrowser = () => {
   return /CriOS|FxiOS|EdgiOS|OPiOS|WhatsApp|FBAN|FBAV|Instagram|Line|MicroMessenger/i.test(
     navigator.userAgent,
   );
+};
+
+/** WebView do WhatsApp/Instagram no Android não instala PWA — só atalho no navegador embutido. */
+export const isAndroidInAppBrowser = () => {
+  if (!/Android/i.test(navigator.userAgent)) return false;
+  return /; wv\)|WhatsApp|Instagram|FBAN|FBAV|Line|MicroMessenger/i.test(navigator.userAgent);
 };
 
 async function clearStalePwaCaches() {
@@ -53,11 +59,13 @@ export async function runPwaBootstrap() {
   }
 }
 
-export async function registerPushServiceWorker() {
-  if (!("serviceWorker" in navigator)) return;
+export async function registerPushServiceWorker(): Promise<boolean> {
+  if (!("serviceWorker" in navigator)) return false;
   try {
-    await navigator.serviceWorker.register("/service-worker.js");
+    await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
+    await navigator.serviceWorker.ready;
+    return Boolean(navigator.serviceWorker.controller);
   } catch {
-    // no-op
+    return false;
   }
 }

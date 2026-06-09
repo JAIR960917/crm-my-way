@@ -1,14 +1,17 @@
 {
+  "id": "/",
   "name": "CRM Óticas Joonker",
   "short_name": "CRM Joonker",
   "description": "CRM Óticas Joonker - Gestão de Leads",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait-primary",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",
   "lang": "pt-BR",
+  "categories": ["business", "productivity"],
   "icons": [
     {
       "src": "/pwa-192x192.png",

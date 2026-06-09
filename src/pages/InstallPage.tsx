@@ -1,9 +1,11 @@
 import { usePwaInstall } from "@/hooks/use-pwa-install";
-import { Download, Share, Plus, MoreVertical, Check, ExternalLink, Globe } from "lucide-react";
+import { isAndroidInAppBrowser } from "@/lib/pwaBootstrap";
+import { Download, Share, Plus, MoreVertical, Check, ExternalLink, Globe, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function InstallPage() {
   const { canInstall, install, isIOS, isIOSSafari, isIOSExternalBrowser } = usePwaInstall();
+  const isAndroidInApp = isAndroidInAppBrowser();
 
   const isStandalone =
     window.matchMedia("(display-mode: standalone)").matches ||
@@ -101,26 +103,57 @@ export default function InstallPage() {
           </div>
         )}
 
-        {/* Android manual instructions (when beforeinstallprompt didn't fire) */}
-        {!isIOS && !canInstall && (
-          <div className="space-y-4 rounded-xl border border-border bg-card p-6 text-left">
+        {/* Android in-app browser (WhatsApp etc.) */}
+        {!isIOS && isAndroidInApp && (
+          <div className="space-y-4 rounded-xl border border-amber-500/40 bg-card p-6 text-left">
             <h2 className="text-lg font-semibold text-card-foreground">
-              Como instalar no Android
+              Abra no Chrome para instalar o app
             </h2>
             <p className="text-sm text-muted-foreground">
-              No Chrome, siga estes passos:
+              Pelo WhatsApp ou outro app interno, o Android só cria um <strong>atalho</strong> na tela inicial — não instala o PWA completo.
+            </p>
+            <div className="space-y-4">
+              <Step number={1} icon={<ExternalLink className="h-5 w-5" />}>
+                Toque em <strong>Abrir no Chrome</strong> no menu do app onde você abriu o link
+              </Step>
+              <Step number={2} icon={<Globe className="h-5 w-5" />}>
+                No Chrome, aguarde a página carregar e use o botão <strong>Instalar Agora</strong> acima ou o menu <strong>⋮ → Instalar app</strong>
+              </Step>
+            </div>
+          </div>
+        )}
+
+        {/* Android manual instructions (when beforeinstallprompt didn't fire) */}
+        {!isIOS && !canInstall && !isAndroidInApp && (
+          <div className="space-y-4 rounded-xl border border-border bg-card p-6 text-left">
+            <h2 className="text-lg font-semibold text-card-foreground">
+              Como instalar no Android (PWA completo)
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Use o <strong>Google Chrome</strong>. A opção <strong>"Adicionar à tela inicial"</strong> cria apenas um atalho — procure por <strong>"Instalar app"</strong>.
             </p>
             <div className="space-y-4">
               <Step number={1} icon={<MoreVertical className="h-5 w-5" />}>
-                Toque no menu <strong>⋮</strong> (três pontinhos) no canto superior direito
+                Toque no menu <strong>⋮</strong> (três pontinhos) no canto superior direito do Chrome
               </Step>
               <Step number={2} icon={<Download className="h-5 w-5" />}>
-                Toque em <strong>"Instalar app"</strong> ou <strong>"Adicionar à tela inicial"</strong>
+                Toque em <strong>"Instalar app"</strong> — o diálogo deve mostrar o nome <strong>CRM Óticas Joonker</strong>
               </Step>
               <Step number={3} icon={<Check className="h-5 w-5" />}>
                 Confirme tocando em <strong>"Instalar"</strong>
               </Step>
             </div>
+            <Button
+              variant="outline"
+              className="mt-2 w-full gap-2"
+              onClick={() => location.reload()}
+            >
+              <RefreshCw className="h-4 w-4" />
+              Recarregar página
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Se só aparecer "Adicionar à tela inicial", recarregue a página ou feche e abra o Chrome de novo digitando o endereço do CRM.
+            </p>
           </div>
         )}
       </div>
