@@ -26,6 +26,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertCronOrServiceRole, internalCorsHeaders } from "../_shared/internalAuth.ts";
 import { recordOutboundWhatsAppInbox } from "../_shared/whatsappInboxMedia.ts";
 import {
+  applyTemplateVars,
+  buildCobrancaVars,
+  buildMetaTemplateBodyParams,
+} from "../_shared/metaTemplateVars.ts";
+import {
   resolveSendTargetBySession,
   sendWhatsAppMessage,
   translateWhatsAppError,
@@ -151,7 +156,7 @@ async function dispatchSend(
   metaOpts?: {
     metaTemplateName?: string | null;
     metaTemplateLanguage?: string | null;
-    metaTemplateBodyParams?: string[];
+    metaTemplateBodyParams?: import("../_shared/whatsappSend.ts").MetaTemplateBodyParam[];
   },
 ) {
   const target = await resolveSendTargetBySession(supabase, session);
@@ -385,107 +390,6 @@ async function refreshGlobalSendLock(supabase: any, ttlSeconds: number) {
   } catch (e) {
     console.error("[send-whatsapp] erro ao renovar lock global:", e);
   }
-}
-
-// ============= Template variables (placeholders) =============
-function formatBRL(v: any): string {
-  const n = typeof v === "number" ? v : parseFloat(String(v ?? "").replace(",", "."));
-  if (!isFinite(n)) return "R$ 0,00";
-  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-function formatDateBR(s: any): string {
-  if (!s) return "";
-  const str = String(s).slice(0, 10);
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(str);
-  if (!m) return String(s);
-  return `${m[3]}/${m[2]}/${m[1]}`;
-}
-function buildCobrancaVars(
-  card: any,
-  name: string,
-  companies: Map<string, { name: string; cnpj: string | null }>,
-): Record<string, string> {
-  const data = (card?.data && typeof card.data === "object") ? card.data : {};
-  const parcelas: any[] = Array.isArray(data.parcelas_atrasadas) ? data.parcelas_atrasadas : [];
-  const vencidas = parcelas.filter((p) => Number(p?.dias_atraso) > 0);
-  const aVencer = parcelas.filter((p) => Number(p?.dias_atraso) <= 0)
-    .sort((a, b) => String(a?.vencimento || "").localeCompare(String(b?.vencimento || "")));
-  const vencidasOrdenadas = vencidas.slice().sort((a, b) => Number(b?.dias_atraso || 0) - Number(a?.dias_atraso || 0));
-  const pVencida = vencidasOrdenadas[0] || parcelas.find((p) => Number(p?.dias_atraso) > 0);
-  const pAVencer = aVencer[0];
-
-  const totalParcelas = vencidas.reduce((sum, p) => {
-    const v = typeof p?.valor === "number" ? p.valor : parseFloat(String(p?.valor ?? "0").replace(",", "."));
-    return sum + (isFinite(v) ? v : 0);
-  }, 0);
-  const totalEffective = totalParcelas > 0 ? totalParcelas : Number(data.total_atraso || 0);
-
-  // Lista formatada das parcelas em atraso, ordenadas do vencimento mais antigo
-  // para o mais novo. Mostra Valor e Data de vencimento em cada linha.
-  // Fallback: se o filtro estrito de dias_atraso>0 não retornar nada (algumas
-  // integrações gravam dias_atraso=0 mesmo para vencidas), usamos todas as
-  // parcelas do array parcelas_atrasadas.
-  const baseListagem = vencidas.length > 0 ? vencidas : parcelas;
-  const vencidasParaLista = baseListagem.slice().sort((a, b) =>
-    String(a?.vencimento || "9999-12-31").localeCompare(String(b?.vencimento || "9999-12-31")),
-  );
-  const listaParcelasVencidas = vencidasParaLista
-    .map((p) => `• Valor: ${formatBRL(p?.valor)} | Vencimento: ${formatDateBR(p?.vencimento)}`)
-    .join("\n");
-
-  // Boleto/parcela mais antigo entre as vencidas (menor vencimento).
-  // Usa o mesmo fallback de baseListagem para cobrir integrações que gravam
-  // dias_atraso=0 mesmo em parcelas já vencidas.
-  const maisAntigo = vencidasParaLista[0];
-
-
-  const companyId = card?.company_id || card?.ssotica_company_id || null;
-  const company = companyId ? companies.get(companyId) : null;
-
-  return {
-    nome: name || "",
-    valor_parcela_vencida: pVencida ? formatBRL(pVencida.valor) : "",
-    valor_parcela_a_vencer: pAVencer ? formatBRL(pAVencer.valor) : "",
-    data_parcela_vencida: pVencida ? formatDateBR(pVencida.vencimento) : "",
-    data_parcela_a_vencer: pAVencer ? formatDateBR(pAVencer.vencimento) : "",
-    cnpj_empresa: company?.cnpj || "",
-    nome_empresa: company?.name || "",
-    valor_total_parcelas: formatBRL(totalEffective),
-    parcelas_vencidas: listaParcelasVencidas,
-    data_boleto_mais_antigo: maisAntigo ? formatDateBR(maisAntigo.vencimento) : "",
-  };
-}
-function applyTemplateVars(template: string, vars: Record<string, string>): string {
-  if (!template) return template;
-  let out = template;
-  for (const [k, v] of Object.entries(vars)) {
-    const re = new RegExp(`\\{\\s*${k}\\s*\\}`, "gi");
-    out = out.replace(re, v ?? "");
-  }
-  return out;
-}
-
-/** Parâmetros do corpo do template Meta ({{1}}, {{2}}…) na ordem em que aparecem na mensagem do CRM. */
-function buildMetaTemplateBodyParams(
-  messageTemplate: string,
-  vars: Record<string, string>,
-): string[] {
-  if (!messageTemplate?.trim()) return [];
-  const varsLower: Record<string, string> = {};
-  for (const [k, v] of Object.entries(vars)) {
-    varsLower[k.toLowerCase()] = v ?? "";
-  }
-  const seen = new Set<string>();
-  const params: string[] = [];
-  const re = /\{\s*([a-z0-9_]+)\s*\}/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(messageTemplate)) !== null) {
-    const key = m[1].toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    params.push(varsLower[key] ?? "");
-  }
-  return params;
 }
 
 function resolveCardEnteredAt(card: any): Date {

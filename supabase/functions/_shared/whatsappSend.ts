@@ -150,6 +150,13 @@ export function translateWhatsAppError(message: string): string {
       "Abra business.facebook.com → Suporte → violações e solicite revisão com evidências."
     );
   }
+  if (/\(#100\)|\b100\b/.test(raw) && /invalid parameter/i.test(raw)) {
+    return (
+      "Meta recusou o template (erro #100 — parâmetro inválido). " +
+      "Confira se o nome/idioma do template batem com o painel Meta e se a quantidade de variáveis {{1}}, {{2}}… " +
+      "é igual às chaves {nome}, {valor_a_vencer}, {data_a_vencer} etc. na mensagem do gatilho."
+    );
+  }
   return raw;
 }
 
@@ -284,19 +291,33 @@ async function sendMetaImage(
   return { ok: true, errorMessage: null, raw: json, metaMessageId: messageId, usedTemplate: false };
 }
 
+export type MetaTemplateBodyParam = {
+  name?: string;
+  text: string;
+};
+
 async function sendMetaTemplate(
   accessToken: string,
   phoneNumberId: string,
   to: string,
   templateName: string,
   languageCode: string,
-  bodyParams: string[],
+  bodyParams: MetaTemplateBodyParam[],
 ): Promise<SendResult> {
-  const components: { type: string; parameters: { type: string; text: string }[] }[] = [];
+  const components: { type: string; parameters: Record<string, string>[] }[] = [];
   if (bodyParams.length > 0) {
     components.push({
       type: "body",
-      parameters: bodyParams.map((text) => ({ type: "text", text })),
+      parameters: bodyParams.map((param) => {
+        const item: Record<string, string> = {
+          type: "text",
+          text: (param.text ?? "").trim() || "-",
+        };
+        if (param.name?.trim()) {
+          item.parameter_name = param.name.trim();
+        }
+        return item;
+      }),
     });
   }
   const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
@@ -340,8 +361,8 @@ export type SendWhatsAppParams = {
   metaAccessToken?: string;
   metaTemplateName?: string | null;
   metaTemplateLanguage?: string | null;
-  /** Parâmetros do corpo do template ({{1}}, {{2}}…). Se vazio, envia só o nome do template. */
-  metaTemplateBodyParams?: string[];
+  /** Parâmetros nomeados do corpo do template Meta. Se vazio, envia só o nome do template. */
+  metaTemplateBodyParams?: MetaTemplateBodyParam[];
   supabase?: ReturnType<typeof import("https://esm.sh/@supabase/supabase-js@2").createClient>;
   skipWindowCheck?: boolean;
   conversationId?: string | null;
@@ -405,7 +426,7 @@ export async function sendWhatsAppMessage(params: SendWhatsAppParams): Promise<S
   const bodyParams =
     metaTemplateBodyParams.length > 0
       ? metaTemplateBodyParams
-      : text ? [text.slice(0, 1024)] : [];
+      : [];
 
   const tplResult = await sendMetaTemplate(
     metaAccessToken,

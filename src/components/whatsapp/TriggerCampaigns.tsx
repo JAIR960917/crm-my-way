@@ -643,20 +643,18 @@ export default function TriggerCampaigns({ instances }: Props) {
                 />
                 <div className="text-[11px] text-muted-foreground leading-relaxed space-y-1">
                   <p>
-                    <span className="font-semibold">Variáveis no CRM (uma chave):</span>{" "}
-                    <code>{"{nome}"}</code>, <code>{"{valor_parcela_vencida}"}</code>,{" "}
-                    <code>{"{valor_parcela_a_vencer}"}</code>, <code>{"{data_parcela_vencida}"}</code>,{" "}
-                    <code>{"{data_parcela_a_vencer}"}</code>, <code>{"{valor_total_parcelas}"}</code>,{" "}
-                    <code>{"{nome_empresa}"}</code>, <code>{"{cnpj_empresa}"}</code>,{" "}
-                    <code>{"{parcelas_vencidas}"}</code>, <code>{"{data_boleto_mais_antigo}"}</code>
+                    <span className="font-semibold">Variáveis no CRM:</span>{" "}
+                    <code>{"{nome}"}</code>, <code>{"{valor_a_vencer}"}</code>, <code>{"{data_a_vencer}"}</code>,{" "}
+                    <code>{"{cnpj_empresa}"}</code>, <code>{"{nome_empresa}"}</code>,{" "}
+                    <code>{"{valor_parcela_vencida}"}</code>, <code>{"{data_parcela_vencida}"}</code>,{" "}
+                    <code>{"{valor_total_parcelas}"}</code>, <code>{"{parcelas_vencidas}"}</code>
                   </p>
                   <p>
-                    <span className="font-semibold">Template na Meta (API oficial):</span> use{" "}
-                    <code>{"{{1}}"}</code>, <code>{"{{2}}"}</code>… na{" "}
-                    <span className="font-semibold">mesma ordem</span> das variáveis acima no texto do gatilho
-                    (ex.: <code>{"{cnpj_empresa}"}</code> → <code>{"{{1}}"}</code>,{" "}
-                    <code>{"{nome_empresa}"}</code> → <code>{"{{2}}"}</code>). Não use chave simples{" "}
-                    <code>{"{cnpj}"}</code> no painel da Meta.
+                    <span className="font-semibold">Template na Meta:</span> use os{" "}
+                    <span className="font-semibold">mesmos nomes</span> no painel da Meta (
+                    <code>{"{{nome}}"}</code>, <code>{"{{valor_a_vencer}}"}</code>,{" "}
+                    <code>{"{{data_a_vencer}}"}</code>, etc.) e repita as mesmas chaves no texto do gatilho acima,
+                    na mesma ordem.
                   </p>
                 </div>
                 <ImageUploadField

@@ -22,25 +22,20 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertCronOrServiceRole, internalCorsHeaders } from "../_shared/internalAuth.ts";
 import {
+  applyTemplateVars,
+  buildCobrancaVars,
+  buildMetaTemplateBodyParams,
+} from "../_shared/metaTemplateVars.ts";
+import {
   resolveSendTargetBySession,
   sendWhatsAppMessage,
   cleanPhone as sharedCleanPhone,
+  translateWhatsAppError,
 } from "../_shared/whatsappSend.ts";
 
 const corsHeaders = internalCorsHeaders;
 
 const cleanPhone = sharedCleanPhone;
-
-function applyPlaceholders(text: string, data: Record<string, any>): string {
-  if (!text) return "";
-  const map: Record<string, any> = {
-    nome: data.nome || data.nome_lead || "Cliente",
-    telefone: data.telefone || "",
-    valor: data.valor || "",
-    vencimento: data.vencimento || "",
-  };
-  return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => String(map[k] ?? data[k] ?? ""));
-}
 
 const SUCCESS_TOKENS = ["success", "sucesso", "sent", "enviado", "accepted", "queued", "ok"];
 const ERROR_TOKENS = [
@@ -88,6 +83,8 @@ async function sendMessage(
   text: string,
   imageUrl?: string | null,
   metaTemplateName?: string | null,
+  metaTemplateLanguage?: string | null,
+  metaTemplateBodyParams?: import("../_shared/whatsappSend.ts").MetaTemplateBodyParam[],
 ) {
   const target = await resolveSendTargetBySession(supabase, session);
   if (!target) return { ok: false, error: "Instância não encontrada", raw: null };
@@ -100,9 +97,12 @@ async function sendMessage(
     apiFullKey: apiKey,
     metaAccessToken: metaToken,
     metaTemplateName: metaTemplateName || target.metaDefaultTemplate,
+    metaTemplateLanguage: metaTemplateLanguage || target.metaTemplateLanguage,
+    metaTemplateBodyParams,
     supabase,
   });
-  return { ok: result.ok, error: result.errorMessage, raw: result.raw };
+  const errMsg = result.errorMessage ? translateWhatsAppError(result.errorMessage) : null;
+  return { ok: result.ok, error: errMsg, raw: result.raw };
 }
 
 async function resolveSession(supabase: any, instanceId: string | null, companyId: string | null): Promise<string | null> {
@@ -156,7 +156,7 @@ serve(async (req) => {
     // 2) Carrega cobranças que estão em alguma coluna habilitada
     const { data: cobrancas } = await supabase
       .from("crm_cobrancas")
-      .select("id, status, data, company_id, ssotica_cliente_id, assigned_to, created_by")
+      .select("id, status, data, company_id, ssotica_company_id, ssotica_cliente_id, assigned_to, created_by, valor, vencimento")
       .in("status", Array.from(enabledKeys));
 
     // Pré-carrega IDs de cobranças com qualquer atividade pendente (não concluída).
@@ -171,6 +171,14 @@ serve(async (req) => {
         .in("cobranca_id", cobrancaIds);
       for (const a of (pendingActs || []) as any[]) {
         if (a?.cobranca_id) pendingCobrancaIds.add(a.cobranca_id);
+      }
+    }
+
+    const companiesMap = new Map<string, { name: string; cnpj: string | null }>();
+    {
+      const { data: comps } = await supabase.from("companies").select("id, name, cnpj");
+      for (const c of (comps || []) as { id?: string; name?: string; cnpj?: string | null }[]) {
+        if (c?.id) companiesMap.set(c.id, { name: c.name || "", cnpj: c.cnpj || null });
       }
     }
 
@@ -209,7 +217,7 @@ serve(async (req) => {
           } else {
             const { data: steps } = await supabase
               .from("whatsapp_trigger_steps")
-              .select("id, position, message, image_url")
+              .select("id, position, message, image_url, meta_template_name, meta_template_language")
               .eq("campaign_id", campaign.id)
               .order("position", { ascending: true })
               .limit(1);
@@ -218,6 +226,7 @@ serve(async (req) => {
             const phoneRaw = data.telefone || data.phone || data.celular || "";
             const phone = cleanPhone(String(phoneRaw));
             const session = await resolveSession(supabase, campaign.instance_id, campaign.company_id || cob.company_id);
+            const clientName = String(data.nome || data.nome_lead || data.name || "Cliente");
 
             if (!phone || !session || !step) {
               await supabase.from("crm_cobranca_flow_events").insert({
@@ -232,7 +241,8 @@ serve(async (req) => {
               });
               stats.gatilhos_falhos++;
             } else {
-              const text = applyPlaceholders(step.message || "", data);
+              const vars = buildCobrancaVars(cob, clientName, companiesMap);
+              const text = applyTemplateVars(step.message || "", vars);
               const result = await sendMessage(
                 supabase,
                 APIFULL_API_KEY,
@@ -241,6 +251,8 @@ serve(async (req) => {
                 text,
                 step.image_url || null,
                 step.meta_template_name,
+                step.meta_template_language,
+                buildMetaTemplateBodyParams(step.message || "", vars),
               );
               if (result.ok) {
                 const sentAt = new Date().toISOString();
