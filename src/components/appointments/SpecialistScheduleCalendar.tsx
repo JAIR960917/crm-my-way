@@ -10,10 +10,9 @@ import {
   WEEKDAY_LABELS,
 } from "@/lib/appointmentCalendarUtils";
 import {
-  formatSpecialistWithPeriod,
+  formatScheduleCardLabel,
   groupScheduleByDay,
   textColorForBackground,
-  WORK_PERIOD_LABELS,
   type SpecialistScheduleEntry,
 } from "@/lib/eyeExamSchedule";
 
@@ -76,19 +75,22 @@ export default function SpecialistScheduleCalendar({ focusDate, entries, onDayCl
                 )}
               </div>
               <div className="flex-1 flex flex-col gap-px min-h-0 overflow-hidden">
-                {dayEntries.slice(0, MAX_VISIBLE).map((e) => (
+                {dayEntries.slice(0, MAX_VISIBLE).map((e) => {
+                  const label = formatScheduleCardLabel(e.companyName, e.specialistName, e.workPeriod);
+                  return (
                   <div
-                    key={`${e.eyeExamDayId}-${e.specialistId}`}
+                    key={`${e.eyeExamDayId}-${e.specialistId}-${e.workPeriod}`}
                     className="h-4 shrink-0 text-[9px] px-1 py-0 leading-4 rounded truncate border border-black/10"
                     style={{
                       backgroundColor: e.companyColor,
                       color: textColorForBackground(e.companyColor),
                     }}
-                    title={`${e.specialistName} — ${e.companyName} — ${WORK_PERIOD_LABELS[e.workPeriod]}`}
+                    title={label}
                   >
-                    {formatSpecialistWithPeriod(e.specialistName, e.workPeriod)}
+                    {label}
                   </div>
-                ))}
+                  );
+                })}
                 {dayEntries.length > MAX_VISIBLE && (
                   <span className="text-[9px] text-muted-foreground px-0.5 leading-4 shrink-0">
                     +{dayEntries.length - MAX_VISIBLE} mais

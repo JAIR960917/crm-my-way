@@ -22,6 +22,19 @@ export const WORK_PERIOD_LABELS: Record<WorkPeriod, string> = {
   dia_todo: "Dia todo",
 };
 
+/** Rótulos nos cards do calendário de escala (admin). */
+export const WORK_PERIOD_CARD_LABELS: Record<WorkPeriod, string> = {
+  manha: "Manhã",
+  tarde: "Tarde",
+  dia_todo: "O Dia Todo",
+};
+
+const WORK_PERIOD_SORT_ORDER: Record<WorkPeriod, number> = {
+  manha: 0,
+  tarde: 1,
+  dia_todo: 2,
+};
+
 export const DEFAULT_WORK_PERIOD: WorkPeriod = "dia_todo";
 
 export function parseWorkPeriod(value: string | null | undefined): WorkPeriod {
@@ -32,6 +45,36 @@ export function parseWorkPeriod(value: string | null | undefined): WorkPeriod {
 export function formatSpecialistWithPeriod(name: string, period: WorkPeriod): string {
   if (period === "dia_todo") return name;
   return `${name} (${WORK_PERIOD_LABELS[period]})`;
+}
+
+/** Extrai cidade curta do nome da empresa (ex.: "Óticas Joonker Caicó Ltda" → "Caicó"). */
+export function companyCityLabel(companyName: string): string {
+  let city = companyName
+    .replace(/^Óticas\s+Joonker\s+/i, "")
+    .replace(/\s+Ltda\.?$/i, "")
+    .trim();
+  if (!city) return companyName;
+
+  if (/^São\s+\S+/i.test(city)) {
+    const [first, second] = city.split(/\s+/);
+    return second ? `${first} ${second}` : first;
+  }
+
+  const shortIdx = city.search(/\s+(?:do|de)\s+/i);
+  if (shortIdx > 0) return city.slice(0, shortIdx).trim();
+
+  return city;
+}
+
+/** Texto do card na escala: "Caicó | Hedye | O Dia Todo". */
+export function formatScheduleCardLabel(
+  companyName: string,
+  specialistName: string,
+  period: WorkPeriod,
+): string {
+  const city = companyCityLabel(companyName);
+  const shift = WORK_PERIOD_CARD_LABELS[period];
+  return `${city} | ${specialistName} | ${shift}`;
 }
 
 export type EyeExamSpecialist = {
@@ -135,7 +178,13 @@ export function groupScheduleByDay(entries: SpecialistScheduleEntry[]): Map<stri
     map.get(e.examDate)!.push(e);
   }
   for (const list of map.values()) {
-    list.sort((a, b) => a.specialistName.localeCompare(b.specialistName, "pt-BR"));
+    list.sort((a, b) => {
+      const cityCmp = companyCityLabel(a.companyName).localeCompare(companyCityLabel(b.companyName), "pt-BR");
+      if (cityCmp !== 0) return cityCmp;
+      const nameCmp = a.specialistName.localeCompare(b.specialistName, "pt-BR");
+      if (nameCmp !== 0) return nameCmp;
+      return WORK_PERIOD_SORT_ORDER[a.workPeriod] - WORK_PERIOD_SORT_ORDER[b.workPeriod];
+    });
   }
   return map;
 }
