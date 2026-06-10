@@ -16,6 +16,7 @@
       <div class="hero-badge">Campanha Copa 2026</div>
       <h1 id="system-name">Carregando...</h1>
       <p>Palpite no jogo <strong id="jogo-label">Brasil x Marrocos</strong>, preencha seus dados e participe do sorteio.</p>
+      <button type="button" id="btn-regulamento" class="btn-regulamento">Consultar regulamento</button>
     </header>
 
     <form id="copa-form" class="form-card" novalidate>
@@ -131,8 +132,47 @@
 
     <footer class="footer">
       <p id="footer-brand">Campanha Copa</p>
-      <p><a href="/privacidade">Política de privacidade</a></p>
+      <p>
+        <button type="button" id="btn-regulamento-footer" class="footer-link-btn">Consultar regulamento</button>
+        ·
+        <a href="/privacidade">Política de privacidade</a>
+      </p>
     </footer>
+  </div>
+
+  <div id="regulamento-modal" class="regulamento-modal" hidden aria-hidden="true">
+    <div class="regulamento-backdrop" id="regulamento-backdrop"></div>
+    <div class="regulamento-dialog" role="dialog" aria-modal="true" aria-labelledby="regulamento-title">
+      <div class="regulamento-header">
+        <h2 id="regulamento-title">Regulamento</h2>
+        <button type="button" id="regulamento-close" class="regulamento-close" aria-label="Fechar">×</button>
+      </div>
+      <div class="regulamento-body">
+        <h3>Ação Especial: Bolão dos Jogos do Brasil</h3>
+
+        <p><strong>Dinâmica de Participação:</strong> Durante o período da campanha, a Óticas Joonker promoverá um &quot;bolão&quot; exclusivo para os jogos da Seleção Brasileira. Para participar, o interessado deverá registrar o seu palpite para o placar final da partida por meio do formulário online, informando obrigatoriamente seu nome completo, CPF e telefone para contato.</p>
+
+        <p><strong>Prazo de Validade dos Palpites:</strong> Só serão aceitos e validados os palpites registrados até o horário oficial de início de cada partida do Brasil. Palpites enviados ou preenchidos após o apito inicial serão automaticamente desclassificados.</p>
+
+        <p><strong>Premiação:</strong> A Óticas Joonker disponibilizará 3 (três) óculos solares como prêmio para cada jogo do Brasil, destinados aos participantes que acertarem o placar exato da partida.</p>
+
+        <p><strong>Critério de Desempate e Sorteio:</strong></p>
+        <ul>
+          <li>Caso haja exatamente 3 ou menos participantes que acertem o placar, todos os acertadores ganharão 1 (um) óculos solar.</li>
+          <li>Caso mais de 3 (três) pessoas acertem o placar exato do mesmo jogo, a Óticas Joonker realizará um sorteio de forma transparente exclusivamente entre esses acertadores. Os 3 (três) primeiros nomes sorteados serão declarados os ganhadores.</li>
+        </ul>
+
+        <p><strong>Escolha e Retirada do Prêmio:</strong></p>
+        <ul>
+          <li><strong>Modelos Participantes:</strong> Os ganhadores do bolão deverão escolher seus prêmios a partir da mesma seleção exclusiva da promoção principal, que corresponde aos óculos solares devidamente identificados nas lojas físicas com etiquetas azuis. A escolha de modelos está sujeita à disponibilidade de estoque da unidade no momento da retirada.</li>
+          <li><strong>Comunicação:</strong> A loja entrará em contato com os ganhadores através do telefone fornecido no momento do palpite para informar sobre a premiação.</li>
+          <li><strong>Condições:</strong> O prêmio é pessoal e intransferível, não podendo ser trocado por dinheiro, descontos ou por produtos que não façam parte da seleção de peças com etiqueta azul. Caso o ganhador deseje adicionar lentes com grau à armação solar do prêmio, os custos serão de sua inteira responsabilidade.</li>
+        </ul>
+      </div>
+      <div class="regulamento-footer">
+        <button type="button" id="regulamento-close-bottom" class="btn-primary">Fechar</button>
+      </div>
+    </div>
   </div>
 
   <script src="/runtime-config.js"></script>

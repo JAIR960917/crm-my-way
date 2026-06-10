@@ -263,6 +263,40 @@
   form.addEventListener("submit", submitForm);
   btnClear.addEventListener("click", clearForm);
 
+  var regulamentoModal = document.getElementById("regulamento-modal");
+  var regulamentoBackdrop = document.getElementById("regulamento-backdrop");
+  var btnRegulamento = document.getElementById("btn-regulamento");
+  var btnRegulamentoFooter = document.getElementById("btn-regulamento-footer");
+  var btnRegulamentoClose = document.getElementById("regulamento-close");
+  var btnRegulamentoCloseBottom = document.getElementById("regulamento-close-bottom");
+
+  function openRegulamento() {
+    if (!regulamentoModal) return;
+    regulamentoModal.hidden = false;
+    regulamentoModal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+    trackEvent("ViewContent", { content_name: "Campanha Copa Regulamento" });
+  }
+
+  function closeRegulamento() {
+    if (!regulamentoModal) return;
+    regulamentoModal.hidden = true;
+    regulamentoModal.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+  }
+
+  if (btnRegulamento) btnRegulamento.addEventListener("click", openRegulamento);
+  if (btnRegulamentoFooter) btnRegulamentoFooter.addEventListener("click", openRegulamento);
+  if (btnRegulamentoClose) btnRegulamentoClose.addEventListener("click", closeRegulamento);
+  if (btnRegulamentoCloseBottom) btnRegulamentoCloseBottom.addEventListener("click", closeRegulamento);
+  if (regulamentoBackdrop) regulamentoBackdrop.addEventListener("click", closeRegulamento);
+
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && regulamentoModal && !regulamentoModal.hidden) {
+      closeRegulamento();
+    }
+  });
+
   void loadPublicConfig();
   trackEvent("ViewContent", { content_name: "Campanha Copa" });
 })();

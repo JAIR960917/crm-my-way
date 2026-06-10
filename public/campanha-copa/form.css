@@ -53,10 +53,149 @@ body {
 }
 
 .hero p {
-  margin: 0;
+  margin: 0 0 16px;
   opacity: 0.9;
   line-height: 1.5;
   font-size: 0.95rem;
+}
+
+.btn-regulamento {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 10px 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #0f172a;
+  background: #f8fafc;
+  border: 1px solid rgba(248, 250, 252, 0.4);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.btn-regulamento:hover {
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.footer-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: #93c5fd;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.footer-link-btn:hover {
+  color: #bfdbfe;
+}
+
+.regulamento-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.regulamento-modal[hidden] {
+  display: none;
+}
+
+.regulamento-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.75);
+}
+
+.regulamento-dialog {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 640px;
+  max-height: min(90vh, 720px);
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.regulamento-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+
+.regulamento-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: #0f172a;
+}
+
+.regulamento-close {
+  background: none;
+  border: none;
+  font-size: 1.75rem;
+  line-height: 1;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.regulamento-close:hover {
+  color: #0f172a;
+}
+
+.regulamento-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  flex: 1;
+  color: #334155;
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.regulamento-body h3 {
+  margin: 0 0 16px;
+  font-size: 1.05rem;
+  color: #0f172a;
+}
+
+.regulamento-body p {
+  margin: 0 0 14px;
+}
+
+.regulamento-body ul {
+  margin: 0 0 14px;
+  padding-left: 1.25rem;
+}
+
+.regulamento-body li {
+  margin-bottom: 10px;
+}
+
+.regulamento-body li:last-child {
+  margin-bottom: 0;
+}
+
+.regulamento-footer {
+  padding: 12px 20px 16px;
+  border-top: 1px solid #e2e8f0;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.regulamento-footer .btn-primary {
+  min-width: 120px;
 }
 
 .form-card {
