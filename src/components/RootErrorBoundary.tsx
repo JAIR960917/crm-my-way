@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { isRecoverableBootError, tryAutoRecoverOnce } from "@/lib/appRecover";
 import { clearPwaState } from "@/lib/clearPwaState";
 
 type Props = { children: ReactNode };
@@ -13,6 +14,9 @@ export default class RootErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("[CRM] Erro fatal na interface:", error, info);
+    if (isRecoverableBootError(error.message)) {
+      void tryAutoRecoverOnce();
+    }
   }
 
   private async hardRecover() {
@@ -31,7 +35,7 @@ export default class RootErrorBoundary extends Component<Props, State> {
 
     const msg = this.state.error.message || "Erro desconhecido";
     const isConfig = /backend ausente|runtime-config|VITE_SUPABASE/i.test(msg);
-    const isDomRace = /removeChild|insertBefore|not a child/i.test(msg);
+    const isDomRace = isRecoverableBootError(msg);
 
     return (
       <div
@@ -75,7 +79,7 @@ export default class RootErrorBoundary extends Component<Props, State> {
           <button
             type="button"
             disabled={this.state.recovering}
-            onClick={() => this.setState({ error: null })}
+            onClick={() => (isDomRace ? void this.hardRecover() : this.setState({ error: null }))}
             style={{
               padding: "10px 16px",
               borderRadius: "8px",

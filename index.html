@@ -38,9 +38,23 @@
     <div id="root"></div>
     <script>
       window.addEventListener('error', function (e) {
-        var root = document.getElementById('root');
-        if (!root || root.childElementCount > 0) return;
-        root.innerHTML = '<div style="min-height:100vh;padding:24px;font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc"><h1 style="font-size:1.2rem;margin-bottom:12px">Erro ao carregar</h1><p style="opacity:.85;line-height:1.5">No iPhone, abra no Safari e limpe o cache (Ajustes &gt; Safari &gt; Limpar histórico). Se instalou o app, remova da tela inicial e acesse de novo.</p></div>';
+        if (!e || !e.message) return;
+        if (!/removeChild|insertBefore|not a child|ChunkLoadError|dynamically imported module|Loading chunk/i.test(e.message)) return;
+        try {
+          if (sessionStorage.getItem('crm_auto_recover_v6')) return;
+          sessionStorage.setItem('crm_auto_recover_v6', '1');
+        } catch (err) { return; }
+        if ('caches' in window) {
+          caches.keys().then(function (keys) {
+            return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+          }).catch(function () {});
+        }
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            regs.forEach(function (r) { r.unregister().catch(function () {}); });
+          }).catch(function () {});
+        }
+        window.location.replace(window.location.origin + '/login?recover=' + Date.now());
       });
     </script>
     <script type="module" src="/src/main.tsx"></script>

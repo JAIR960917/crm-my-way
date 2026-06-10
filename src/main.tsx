@@ -1,15 +1,16 @@
 /**
- * Ponto de entrada: monta o React primeiro; service worker depois (evita removeChild no 1º acesso).
+ * Ponto de entrada: limpa PWA legado → monta React → registra SW depois (sem cache agressivo).
  */
 import { createRoot, type Root } from "react-dom/client";
 import App from "./App.tsx";
 import RootErrorBoundary from "./components/RootErrorBoundary.tsx";
+import { clearAutoRecoverFlag, setupGlobalRecoverHandlers } from "@/lib/appRecover";
 import "@/hooks/use-pwa-install";
 import {
   isAndroidInAppBrowser,
   isIOSInAppBrowser,
+  preparePwaBeforeBoot,
   registerPushServiceWorker,
-  runPwaBootstrap,
 } from "@/lib/pwaBootstrap";
 import "./index.css";
 
@@ -29,6 +30,8 @@ const canRegisterServiceWorker =
   "serviceWorker" in navigator && !isPreviewHost && !isInIframe;
 
 let reactRoot: Root | null = null;
+
+setupGlobalRecoverHandlers();
 
 function showBootMessage(html: string) {
   const root = document.getElementById("root");
@@ -72,6 +75,7 @@ function mountApp() {
     return;
   }
 
+  clearAutoRecoverFlag();
   reactRoot = createRoot(rootEl);
   reactRoot.render(
     <RootErrorBoundary>
@@ -89,10 +93,7 @@ async function setupServiceWorkerInBackground() {
   }
 
   try {
-    await runPwaBootstrap();
     await registerPushServiceWorker();
-    // Não forçamos reload no primeiro acesso — evita corrida com o React (removeChild).
-    // Push/notificações passam a valer na próxima visita ou quando o SW assumir o controle.
   } catch (error) {
     console.warn("[CRM] Falha ao registrar service worker:", error);
   }
@@ -100,16 +101,18 @@ async function setupServiceWorkerInBackground() {
 
 function scheduleServiceWorkerSetup() {
   const run = () => void setupServiceWorkerInBackground();
-  if ("requestIdleCallback" in window) {
-    window.requestIdleCallback(run, { timeout: 4000 });
-  } else {
-    window.setTimeout(run, 1500);
-  }
+  // Só depois que a interface estabilizou (evita corrida com React no 1º acesso).
+  window.setTimeout(run, 8000);
 }
 
-function boot() {
+async function boot() {
+  try {
+    await preparePwaBeforeBoot();
+  } catch (error) {
+    console.warn("[CRM] Falha na preparação PWA:", error);
+  }
   mountApp();
   scheduleServiceWorkerSetup();
 }
 
-boot();
+void boot();

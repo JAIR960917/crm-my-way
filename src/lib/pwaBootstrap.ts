@@ -1,5 +1,7 @@
-/** Bump quando precisar limpar SW/cache antigo (ex.: tela branca no iPhone). */
-const SW_CACHE_GENERATION = "5";
+/** Bump quando precisar limpar SW/cache antigo (ex.: tela branca / removeChild). */
+const SW_CACHE_GENERATION = "6";
+
+const DEFER_REGISTER_KEY = "crm_sw_defer_register";
 
 const isIOS = () =>
   /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as Window & { MSStream?: unknown }).MSStream;
@@ -31,36 +33,58 @@ async function unregisterAllServiceWorkers() {
   await Promise.all(registrations.map((r) => r.unregister().catch(() => undefined)));
 }
 
-/**
- * Limpa service workers e caches legados (causa comum de tela branca no iPhone/PWA).
- * Roda uma vez por geração ou sempre no iOS standalone na primeira carga da sessão.
- */
-export async function runPwaBootstrap() {
-  if (typeof window === "undefined") return;
-
-  let lastGen = "";
+function readSwGeneration(): string {
   try {
-    lastGen = localStorage.getItem("crm_sw_gen") || "";
+    return localStorage.getItem("crm_sw_gen") || "";
+  } catch {
+    return "";
+  }
+}
+
+function markGenerationAndDeferRegister() {
+  try {
+    localStorage.setItem("crm_sw_gen", SW_CACHE_GENERATION);
+    sessionStorage.setItem(DEFER_REGISTER_KEY, "1");
   } catch {
     // Safari modo privado / restrição de storage
   }
+}
 
-  const needsCleanup = lastGen !== SW_CACHE_GENERATION;
+/**
+ * Roda ANTES do React montar. Limpa SW/cache legado e adia registro do SW nesta sessão.
+ */
+export async function preparePwaBeforeBoot(): Promise<void> {
+  if (typeof window === "undefined") return;
 
+  const needsCleanup = readSwGeneration() !== SW_CACHE_GENERATION;
   if (!needsCleanup) return;
 
   await clearStalePwaCaches();
   await unregisterAllServiceWorkers();
+  markGenerationAndDeferRegister();
+}
 
+/** @deprecated Use preparePwaBeforeBoot — mantido para compatibilidade interna. */
+export async function runPwaBootstrap() {
+  await preparePwaBeforeBoot();
+}
+
+function shouldDeferServiceWorkerRegistration(): boolean {
   try {
-    localStorage.setItem("crm_sw_gen", SW_CACHE_GENERATION);
+    if (sessionStorage.getItem(DEFER_REGISTER_KEY) === "1") {
+      sessionStorage.removeItem(DEFER_REGISTER_KEY);
+      return true;
+    }
   } catch {
     // no-op
   }
+  return false;
 }
 
 export async function registerPushServiceWorker(): Promise<boolean> {
   if (!("serviceWorker" in navigator)) return false;
+  if (shouldDeferServiceWorkerRegistration()) return false;
+
   try {
     await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
     await navigator.serviceWorker.ready;
