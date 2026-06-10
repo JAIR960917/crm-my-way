@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import AppLayout from "@/components/AppLayout";
@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Pencil, Trash2, GripVertical, ChevronRight, CornerDownRight } from "lucide-react";
 import { DragDropContext, Droppable, Draggable, DropResult, DragStart } from "@hello-pangea/dnd";
+import { buildFormFillOrderIndex, getFormFieldParent } from "@/lib/formFieldOrder";
 
 type DateStatusRange = { max_years: number; status_key: string };
 type DateStatusConfig = { ranges: DateStatusRange[]; above_all: string; no_answer: string };
@@ -91,6 +92,8 @@ export default function FormBuilderPage() {
     fetchFields();
     supabase.from("crm_statuses").select("*").order("position").then(({ data }) => setStatuses((data || []) as CrmStatus[]));
   }, []);
+
+  const fillOrderIndex = useMemo(() => buildFormFillOrderIndex(fields), [fields]);
 
   const resetForm = () => {
     setLabel("");
@@ -346,6 +349,13 @@ export default function FormBuilderPage() {
    */
   const renderFieldCard = (field: FormField, depth: number, dragHandleProps?: any) => {
     const hasOptions = ["select", "checkbox_group"].includes(field.field_type) && field.options && field.options.length > 0;
+    const seq = fillOrderIndex.get(field.id);
+    const parent = getFormFieldParent(fields, field);
+    const seqTitle = seq
+      ? parent
+        ? `Sequência ${seq.order} de ${seq.total} ao preencher. Subpergunta: aparece logo após "${parent.label || "pergunta pai"}".`
+        : `Sequência ${seq.order} de ${seq.total} ao preencher o formulário.`
+      : undefined;
     return (
       <div
         className={`flex items-center gap-2 p-3 rounded-lg border bg-card mb-2 group ${
@@ -360,6 +370,14 @@ export default function FormBuilderPage() {
           <GripVertical className="h-4 w-4" />
           {depth > 0 && <CornerDownRight className="h-3.5 w-3.5 text-primary/50" />}
         </span>
+        {seq && (
+          <span
+            className="shrink-0 min-w-[2.5rem] text-center text-[10px] font-bold tabular-nums px-1.5 py-1 rounded-md bg-primary/15 text-primary border border-primary/20"
+            title={seqTitle}
+          >
+            {seq.order}
+          </span>
+        )}
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm truncate">
             {field.label}
@@ -475,6 +493,7 @@ export default function FormBuilderPage() {
           <h1 className="text-xl sm:text-2xl font-bold">Formulário de Lead</h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
             {fields.length} pergunta{fields.length !== 1 ? "s" : ""}
+            {fillOrderIndex.size > 0 && ` · número em cada card = ordem ao preencher`}
           </p>
         </div>
         {isAdmin && (
@@ -517,6 +536,21 @@ export default function FormBuilderPage() {
             <DialogTitle>{editingField ? "Editar Pergunta" : "Nova Pergunta"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {editingField && fillOrderIndex.get(editingField.id) && (
+              <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
+                <p>
+                  <span className="font-semibold text-foreground">Sequência ao preencher:</span>{" "}
+                  {fillOrderIndex.get(editingField.id)!.order} de {fillOrderIndex.get(editingField.id)!.total}
+                </p>
+                {parentFieldId !== "__none__" && (
+                  <p>
+                    Esta é uma <strong className="text-foreground">subpergunta</strong> — ela aparece logo após a pergunta
+                    pai, não no final do formulário. Para ir ao final, defina condicional como{" "}
+                    <strong className="text-foreground">Nenhuma (pergunta raiz)</strong> e arraste para o fim da lista principal.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Pergunta</Label>
               <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Ex: Já usa óculos?" />
