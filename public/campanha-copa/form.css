@@ -15,15 +15,7 @@
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: linear-gradient(
-    165deg,
-    var(--brand-black) 0%,
-    var(--brand-black-soft) 35%,
-    var(--brand-red-glow) 58%,
-    var(--brand-black-soft) 82%,
-    var(--brand-black) 100%
-  );
-  background-attachment: fixed;
+  background: var(--brand-black);
   color: #0f172a;
   min-height: 100vh;
 }
