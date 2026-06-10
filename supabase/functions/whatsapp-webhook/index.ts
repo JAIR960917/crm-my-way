@@ -174,7 +174,9 @@ async function upsertConversationMessage(
   const windowExpires = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   const previewText = preview.slice(0, 200);
 
-  let { id: conversationId } = await findInboxConversationId(supabase, canonicalWaId, instanceId);
+  let { id: conversationId } = await findInboxConversationId(supabase, canonicalWaId, instanceId, {
+    contactName: direction === "in" ? contactName : null,
+  });
 
   if (conversationId) {
     const patch: Record<string, unknown> = {
@@ -211,7 +213,9 @@ async function upsertConversationMessage(
 
     if (insertErr) {
       if (insertErr.code === "23505") {
-        const retry = await findInboxConversationId(supabase, canonicalWaId, instanceId);
+        const retry = await findInboxConversationId(supabase, canonicalWaId, instanceId, {
+          contactName: direction === "in" ? contactName : null,
+        });
         conversationId = retry.id;
       } else {
         console.error("[whatsapp-webhook] erro ao criar conversa:", insertErr.message, insertErr.details);

@@ -492,3 +492,6 @@ case "$MODE" in
 esac
 
 ok "Deploy finalizado."
+echo ""
+echo "Nota: nesta VPS o deploy usa Docker (migrations + edge functions + frontend)."
+echo "      Não é necessário 'supabase login' nem 'supabase link' — esses comandos são só para o Supabase Cloud."

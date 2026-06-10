@@ -1,6 +1,6 @@
 /** Parsing e persistência de mensagens com mídia (WhatsApp Cloud API). */
 
-import { normalizeWaId, waIdsEquivalent } from "./whatsappSend.ts";
+import { nationalMobileDigits, normalizeWaId, waIdsEquivalent } from "./whatsappSend.ts";
 
 type SupabaseAdmin = ReturnType<typeof import("https://esm.sh/@supabase/supabase-js@2").createClient>;
 
@@ -52,31 +52,155 @@ function pickBestEquivalentConversation(
   })[0];
 }
 
-/** Localiza conversa existente (inclui variantes BR sem/com 9º dígito). */
+function namesLooselyMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  const na = (a || "").trim().toLowerCase();
+  const nb = (b || "").trim().toLowerCase();
+  if (!na || !nb) return false;
+  if (na === nb || na.includes(nb) || nb.includes(na)) return true;
+  const fa = na.split(/\s+/)[0];
+  const fb = nb.split(/\s+/)[0];
+  return fa.length >= 3 && fa === fb;
+}
+
+async function findConversationByCardId(
+  admin: SupabaseAdmin,
+  cardId: string,
+  instanceId: string | null,
+): Promise<string | null> {
+  if (instanceId) {
+    const { data } = await admin
+      .from("whatsapp_conversations")
+      .select("id")
+      .eq("card_id", cardId)
+      .eq("instance_id", instanceId)
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    if (data?.id) return data.id;
+  }
+
+  const { data } = await admin
+    .from("whatsapp_conversations")
+    .select("id")
+    .eq("card_id", cardId)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  return data?.id || null;
+}
+
+async function findConversationByCobrancaPhone(
+  admin: SupabaseAdmin,
+  canonicalWaId: string,
+  instanceId: string | null,
+  contactName: string | null,
+): Promise<string | null> {
+  const national = nationalMobileDigits(canonicalWaId);
+  if (national.length < 10) return null;
+
+  const { data: ranked } = await admin.rpc("find_cobrancas_by_phone", {
+    p_phone: national,
+    p_contact_name: contactName,
+    p_prefer_card_id: null,
+    p_name_hint: null,
+  });
+
+  const cardIds = ((ranked || []) as { id: string; match_score?: number }[])
+    .filter((r) => r.match_score == null || r.match_score >= 300)
+    .map((r) => r.id);
+
+  for (const cardId of cardIds) {
+    const convId = await findConversationByCardId(admin, cardId, instanceId);
+    if (convId) return convId;
+  }
+
+  const { data: legacy } = await admin.rpc("find_cobranca_by_phone_system", {
+    p_phone: national,
+  });
+  const legacyRow = Array.isArray(legacy) ? legacy[0] : legacy;
+  if (legacyRow?.id) {
+    return await findConversationByCardId(admin, legacyRow.id, instanceId);
+  }
+
+  return null;
+}
+
+async function findConversationByContactName(
+  admin: SupabaseAdmin,
+  instanceId: string | null,
+  contactName: string | null,
+): Promise<string | null> {
+  if (!instanceId || !contactName?.trim()) return null;
+
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: rows } = await admin
+    .from("whatsapp_conversations")
+    .select("id, contact_name, card_id, module")
+    .eq("instance_id", instanceId)
+    .eq("module", "cobrancas")
+    .not("card_id", "is", null)
+    .gte("last_message_at", since)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .limit(50);
+
+  const matches = (rows || []).filter((row) =>
+    namesLooselyMatch(row.contact_name, contactName),
+  );
+  if (matches.length === 1) return matches[0].id;
+  return null;
+}
+
+/** Localiza conversa existente (wa_id, card de cobrança ou nome do contato). */
 export async function findInboxConversationId(
   admin: SupabaseAdmin,
   waId: string,
   instanceId: string | null,
+  opts?: { contactName?: string | null },
 ): Promise<{ id: string | null; canonicalWaId: string }> {
   const canonicalWaId = normalizeWaId(waId);
   if (!canonicalWaId) return { id: null, canonicalWaId: "" };
+
+  const contactName = opts?.contactName?.trim() || null;
 
   for (const candidate of [canonicalWaId, waId.trim()].filter(Boolean)) {
     const exactId = await findExactInboxConversationId(admin, candidate, instanceId);
     if (exactId) return { id: exactId, canonicalWaId };
   }
 
-  let query = admin
-    .from("whatsapp_conversations")
-    .select("id, wa_id, contact_name, card_id")
-    .order("last_message_at", { ascending: false, nullsFirst: false })
-    .limit(150);
+  const loadFuzzy = async (filterInstance: string | null) => {
+    let query = admin
+      .from("whatsapp_conversations")
+      .select("id, wa_id, contact_name, card_id")
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .limit(150);
+    query = filterInstance
+      ? query.eq("instance_id", filterInstance)
+      : query.is("instance_id", null);
+    const { data } = await query;
+    return pickBestEquivalentConversation((data || []) as ConversationRow[], canonicalWaId);
+  };
 
-  query = instanceId ? query.eq("instance_id", instanceId) : query.is("instance_id", null);
+  let best = instanceId ? await loadFuzzy(instanceId) : null;
+  if (!best?.id && instanceId) {
+    best = await loadFuzzy(null);
+  }
+  if (!best?.id && !instanceId) {
+    best = await loadFuzzy(null);
+  }
+  if (best?.id) return { id: best.id, canonicalWaId };
 
-  const { data: rows } = await query;
-  const best = pickBestEquivalentConversation((rows || []) as ConversationRow[], canonicalWaId);
-  return { id: best?.id || null, canonicalWaId };
+  const byCard = await findConversationByCobrancaPhone(
+    admin,
+    canonicalWaId,
+    instanceId,
+    contactName,
+  );
+  if (byCard) return { id: byCard, canonicalWaId };
+
+  const byName = await findConversationByContactName(admin, instanceId, contactName);
+  if (byName) return { id: byName, canonicalWaId };
+
+  return { id: null, canonicalWaId };
 }
 
 /** Grava mensagem enviada (campanha/gatilho/API) no Inbox WhatsApp. */
