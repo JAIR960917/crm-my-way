@@ -17,6 +17,7 @@ import {
   WEEKDAY_LABELS,
   type CalendarViewMode,
 } from "@/lib/appointmentCalendarUtils";
+import { WORK_PERIOD_LABELS, type EyeExamDayCellInfo } from "@/lib/eyeExamSchedule";
 
 export type CalendarAppointment = {
   id: string;
@@ -43,9 +44,12 @@ type Props = {
   onDayClick?: (date: Date) => void;
   /** YYYY-MM-DD — dias com exame de vista configurado */
   eyeExamDayKeys?: Set<string>;
+  /** Especialistas e turnos por dia (gerente/vendedor) */
+  eyeExamDayDetails?: Map<string, EyeExamDayCellInfo[]>;
 };
 
 const MONTH_MAX_VISIBLE = 5;
+const MONTH_MAX_SPECIALISTS = 3;
 
 function apptsByDay(appts: CalendarAppointment[]) {
   const map = new Map<string, CalendarAppointment[]>();
@@ -110,7 +114,7 @@ function EventChip({
   );
 }
 
-function MonthView({ appointments, focusDate, onSelectAppointment, onDayClick, eyeExamDayKeys }: Props) {
+function MonthView({ appointments, focusDate, onSelectAppointment, onDayClick, eyeExamDayKeys, eyeExamDayDetails }: Props) {
   const byDay = useMemo(() => apptsByDay(appointments), [appointments]);
   const grid = buildMonthGrid(focusDate);
   const today = new Date();
@@ -133,12 +137,15 @@ function MonthView({ appointments, focusDate, onSelectAppointment, onDayClick, e
           const inMonth = isSameMonth(day, focusDate);
           const isToday = isSameDay(day, today);
           const isEyeExamDay = eyeExamDayKeys?.has(key) ?? false;
+          const eyeExamInfos = eyeExamDayDetails?.get(key) ?? [];
+          const showEyeExamDetails = isEyeExamDay && eyeExamInfos.length > 0;
 
           return (
             <div
               key={key}
               className={cn(
-                "min-h-[140px] p-1 flex flex-col gap-0.5 bg-background",
+                "p-1 flex flex-col gap-0.5 bg-background",
+                showEyeExamDetails ? "min-h-[168px]" : "min-h-[140px]",
                 !inMonth && "bg-muted/20 text-muted-foreground",
               )}
               onClick={() => onDayClick?.(day)}
@@ -156,10 +163,29 @@ function MonthView({ appointments, focusDate, onSelectAppointment, onDayClick, e
                 >
                   {format(day, "d")}
                 </button>
-                {inMonth && total > 0 && (
-                  <span className="text-[10px] text-muted-foreground font-medium">
-                    pagos {paid}/{total}
-                  </span>
+                {showEyeExamDetails ? (
+                  <div className="w-full space-y-1 px-0.5 text-center">
+                    {eyeExamInfos.slice(0, MONTH_MAX_SPECIALISTS).map((info, idx) => (
+                      <div key={`${info.specialistName}-${info.workPeriod}-${idx}`} className="leading-tight">
+                        <p className="text-[9px] font-semibold truncate">{info.specialistName}</p>
+                        <p className="text-[9px] text-muted-foreground">{WORK_PERIOD_LABELS[info.workPeriod]}</p>
+                      </div>
+                    ))}
+                    {eyeExamInfos.length > MONTH_MAX_SPECIALISTS && (
+                      <p className="text-[8px] text-muted-foreground">
+                        +{eyeExamInfos.length - MONTH_MAX_SPECIALISTS} especialista(s)
+                      </p>
+                    )}
+                    <p className="text-[10px] font-medium text-muted-foreground pt-0.5">
+                      {paid} pagos
+                    </p>
+                  </div>
+                ) : (
+                  inMonth && total > 0 && (
+                    <span className="text-[10px] text-muted-foreground font-medium">
+                      pagos {paid}/{total}
+                    </span>
+                  )
                 )}
               </div>
               <div className="flex-1 flex flex-col gap-px min-h-0 overflow-hidden">

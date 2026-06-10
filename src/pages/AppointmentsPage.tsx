@@ -24,6 +24,7 @@ import {
   parseWorkPeriod,
   resolveCompanyExamColor,
   type CompanyWithExamColor,
+  type EyeExamDayCellInfo,
   type EyeExamSpecialist,
   type SpecialistScheduleEntry,
 } from "@/lib/eyeExamSchedule";
@@ -121,6 +122,7 @@ export default function AppointmentsPage() {
   const [filterCompanyId, setFilterCompanyId] = useState<string>("all");
   const [userCompanyId, setUserCompanyId] = useState<string | null>(null);
   const [eyeExamDayKeys, setEyeExamDayKeys] = useState<Set<string>>(new Set());
+  const [eyeExamDayDetails, setEyeExamDayDetails] = useState<Map<string, EyeExamDayCellInfo[]>>(new Map());
   const [pageMode, setPageMode] = useState<PageMode>("appointments");
   const [filterSpecialistId, setFilterSpecialistId] = useState<string>("all");
   const [specialists, setSpecialists] = useState<EyeExamSpecialist[]>([]);
@@ -176,10 +178,25 @@ export default function AppointmentsPage() {
 
 
   const fetchEyeExamDays = useCallback(async () => {
+    if (!isAdmin && !userCompanyId) {
+      setEyeExamDayKeys(new Set());
+      setEyeExamDayDetails(new Map());
+      return;
+    }
+
     const { queryStart, queryEnd } = getCalendarQueryRange(focusDate, calendarView);
+    const selectFields = isAdmin
+      ? "exam_date"
+      : `
+        exam_date,
+        company_eye_exam_day_specialists (
+          work_period,
+          eye_exam_specialists ( name, active )
+        )
+      `;
     let query = supabase
       .from("company_eye_exam_days")
-      .select("exam_date")
+      .select(selectFields)
       .gte("exam_date", format(queryStart, "yyyy-MM-dd"))
       .lte("exam_date", format(queryEnd, "yyyy-MM-dd"));
     if (isAdmin && filterCompanyId !== "all") {
@@ -188,9 +205,35 @@ export default function AppointmentsPage() {
       query = query.eq("company_id", userCompanyId);
     }
     const { data } = await query;
-    setEyeExamDayKeys(
-      new Set((data || []).map((r) => String((r as { exam_date: string }).exam_date).slice(0, 10))),
-    );
+    const keys = new Set<string>();
+    const details = new Map<string, EyeExamDayCellInfo[]>();
+
+    for (const row of data || []) {
+      const examDate = String((row as { exam_date: string }).exam_date).slice(0, 10);
+      keys.add(examDate);
+
+      if (!isAdmin) {
+        const links = (row as {
+          company_eye_exam_day_specialists?: {
+            work_period: string | null;
+            eye_exam_specialists: { name: string; active: boolean } | null;
+          }[];
+        }).company_eye_exam_day_specialists || [];
+
+        const infos: EyeExamDayCellInfo[] = links
+          .filter((l) => l.eye_exam_specialists && l.eye_exam_specialists.active !== false)
+          .map((l) => ({
+            specialistName: l.eye_exam_specialists!.name,
+            workPeriod: parseWorkPeriod(l.work_period),
+          }))
+          .sort((a, b) => a.specialistName.localeCompare(b.specialistName, "pt-BR"));
+
+        if (infos.length > 0) details.set(examDate, infos);
+      }
+    }
+
+    setEyeExamDayKeys(keys);
+    setEyeExamDayDetails(details);
   }, [focusDate, calendarView, isAdmin, filterCompanyId, userCompanyId]);
 
   useEffect(() => {
@@ -1105,6 +1148,7 @@ export default function AppointmentsPage() {
               view={calendarView}
               focusDate={focusDate}
               eyeExamDayKeys={eyeExamDayKeys}
+              eyeExamDayDetails={!isAdmin ? eyeExamDayDetails : undefined}
               onSelectAppointment={(a) => {
                 const full = appointments.find((x) => x.id === a.id);
                 if (full) openEdit(full);

@@ -88,6 +88,12 @@ export type EyeExamDaySpecialistAssignment = {
   workPeriod: WorkPeriod;
 };
 
+/** Especialista + turno exibidos no calendário de agendamentos (gerente/vendedor). */
+export type EyeExamDayCellInfo = {
+  specialistName: string;
+  workPeriod: WorkPeriod;
+};
+
 export type CompanyWithExamColor = {
   id: string;
   name: string;
