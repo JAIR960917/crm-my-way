@@ -198,6 +198,20 @@ export function translateWhatsAppError(message: string): string {
       "é igual às chaves {nome}, {valor_a_vencer}, {data_a_vencer} etc. na mensagem do gatilho."
     );
   }
+  if (/\b132001\b/.test(raw) || /template name does not exist/i.test(raw)) {
+    return (
+      "Meta: template não encontrado nesta conta WhatsApp (erro #132001). " +
+      "Cada número (Cobrança 1, Cobrança 2, etc.) pertence a uma conta WABA diferente na Meta — o template precisa estar " +
+      "APROVADO (Ativo) na mesma conta do número que envia, com o mesmo nome e idioma (ex.: pt_BR) configurados no gatilho."
+    );
+  }
+  if (/\b132018\b/.test(raw) || /issue with the parameters/i.test(raw)) {
+    return (
+      "Meta: parâmetros do template incorretos (erro #132018). " +
+      "As variáveis na mensagem do gatilho ({nome}, {valor_total}, {data_boleto_ant}, etc.) devem ter os mesmos nomes " +
+      "e a mesma ordem do template aprovado na Meta. Não pode faltar variável nem sobrar."
+    );
+  }
   return raw;
 }
 
