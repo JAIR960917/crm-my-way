@@ -21,6 +21,7 @@ import AppointmentsCalendar from "@/components/appointments/AppointmentsCalendar
 import AppointmentsListTable from "@/components/appointments/AppointmentsListTable";
 import SpecialistScheduleCalendar from "@/components/appointments/SpecialistScheduleCalendar";
 import {
+  parseWorkPeriod,
   resolveCompanyExamColor,
   type CompanyWithExamColor,
   type EyeExamSpecialist,
@@ -220,6 +221,7 @@ export default function AppointmentsPage() {
         companies ( id, name, exam_schedule_color ),
         company_eye_exam_day_specialists (
           specialist_id,
+          work_period,
           eye_exam_specialists ( id, name )
         )
       `)
@@ -244,6 +246,7 @@ export default function AppointmentsPage() {
         companies: { id: string; name: string; exam_schedule_color: string | null } | null;
         company_eye_exam_day_specialists?: {
           specialist_id: string;
+          work_period: string | null;
           eye_exam_specialists: { id: string; name: string } | null;
         }[];
       };
@@ -261,6 +264,7 @@ export default function AppointmentsPage() {
           companyColor: color,
           specialistId: spec.id,
           specialistName: spec.name,
+          workPeriod: parseWorkPeriod(link.work_period),
           eyeExamDayId: row.id,
         });
       }

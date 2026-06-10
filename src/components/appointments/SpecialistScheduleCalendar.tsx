@@ -10,8 +10,10 @@ import {
   WEEKDAY_LABELS,
 } from "@/lib/appointmentCalendarUtils";
 import {
+  formatSpecialistWithPeriod,
   groupScheduleByDay,
   textColorForBackground,
+  WORK_PERIOD_LABELS,
   type SpecialistScheduleEntry,
 } from "@/lib/eyeExamSchedule";
 
@@ -82,9 +84,9 @@ export default function SpecialistScheduleCalendar({ focusDate, entries, onDayCl
                       backgroundColor: e.companyColor,
                       color: textColorForBackground(e.companyColor),
                     }}
-                    title={`${e.specialistName} — ${e.companyName}`}
+                    title={`${e.specialistName} — ${e.companyName} — ${WORK_PERIOD_LABELS[e.workPeriod]}`}
                   >
-                    {e.specialistName}
+                    {formatSpecialistWithPeriod(e.specialistName, e.workPeriod)}
                   </div>
                 ))}
                 {dayEntries.length > MAX_VISIBLE && (

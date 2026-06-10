@@ -12,10 +12,37 @@ export const DEFAULT_COMPANY_EXAM_COLORS = [
   "#84CC16",
 ] as const;
 
+export const WORK_PERIODS = ["manha", "tarde", "dia_todo"] as const;
+
+export type WorkPeriod = (typeof WORK_PERIODS)[number];
+
+export const WORK_PERIOD_LABELS: Record<WorkPeriod, string> = {
+  manha: "Manhã",
+  tarde: "Tarde",
+  dia_todo: "Dia todo",
+};
+
+export const DEFAULT_WORK_PERIOD: WorkPeriod = "dia_todo";
+
+export function parseWorkPeriod(value: string | null | undefined): WorkPeriod {
+  if (value === "manha" || value === "tarde" || value === "dia_todo") return value;
+  return DEFAULT_WORK_PERIOD;
+}
+
+export function formatSpecialistWithPeriod(name: string, period: WorkPeriod): string {
+  if (period === "dia_todo") return name;
+  return `${name} (${WORK_PERIOD_LABELS[period]})`;
+}
+
 export type EyeExamSpecialist = {
   id: string;
   name: string;
   active: boolean;
+};
+
+export type EyeExamDaySpecialistAssignment = {
+  specialistId: string;
+  workPeriod: WorkPeriod;
 };
 
 export type CompanyWithExamColor = {
@@ -31,6 +58,7 @@ export type SpecialistScheduleEntry = {
   companyColor: string;
   specialistId: string;
   specialistName: string;
+  workPeriod: WorkPeriod;
   eyeExamDayId: string;
 };
 
@@ -72,6 +100,7 @@ type RawScheduleRow = {
   exam_date: string;
   company_id: string;
   eye_exam_day_id: string;
+  work_period?: string | null;
   companies: { id: string; name: string; exam_schedule_color: string | null } | null;
   eye_exam_specialists: { id: string; name: string } | null;
 };
@@ -93,6 +122,7 @@ export function mapScheduleRows(
         companyColor: resolveCompanyExamColor(company, idx),
         specialistId: specialist.id,
         specialistName: specialist.name,
+        workPeriod: parseWorkPeriod(r.work_period),
         eyeExamDayId: r.eye_exam_day_id,
       };
     });

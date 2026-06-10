@@ -14,18 +14,21 @@ import { Calendar } from "@/components/ui/calendar";
 import EyeExamDaySpecialistDialog from "@/components/settings/EyeExamDaySpecialistDialog";
 import {
   formatExamDateLabel,
+  formatSpecialistWithPeriod,
   parseExamDate,
+  parseWorkPeriod,
   resolveCompanyExamColor,
   toExamDateKey,
   type CompanyWithExamColor,
+  type EyeExamDaySpecialistAssignment,
   type EyeExamSpecialist,
 } from "@/lib/eyeExamSchedule";
 
 type ExamDayRow = {
   id: string;
   exam_date: string;
-  specialistIds: string[];
-  specialistNames: string[];
+  assignments: EyeExamDaySpecialistAssignment[];
+  specialistLabels: string[];
 };
 
 export default function CompanyEyeExamDaysManager() {
@@ -42,7 +45,7 @@ export default function CompanyEyeExamDaysManager() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogDate, setDialogDate] = useState<string>("");
   const [dialogDayId, setDialogDayId] = useState<string | null>(null);
-  const [dialogAssignedIds, setDialogAssignedIds] = useState<string[]>([]);
+  const [dialogAssigned, setDialogAssigned] = useState<EyeExamDaySpecialistAssignment[]>([]);
 
   const loadCompanies = useCallback(async () => {
     const { data, error } = await supabase
@@ -82,6 +85,7 @@ export default function CompanyEyeExamDaysManager() {
         exam_date,
         company_eye_exam_day_specialists (
           specialist_id,
+          work_period,
           eye_exam_specialists ( name )
         )
       `)
@@ -94,14 +98,21 @@ export default function CompanyEyeExamDaysManager() {
       const links = (row as {
         company_eye_exam_day_specialists?: {
           specialist_id: string;
+          work_period: string | null;
           eye_exam_specialists: { name: string } | null;
         }[];
       }).company_eye_exam_day_specialists || [];
+      const assignments = links.map((l) => ({
+        specialistId: l.specialist_id,
+        workPeriod: parseWorkPeriod(l.work_period),
+      }));
       return {
         id: row.id,
         exam_date: String(row.exam_date).slice(0, 10),
-        specialistIds: links.map((l) => l.specialist_id),
-        specialistNames: links.map((l) => l.eye_exam_specialists?.name || "—"),
+        assignments,
+        specialistLabels: links.map((l) =>
+          formatSpecialistWithPeriod(l.eye_exam_specialists?.name || "—", parseWorkPeriod(l.work_period)),
+        ),
       };
     });
     setExamDays(rows);
@@ -144,7 +155,7 @@ export default function CompanyEyeExamDaysManager() {
     const existing = examDays.find((d) => d.exam_date === key);
     setDialogDate(key);
     setDialogDayId(existing?.id ?? null);
-    setDialogAssignedIds(existing?.specialistIds ?? []);
+    setDialogAssigned(existing?.assignments ?? []);
     setDialogOpen(true);
   };
 
@@ -347,7 +358,7 @@ export default function CompanyEyeExamDaysManager() {
                 <div>
                   <p>{formatExamDateLabel(day.exam_date)}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {day.specialistNames.length > 0 ? day.specialistNames.join(", ") : "Sem especialistas"}
+                    {day.specialistLabels.length > 0 ? day.specialistLabels.join(", ") : "Sem especialistas"}
                   </p>
                 </div>
                 <Button
@@ -358,7 +369,7 @@ export default function CompanyEyeExamDaysManager() {
                   onClick={() => {
                     setDialogDate(day.exam_date);
                     setDialogDayId(day.id);
-                    setDialogAssignedIds(day.specialistIds);
+                    setDialogAssigned(day.assignments);
                     setDialogOpen(true);
                   }}
                 >
@@ -377,7 +388,7 @@ export default function CompanyEyeExamDaysManager() {
           companyId={companyId}
           examDate={dialogDate}
           specialists={specialists}
-          assignedIds={dialogAssignedIds}
+          assigned={dialogAssigned}
           eyeExamDayId={dialogDayId}
           onSaved={() => {
             if (companyId) void loadExamDays(companyId);

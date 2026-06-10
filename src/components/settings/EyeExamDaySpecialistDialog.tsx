@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { formatExamDateLabel } from "@/lib/eyeExamSchedule";
+import {
+  DEFAULT_WORK_PERIOD,
+  formatExamDateLabel,
+  WORK_PERIOD_LABELS,
+  WORK_PERIODS,
+  type EyeExamDaySpecialistAssignment,
+  type EyeExamSpecialist,
+  type WorkPeriod,
+} from "@/lib/eyeExamSchedule";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { EyeExamSpecialist } from "@/lib/eyeExamSchedule";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Props = {
   open: boolean;
@@ -19,7 +27,7 @@ type Props = {
   companyId: string;
   examDate: string;
   specialists: EyeExamSpecialist[];
-  assignedIds: string[];
+  assigned: EyeExamDaySpecialistAssignment[];
   eyeExamDayId: string | null;
   onSaved: () => void;
 };
@@ -30,28 +38,37 @@ export default function EyeExamDaySpecialistDialog({
   companyId,
   examDate,
   specialists,
-  assignedIds,
+  assigned,
   eyeExamDayId,
   onSaved,
 }: Props) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [assignments, setAssignments] = useState<Map<string, WorkPeriod>>(new Map());
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (open) setSelected(new Set(assignedIds));
-  }, [open, assignedIds]);
+    if (!open) return;
+    setAssignments(new Map(assigned.map((a) => [a.specialistId, a.workPeriod])));
+  }, [open, assigned]);
 
   const toggle = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
+    setAssignments((prev) => {
+      const next = new Map(prev);
       if (next.has(id)) next.delete(id);
-      else next.add(id);
+      else next.set(id, DEFAULT_WORK_PERIOD);
+      return next;
+    });
+  };
+
+  const setPeriod = (id: string, period: WorkPeriod) => {
+    setAssignments((prev) => {
+      const next = new Map(prev);
+      if (next.has(id)) next.set(id, period);
       return next;
     });
   };
 
   const handleSave = async () => {
-    if (selected.size === 0) {
+    if (assignments.size === 0) {
       toast.error("Selecione pelo menos um especialista");
       return;
     }
@@ -74,9 +91,10 @@ export default function EyeExamDaySpecialistDialog({
         .eq("eye_exam_day_id", dayId);
       if (delErr) throw delErr;
 
-      const rows = [...selected].map((specialist_id) => ({
+      const rows = [...assignments.entries()].map(([specialist_id, work_period]) => ({
         eye_exam_day_id: dayId!,
         specialist_id,
+        work_period,
       }));
       const { error: insErr } = await supabase.from("company_eye_exam_day_specialists").insert(rows);
       if (insErr) throw insErr;
@@ -118,7 +136,7 @@ export default function EyeExamDaySpecialistDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Especialistas no dia</DialogTitle>
         </DialogHeader>
@@ -129,16 +147,38 @@ export default function EyeExamDaySpecialistDialog({
             Cadastre especialistas na seção acima antes de marcar dias.
           </p>
         ) : (
-          <div className="space-y-2 max-h-60 overflow-y-auto py-1">
-            {activeSpecialists.map((s) => (
-              <label
-                key={s.id}
-                className="flex items-center gap-3 rounded-md border px-3 py-2 cursor-pointer hover:bg-muted/50"
-              >
-                <Checkbox checked={selected.has(s.id)} onCheckedChange={() => toggle(s.id)} />
-                <span className="text-sm">{s.name}</span>
-              </label>
-            ))}
+          <div className="space-y-2 max-h-72 overflow-y-auto py-1">
+            {activeSpecialists.map((s) => {
+              const isSelected = assignments.has(s.id);
+              const period = assignments.get(s.id) ?? DEFAULT_WORK_PERIOD;
+              return (
+                <div
+                  key={s.id}
+                  className="flex items-center gap-2 rounded-md border px-3 py-2 hover:bg-muted/50"
+                >
+                  <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
+                    <Checkbox checked={isSelected} onCheckedChange={() => toggle(s.id)} />
+                    <span className="text-sm truncate">{s.name}</span>
+                  </label>
+                  <Select
+                    value={period}
+                    disabled={!isSelected}
+                    onValueChange={(value) => setPeriod(s.id, value as WorkPeriod)}
+                  >
+                    <SelectTrigger className="h-8 w-[130px] shrink-0">
+                      <SelectValue placeholder="Período" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {WORK_PERIODS.map((p) => (
+                        <SelectItem key={p} value={p}>
+                          {WORK_PERIOD_LABELS[p]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              );
+            })}
           </div>
         )}
 
