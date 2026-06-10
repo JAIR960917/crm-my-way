@@ -20,6 +20,7 @@ import { ptBR } from "date-fns/locale";
 import { usePaginatedColumns } from "@/hooks/use-paginated-columns";
 import { logTransition } from "@/lib/transitionLogs";
 import { getOldestOverdueParcelTimestamp } from "@/lib/kanbanCardSort";
+import { isManualCobrancaActivity } from "@/lib/cobrancaActivities";
 
 type CobrancaActivity = {
   id: string;
@@ -210,7 +211,9 @@ export default function CobrancasPage() {
     setProfiles((profs || []) as Profile[]);
     setCompanies((comps || []) as Company[]);
     setFinanceiroIds(new Set((roles || []).map((r: any) => r.user_id)));
-    setActivities((acts || []) as CobrancaActivity[]);
+    setActivities(
+      ((acts || []) as CobrancaActivity[]).filter((a) => isManualCobrancaActivity(a.title)),
+    );
     setNoteIds(new Set((notes || []).map((n: any) => n.cobranca_id)));
   }, [isFinanceiro, isAdmin, isGerente]);
 

@@ -1,11 +1,12 @@
 import { supabase } from "@/integrations/supabase/client";
 import { attendanceRangeBounds } from "@/lib/attendanceReport";
+import { isSystemCobrancaActivity } from "@/lib/cobrancaActivities";
 
 export type CobrancaRenegReportTotals = {
-  /** Cobranças distintas + tarefas do crediário com trabalho real no período */
-  tratados: number;
-  /** Cobranças distintas com tentativa de contato ou tarefa manual no card */
-  cobrancasTratadas: number;
+  /** Cards abertos + tarefas concluídas no período (tarefas pendentes não entram) */
+  contatos: number;
+  /** Cobranças distintas contabilizadas em contatos */
+  cobrancasContatadas: number;
   /** Tarefas manuais criadas no período (crediário + cards de cobrança) */
   tarefas: number;
   naoAtenderam: number;
@@ -27,11 +28,6 @@ const inRange = (iso: string, startISO: string, endISO: string) =>
 
 const isContactAttemptNote = (content: string) => content.startsWith("📞 Tentativa de contato");
 
-const isSystemCobrancaActivity = (title: string | null | undefined) => {
-  const t = title || "";
-  return t.startsWith("Mudou de coluna:") || t.startsWith("WhatsApp enviado —");
-};
-
 const classifyCobrancaContactNote = (content: string): ContactCat | null => {
   if (!isContactAttemptNote(content)) return null;
   if (content.includes("NÃO ATENDEU")) return "naoAtendeu";
@@ -49,6 +45,7 @@ type CobActivityRow = {
   created_by: string;
   created_at: string;
   updated_at: string;
+  completed_at?: string | null;
   title?: string | null;
 };
 
@@ -72,22 +69,6 @@ const activityCountsAsTratado = (
   return false;
 };
 
-const crediarioCountsAsTratado = (
-  t: CrediarioTaskRow,
-  startISO: string,
-  endISO: string,
-) => {
-  if (inRange(t.created_at, startISO, endISO)) return true;
-  if (
-    t.completed_at
-    && inRange(t.completed_at, startISO, endISO)
-    && t.renegociacao_status
-  ) {
-    return true;
-  }
-  return false;
-};
-
 export async function fetchCobrancaRenegociacaoReport(
   userId: string,
   startStr: string,
@@ -100,6 +81,7 @@ export async function fetchCobrancaRenegociacaoReport(
     { data: cobActivities },
     { data: crediarioCreated },
     { data: crediarioCompleted },
+    { data: cardOpens },
   ] = await Promise.all([
     supabase
       .from("crm_cobranca_notes")
@@ -109,7 +91,7 @@ export async function fetchCobrancaRenegociacaoReport(
       .lte("created_at", endISO),
     supabase
       .from("cobranca_activities")
-      .select("id, cobranca_id, created_by, created_at, updated_at, title")
+      .select("id, cobranca_id, created_by, created_at, updated_at, completed_at, title")
       .eq("created_by", userId)
       .gte("updated_at", startISO)
       .lte("updated_at", endISO),
@@ -127,38 +109,42 @@ export async function fetchCobrancaRenegociacaoReport(
       .not("renegociacao_status", "is", null)
       .gte("completed_at", startISO)
       .lte("completed_at", endISO),
+    supabase
+      .from("lead_card_opens")
+      .select("cobranca_id")
+      .eq("user_id", userId)
+      .eq("card_type", "cobranca")
+      .not("cobranca_id", "is", null)
+      .gte("opened_at", startISO)
+      .lte("opened_at", endISO),
   ]);
 
   const manualCobActivities = ((cobActivities || []) as CobActivityRow[]).filter((a) =>
     activityCountsAsTratado(a, startISO, endISO),
   );
 
-  const cobrancasTratadasSet = new Set<string>();
-  const tratadosSet = new Set<string>();
+  const contatosSet = new Set<string>();
+  const cobrancasContatadasSet = new Set<string>();
 
-  (cobNotes || []).forEach((n: { cobranca_id: string; content: string }) => {
-    if (!isContactAttemptNote(n.content || "")) return;
-    cobrancasTratadasSet.add(n.cobranca_id);
-    tratadosSet.add(`cobranca:${n.cobranca_id}`);
+  (cardOpens || []).forEach((o: { cobranca_id: string | null }) => {
+    if (!o.cobranca_id) return;
+    contatosSet.add(`cobranca:${o.cobranca_id}`);
+    cobrancasContatadasSet.add(o.cobranca_id);
   });
 
   manualCobActivities.forEach((a) => {
-    cobrancasTratadasSet.add(a.cobranca_id);
-    tratadosSet.add(`cobranca:${a.cobranca_id}`);
+    if (a.completed_at && inRange(a.completed_at, startISO, endISO)) {
+      contatosSet.add(`cobranca:${a.cobranca_id}`);
+      cobrancasContatadasSet.add(a.cobranca_id);
+    }
   });
 
   const crediarioCreatedInPeriod = (crediarioCreated || []) as CrediarioTaskRow[];
   const crediarioCompletedInPeriod = (crediarioCompleted || []) as CrediarioTaskRow[];
 
-  const crediarioWorked = new Map<string, CrediarioTaskRow>();
-  crediarioCreatedInPeriod.forEach((t) => crediarioWorked.set(t.id, t));
   crediarioCompletedInPeriod.forEach((t) => {
-    if (crediarioCountsAsTratado(t, startISO, endISO)) crediarioWorked.set(t.id, t);
-  });
-
-  crediarioWorked.forEach((t) => {
-    if (crediarioCountsAsTratado(t, startISO, endISO)) {
-      tratadosSet.add(`crediario:${t.id}`);
+    if (t.completed_at && inRange(t.completed_at, startISO, endISO)) {
+      contatosSet.add(`crediario:${t.id}`);
     }
   });
 
@@ -207,8 +193,8 @@ export async function fetchCobrancaRenegociacaoReport(
   const tarefas = tarefasCobranca + tarefasCrediario;
 
   return {
-    tratados: tratadosSet.size,
-    cobrancasTratadas: cobrancasTratadasSet.size,
+    contatos: contatosSet.size,
+    cobrancasContatadas: cobrancasContatadasSet.size,
     tarefas,
     naoAtenderam: naoAtendeu,
     atenderam,

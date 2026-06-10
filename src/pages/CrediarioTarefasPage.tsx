@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import AppLayout from "@/components/AppLayout";
 import CrediarioTasksCalendar, { type CrediarioTask } from "@/components/crediario/CrediarioTasksCalendar";
 import CrediarioRenegociacaoPanel, { type RenegociacaoStatus } from "@/components/crediario/CrediarioRenegociacaoPanel";
+import CobrancaTaskHistoryPanel from "@/components/crediario/CobrancaTaskHistoryPanel";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,6 +39,7 @@ import {
 import { formatPhoneBR, unformatPhone } from "@/lib/phoneFormat";
 import {
   calendarRangeIso,
+  isManualCobrancaActivity,
   mapCobrancaActivityToCalendarTask,
   type CalendarTaskSource,
 } from "@/lib/cobrancaCalendarTasks";
@@ -49,6 +51,7 @@ type TaskRow = CrediarioTask & {
   source: CalendarTaskSource;
   activityId?: string;
   activityTitle?: string;
+  clientName?: string;
   cobrancaId?: string;
   phone: string | null;
   cpf: string | null;
@@ -85,6 +88,7 @@ export default function CrediarioTarefasPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const [formNome, setFormNome] = useState("");
+  const [formTitulo, setFormTitulo] = useState("");
   const [formDate, setFormDate] = useState<Date | undefined>();
   const [formTelefone, setFormTelefone] = useState("");
   const [formCpf, setFormCpf] = useState("");
@@ -135,7 +139,9 @@ export default function CrediarioTarefasPage() {
       (task) => ({ ...task, source: "crediario" as const }),
     );
 
-    const activities = activitiesRes.data || [];
+    const activities = (activitiesRes.data || []).filter((a) =>
+      isManualCobrancaActivity(a.title),
+    );
     const cobrancaIds = Array.from(new Set(activities.map((a) => a.cobranca_id)));
     let cobrancaMap = new Map<string, { id: string; data: Record<string, unknown> | null }>();
 
@@ -172,6 +178,7 @@ export default function CrediarioTarefasPage() {
 
   const resetForm = () => {
     setFormNome("");
+    setFormTitulo("");
     setFormDate(undefined);
     setFormTelefone("");
     setFormCpf("");
@@ -192,7 +199,13 @@ export default function CrediarioTarefasPage() {
 
   const openEdit = (task: TaskRow) => {
     setEditing(task);
-    setFormNome(task.source === "cobranca" ? task.activityTitle || task.lead_name : task.lead_name);
+    if (task.source === "cobranca") {
+      setFormNome(task.clientName || task.lead_name);
+      setFormTitulo(task.activityTitle || "");
+    } else {
+      setFormNome(task.lead_name);
+      setFormTitulo("");
+    }
     setFormDate(parseISO(task.scheduled_date));
     setFormTelefone(task.phone ? formatPhoneBR(task.phone) : "");
     setFormCpf(task.cpf ? formatCpfBR(task.cpf) : "");
@@ -231,6 +244,12 @@ export default function CrediarioTarefasPage() {
     setSaving(true);
 
     if (editing?.source === "cobranca" && editing.activityId) {
+      const titulo = formTitulo.trim();
+      if (!titulo) {
+        toast.error("Informe o título da tarefa");
+        setSaving(false);
+        return;
+      }
       const [h, m] = formTime.split(":").map(Number);
       const dt = new Date(formDate!);
       dt.setHours(h || 9, m || 0, 0, 0);
@@ -238,7 +257,7 @@ export default function CrediarioTarefasPage() {
       const { error } = await supabase
         .from("cobranca_activities")
         .update({
-          title: nome,
+          title: titulo,
           description: formObservacao.trim() || null,
           scheduled_date: dt.toISOString(),
         })
@@ -421,21 +440,29 @@ export default function CrediarioTarefasPage() {
             <DialogTitle>{editing ? "Editar Tarefa" : "Nova Tarefa"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {editing?.source === "cobranca" && (
-              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                Tarefa vinculada a um card de cobrança. Você pode editar aqui ou abrir a cobrança do cliente.
-              </div>
-            )}
             <div className={cn(editing ? "grid grid-cols-1 md:grid-cols-2 gap-6" : "space-y-4")}>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>{editing?.source === "cobranca" ? "Título da tarefa *" : "Nome do lead *"}</Label>
+                  <Label>Nome do lead *</Label>
                   <Input
                     value={formNome}
                     onChange={(e) => setFormNome(e.target.value)}
-                    placeholder={editing?.source === "cobranca" ? "Ex.: Ligar para confirmar pagamento" : "Nome completo"}
+                    placeholder="Nome completo"
+                    readOnly={editing?.source === "cobranca"}
+                    className={editing?.source === "cobranca" ? "bg-muted" : undefined}
                   />
                 </div>
+
+                {editing?.source === "cobranca" && (
+                  <div className="space-y-2">
+                    <Label>Título da tarefa *</Label>
+                    <Input
+                      value={formTitulo}
+                      onChange={(e) => setFormTitulo(e.target.value)}
+                      placeholder="Ex.: Ligar para confirmar pagamento"
+                    />
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
@@ -493,6 +520,10 @@ export default function CrediarioTarefasPage() {
                   />
                 </div>
               </div>
+
+              {editing?.source === "cobranca" && editing.cobrancaId && (
+                <CobrancaTaskHistoryPanel cobrancaId={editing.cobrancaId} />
+              )}
 
               {editing && editing.source === "crediario" && !editing.renegociacao_status && (
                 <CrediarioRenegociacaoPanel

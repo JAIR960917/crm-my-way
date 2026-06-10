@@ -1,5 +1,8 @@
 import { format, parseISO } from "date-fns";
+import { isManualCobrancaActivity } from "@/lib/cobrancaActivities";
 import { extractPhoneFromCobrancaData } from "@/lib/phoneFormat";
+
+export { isManualCobrancaActivity };
 
 export type CobrancaActivityRow = {
   id: string;
@@ -17,14 +20,8 @@ export type CobrancaDataRow = {
 
 export type CalendarTaskSource = "crediario" | "cobranca";
 
-export function cobrancaActivityDisplayName(
-  title: string,
-  cobData: Record<string, unknown> | null | undefined,
-): string {
-  const nome = String(cobData?.nome ?? "").trim();
-  const taskTitle = title.trim();
-  if (nome && taskTitle && taskTitle !== nome) return `${nome} — ${taskTitle}`;
-  return taskTitle || nome || "Tarefa";
+export function cobrancaClientName(cobData: Record<string, unknown> | null | undefined): string {
+  return String(cobData?.nome ?? "").trim() || "—";
 }
 
 export function mapCobrancaActivityToCalendarTask(
@@ -35,14 +32,16 @@ export function mapCobrancaActivityToCalendarTask(
   const scheduled = parseISO(activity.scheduled_date);
   const cpfRaw = data?.documento ?? data?.cpf;
   const cpfDigits = cpfRaw ? String(cpfRaw).replace(/\D/g, "") : "";
+  const clientName = cobrancaClientName(data);
 
   return {
     id: `cobranca-activity-${activity.id}`,
     source: "cobranca" as const,
     activityId: activity.id,
     activityTitle: activity.title,
+    clientName,
     cobrancaId: activity.cobranca_id,
-    lead_name: cobrancaActivityDisplayName(activity.title, data),
+    lead_name: clientName,
     scheduled_date: format(scheduled, "yyyy-MM-dd"),
     scheduled_time: format(scheduled, "HH:mm:ss"),
     phone: extractPhoneFromCobrancaData(data) || null,

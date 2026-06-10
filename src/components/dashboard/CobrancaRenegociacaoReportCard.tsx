@@ -14,10 +14,8 @@ import {
   PhoneOff,
   ThumbsUp,
   ThumbsDown,
-  CalendarCheck,
-  CalendarX,
+  Handshake,
   Calendar as CalIcon,
-  CheckCircle2,
   ListTodo,
 } from "lucide-react";
 
@@ -39,8 +37,8 @@ export default function CobrancaRenegociacaoReportCard({ userId }: Props) {
   const [startDate, setStartDate] = useState(formatDateForInput(new Date()));
   const [endDate, setEndDate] = useState(formatDateForInput(new Date()));
   const [totals, setTotals] = useState<CobrancaRenegReportTotals>({
-    tratados: 0,
-    cobrancasTratadas: 0,
+    contatos: 0,
+    cobrancasContatadas: 0,
     tarefas: 0,
     naoAtenderam: 0,
     atenderam: 0,
@@ -79,6 +77,7 @@ export default function CobrancaRenegociacaoReportCard({ userId }: Props) {
       .on("postgres_changes", { event: "*", schema: "public", table: "crm_cobranca_notes" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "cobranca_activities" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "crediario_tasks" }, refresh)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "lead_card_opens" }, refresh)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [userId, dateMode, selectedDate, startDate, endDate]);
@@ -149,30 +148,29 @@ export default function CobrancaRenegociacaoReportCard({ userId }: Props) {
           <Skeleton className="h-28 w-full" />
         ) : (
           <>
-            <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 mb-4">
+            <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 mb-4">
               <SummaryStat
-                label="Tratadas"
-                value={totals.tratados}
-                sub={`${totals.cobrancasTratadas} cobrança(s)`}
+                label="Contatos"
+                value={totals.contatos}
+                sub={`${totals.cobrancasContatadas} cobrança(s) aberta(s)`}
                 icon={Phone}
                 tone="default"
               />
+              <SummaryStat label="Atenderam" value={totals.atenderam} icon={ThumbsUp} tone="success" />
+              <SummaryStat label="Não Atenderam" value={totals.naoAtenderam} icon={PhoneOff} tone="danger" />
+              <SummaryStat label="Renegociaram" value={totals.renegociados} icon={Handshake} tone="success" />
+              <SummaryStat label="Não Renegociaram" value={totals.naoRenegociados} icon={ThumbsDown} tone="warning" />
               <SummaryStat
                 label="Tarefas"
                 value={totals.tarefas}
-                sub="Crediário + cobrança"
+                sub="Criadas no período"
                 icon={ListTodo}
                 tone="default"
               />
-              <SummaryStat label="Não Atenderam" value={totals.naoAtenderam} icon={PhoneOff} tone="danger" />
-              <SummaryStat label="Atenderam" value={totals.atenderam} icon={ThumbsUp} tone="success" />
-              <SummaryStat label="Renegociados" value={totals.renegociados} icon={CalendarCheck} tone="success" />
-              <SummaryStat label="Não Renegociados" value={totals.naoRenegociados} icon={CalendarX} tone="warning" />
-              <SummaryStat label="Tarefas Concluídas" value={totals.tarefasConcluidas} icon={CheckCircle2} tone="default" />
             </div>
             <p className="text-[11px] text-muted-foreground -mt-1">
-              Tratadas = cobranças distintas com tentativa de contato ou tarefa manual no card + tarefas do crediário criadas ou concluídas com renegociação (sem mudanças automáticas de coluna ou WhatsApp do fluxo).
-              Tarefas = novas tarefas do crediário + tarefas manuais criadas nos cards de cobrança no período.
+              Contatos = cards de cobrança abertos para atendimento + tarefas concluídas no período (tarefas pendentes não entram).
+              Tarefas = novas tarefas do crediário + tarefas manuais criadas nos cards de cobrança. Movimentações automáticas de coluna não aparecem como tarefa.
             </p>
           </>
         )}

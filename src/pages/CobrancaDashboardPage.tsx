@@ -13,6 +13,7 @@ import { CalendarClock, AlertTriangle, Receipt, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import CobrancaRenegociacaoReportCard from "@/components/dashboard/CobrancaRenegociacaoReportCard";
+import { isManualCobrancaActivity } from "@/lib/cobrancaActivities";
 
 type Activity = {
   id: string;
@@ -55,7 +56,7 @@ export default function CobrancaDashboardPage() {
       const [actsRes, cobCountRes, stsRes] = await Promise.all([
         supabase
           .from("cobranca_activities")
-          .select("id, cobranca_id, title, scheduled_date")
+          .select("id, cobranca_id, title, scheduled_date, completed_at")
           .is("completed_at", null)
           .lte("scheduled_date", endTodayIso)
           .eq("created_by", uid),
@@ -66,7 +67,9 @@ export default function CobrancaDashboardPage() {
         supabase.from("crm_cobranca_statuses").select("key, label"),
       ]);
 
-      const acts: Activity[] = (actsRes.data || []) as any[];
+      const acts: Activity[] = ((actsRes.data || []) as Activity[]).filter((a) =>
+        isManualCobrancaActivity(a.title),
+      );
       const statusMap = new Map(((stsRes.data || []) as StatusRow[]).map((s) => [s.key, s.label]));
 
       const neededIds = Array.from(new Set(acts.map((a) => a.cobranca_id)));
