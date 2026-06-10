@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2 } from "lucide-react";
+import { Loader2, ZoomIn } from "lucide-react";
+import WhatsAppImageLightbox from "@/components/whatsapp/WhatsAppImageLightbox";
 
 type MediaMessage = {
   id: string;
@@ -22,6 +23,7 @@ export default function WhatsAppMediaMessage({ message }: { message: MediaMessag
   const [src, setSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const isMedia =
     (message.message_type || "").toLowerCase() === "media" ||
@@ -110,11 +112,32 @@ export default function WhatsAppMediaMessage({ message }: { message: MediaMessag
     );
   }
 
-  if (mediaType === "image" && src) {
+  if ((mediaType === "image" || mediaType === "sticker") && src) {
     return (
       <div className="space-y-1">
-        <img src={src} alt={message.media_filename || "imagem"} className="max-h-64 rounded-md object-contain" />
+        <button
+          type="button"
+          onClick={() => setLightboxOpen(true)}
+          className="group relative block max-w-full rounded-md overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          title="Clique para ampliar"
+        >
+          <img
+            src={src}
+            alt={message.media_filename || "imagem"}
+            className="max-h-64 max-w-full rounded-md object-contain bg-black/5 group-hover:opacity-90 transition-opacity"
+          />
+          <span className="absolute bottom-2 right-2 flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[10px] text-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+            <ZoomIn className="h-3 w-3" />
+            Ampliar
+          </span>
+        </button>
         {message.caption ? <p className="whitespace-pre-wrap text-sm">{message.caption}</p> : null}
+        <WhatsAppImageLightbox
+          src={src}
+          alt={message.media_filename || "imagem"}
+          open={lightboxOpen}
+          onOpenChange={setLightboxOpen}
+        />
       </div>
     );
   }
