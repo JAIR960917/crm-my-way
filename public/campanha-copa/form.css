@@ -343,19 +343,23 @@ select.text-input {
 
 .team-flag {
   display: block;
+  width: 28px;
+  height: 19px;
   border-radius: 3px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   object-fit: cover;
+  flex-shrink: 0;
 }
 
 .team-label {
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: 1.05rem;
+  font-weight: 700;
   color: #334155;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  line-height: 1.15;
 }
 
 .score-input {
@@ -531,14 +535,15 @@ select.text-input {
   }
 
   .team-label {
-    font-size: 0.95rem;
+    font-size: 1.35rem;
+    font-weight: 700;
     overflow: visible;
     text-overflow: clip;
   }
 
   .team-flag {
-    width: 36px;
-    height: 24px;
+    width: 40px;
+    height: 27px;
   }
 
   .score-input {
@@ -613,13 +618,15 @@ select.text-input {
   }
 
   .team-label {
-    font-size: 0.7rem;
-    max-width: 3rem;
+    font-size: 1rem;
+    font-weight: 700;
+    max-width: 4.75rem;
+    line-height: 1.1;
   }
 
   .team-flag {
-    width: 20px;
-    height: 14px;
+    width: 28px;
+    height: 19px;
     flex-shrink: 0;
   }
 
