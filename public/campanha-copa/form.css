@@ -5,17 +5,27 @@
 }
 
 :root {
-  --brand-black: #0a0a0a;
-  --brand-black-soft: #141414;
-  --brand-red: #dc2626;
-  --brand-red-dark: #991b1b;
-  --brand-red-glow: #7f1d1d;
+  --brazil-green: #009739;
+  --brazil-green-dark: #006b2e;
+  --brazil-yellow: #ffdf00;
+  --brazil-blue: #002776;
+  --btn-green: #16a34a;
+  --btn-green-dark: #15803d;
 }
 
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: var(--brand-black);
+  background: linear-gradient(
+    165deg,
+    var(--brazil-green) 0%,
+    var(--brazil-green-dark) 28%,
+    var(--brazil-yellow) 52%,
+    #c9a800 62%,
+    var(--brazil-blue) 82%,
+    #001a52 100%
+  );
+  background-attachment: fixed;
   color: #0f172a;
   min-height: 100vh;
 }
@@ -35,9 +45,9 @@ body {
 
 .hero-badge {
   display: inline-block;
-  background: rgba(220, 38, 38, 0.22);
-  border: 1px solid rgba(248, 113, 113, 0.55);
-  color: #fecaca;
+  background: rgba(0, 39, 118, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  color: #fff;
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -94,15 +104,15 @@ body {
   font-size: 0.9rem;
   font-weight: 600;
   color: #fff;
-  background: var(--brand-red);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--btn-green);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 999px;
   cursor: pointer;
   transition: background 0.15s, transform 0.15s;
 }
 
 .btn-regulamento:hover {
-  background: var(--brand-red-dark);
+  background: var(--btn-green-dark);
   transform: translateY(-1px);
 }
 
@@ -111,13 +121,13 @@ body {
   border: none;
   padding: 0;
   font: inherit;
-  color: #fca5a5;
+  color: #fff;
   cursor: pointer;
   text-decoration: underline;
 }
 
 .footer-link-btn:hover {
-  color: #fecaca;
+  color: #ffdf00;
 }
 
 .regulamento-modal {
@@ -273,7 +283,7 @@ body {
 }
 
 .text-input:focus {
-  border-bottom-color: var(--brand-red);
+  border-bottom-color: var(--btn-green);
 }
 
 select.text-input {
@@ -370,8 +380,8 @@ select.text-input {
 }
 
 .score-input:focus {
-  border-color: var(--brand-red);
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.18);
+  border-color: var(--btn-green);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.2);
 }
 
 .score-sep {
@@ -405,7 +415,7 @@ select.text-input {
   flex-shrink: 0;
   width: 18px;
   height: 18px;
-  accent-color: var(--brand-red);
+  accent-color: var(--btn-green);
 }
 
 .consent-block {
@@ -431,7 +441,7 @@ select.text-input {
 }
 
 .btn-primary {
-  background: var(--brand-red);
+  background: var(--btn-green);
   color: #fff;
   border: none;
   border-radius: 4px;
@@ -442,7 +452,7 @@ select.text-input {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--brand-red-dark);
+  background: var(--btn-green-dark);
 }
 
 .btn-primary:disabled {
@@ -453,7 +463,7 @@ select.text-input {
 .btn-ghost {
   background: none;
   border: none;
-  color: var(--brand-red);
+  color: var(--btn-green-dark);
   font-size: 0.9rem;
   cursor: pointer;
   padding: 12px 0;
@@ -503,7 +513,7 @@ select.text-input {
 }
 
 .footer a {
-  color: #fca5a5;
+  color: #fff;
 }
 
 @media (min-width: 520px) {

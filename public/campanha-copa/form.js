@@ -100,8 +100,13 @@
 
   var CAMPAIGN_TITLE = "BOLÃO DA COPA JOONKER";
 
+  function displayBrandName(raw) {
+    var name = (raw || "Óticas Joonker").trim();
+    return name.replace(/^CRM\s+/i, "");
+  }
+
   function applyPublicConfig(data, supabaseUrl) {
-    var brandName = data.system_name || "Óticas Joonker";
+    var brandName = displayBrandName(data.system_name);
     var jogoLabel = data.jogo_label || "Brasil x Marrocos";
     var logoUrl = resolveLogoUrl(data.logo_url || "", supabaseUrl);
     var bannerUrl = resolveLogoUrl(data.banner_url || "", supabaseUrl);
