@@ -16,28 +16,84 @@ type FormFieldLike = {
   options: string[] | null;
 };
 
+function normalizeCanalText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function isCaptacaoFieldLabel(label: string): boolean {
+  return /canal|capta[cç][aã]o/i.test(label);
+}
+
+/** Converte resposta do formulário (ex.: Indicação) para um canal de agendamento válido. */
+export function mapToCanalAgendamento(raw: unknown): string {
+  const v = String(raw ?? "").trim();
+  if (!v) return "";
+  if (CANAIS_AGENDAMENTO.includes(v)) return v;
+
+  const lower = normalizeCanalText(v);
+  if (/recomend|indicac/.test(lower)) return "Recomendação";
+  if (/loja/.test(lower)) return "Loja";
+  if (/rede social|instagram|facebook|tiktok/.test(lower)) return "Rede Social";
+  if (/trafego|trafego pago|ads|anuncio/.test(lower)) return "Tráfego Pago";
+  if (/\bpap\b/.test(lower)) return "PAP";
+  if (/convenio/.test(lower)) return "Convênios";
+  if (/reavali/.test(lower)) return "Reavaliação";
+  if (/cortesia/.test(lower)) return "Cortesia";
+  if (/teste.*visao|visao online/.test(lower)) return "Teste de Visão Online";
+  if (/ligacao.*renov|renovacao/.test(lower)) return "Ligação Renovação";
+  if (/ligacao|lead/.test(lower)) return "Ligação Leads";
+  if (/acao adam|\badam\b/.test(lower)) return "Ação Adam";
+
+  return "";
+}
+
+function valuesFromFormField(formData: Record<string, unknown>, fieldId: string): string[] {
+  const raw = formData[`field_${fieldId}`];
+  if (Array.isArray(raw)) return raw.map((v) => String(v)).filter(Boolean);
+  if (raw === undefined || raw === null || raw === "") return [];
+  return [String(raw)];
+}
+
 export function resolveCanalFromForm(
   fields: FormFieldLike[],
   formData: Record<string, unknown>,
 ): string {
-  const byLabel = fields.find(
-    (f) => /canal/i.test(f.label) && f.field_type === "select",
+  const captaçãoFields = fields.filter(
+    (f) => isCaptacaoFieldLabel(f.label) && (f.field_type === "select" || f.field_type === "checkbox_group"),
   );
-  if (byLabel) {
-    const v = formData[`field_${byLabel.id}`];
-    if (v) return String(v);
+  for (const f of captaçãoFields) {
+    for (const v of valuesFromFormField(formData, f.id)) {
+      const mapped = mapToCanalAgendamento(v);
+      if (mapped) return mapped;
+    }
   }
+
   for (const f of fields) {
-    if (f.field_type !== "select" || !f.options) continue;
-    const v = formData[`field_${f.id}`];
-    if (v && CANAIS_AGENDAMENTO.includes(String(v))) return String(v);
+    if (f.field_type !== "select" && f.field_type !== "checkbox_group") continue;
+    for (const v of valuesFromFormField(formData, f.id)) {
+      const mapped = mapToCanalAgendamento(v);
+      if (mapped) return mapped;
+    }
   }
+
   return "";
 }
 
 export function resolveCanalFromLeadData(data: Record<string, unknown>): string {
-  for (const [key, val] of Object.entries(data)) {
-    if (val && CANAIS_AGENDAMENTO.includes(String(val))) return String(val);
+  for (const val of Object.values(data)) {
+    if (Array.isArray(val)) {
+      for (const item of val) {
+        const mapped = mapToCanalAgendamento(item);
+        if (mapped) return mapped;
+      }
+      continue;
+    }
+    const mapped = mapToCanalAgendamento(val);
+    if (mapped) return mapped;
   }
   return "Ligação Leads";
 }

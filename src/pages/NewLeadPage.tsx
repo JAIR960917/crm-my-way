@@ -20,7 +20,12 @@ import { format, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { normalizeLeadData, resolveLeadIdentity } from "@/lib/leadIdentity";
-import { FORMAS_PAGAMENTO_OCULOS, logAppointmentHistory, resolveCanalFromForm } from "@/lib/appointmentUtils";
+import {
+  FORMAS_PAGAMENTO_OCULOS,
+  logAppointmentHistory,
+  mapToCanalAgendamento,
+  resolveCanalFromForm,
+} from "@/lib/appointmentUtils";
 
 type DateStatusRange = { max_years: number; status_key: string };
 type DateStatusConfig = { ranges: DateStatusRange[]; above_all: string; no_answer: string };
@@ -245,6 +250,19 @@ export default function NewLeadPage() {
     return answers;
   };
 
+  const resolveCanalAgendamento = (): string => {
+    const fromForm = resolveCanalFromForm(fields, formData);
+    if (fromForm) return fromForm;
+
+    const statusKey = resolveStatus();
+    const statusLabel = statuses.find((s) => s.key === statusKey)?.label || "";
+    const statusHint = `${statusKey} ${statusLabel}`;
+    const fromStatus = mapToCanalAgendamento(statusHint);
+    if (fromStatus) return fromStatus;
+
+    return "";
+  };
+
   const resolveStatus = (): string => {
     const defaultStatus = statuses.length > 0 ? statuses[0].key : formStatus;
 
@@ -329,13 +347,13 @@ export default function NewLeadPage() {
     }
 
     if (agendou === "sim") {
-      const canalAg = resolveCanalFromForm(fields, formData);
+      const canalAg = resolveCanalAgendamento();
       if (!agDate || !agTime || !agFormaPagamento) {
         toast.error("Preencha data, horário e forma de pagamento do óculos.");
         return;
       }
       if (!canalAg) {
-        toast.error("Preencha o canal de captação no início do formulário.");
+        toast.error("Preencha a forma de captação no início do formulário (ex.: Recomendação / Indicação).");
         return;
       }
       if (!agConsultaPaga) {
@@ -389,7 +407,7 @@ export default function NewLeadPage() {
 
     const { nome: leadName, telefone: leadPhone, idade: leadIdade } = resolveLeadIdentity(finalData, fields);
 
-    const canalAgendamento = agendou === "sim" ? resolveCanalFromForm(fields, formData) : "";
+    const canalAgendamento = agendou === "sim" ? resolveCanalAgendamento() : "";
     const consultaPagaNoAgendamento =
       agendou === "sim" && (agConsultaPaga === "sim" || agConsultaPaga === "cortesia");
     const valorConsulta =
