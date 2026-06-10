@@ -177,13 +177,13 @@ function MonthView({ appointments, focusDate, onSelectAppointment, onDayClick, e
                       </p>
                     )}
                     <p className="text-[10px] font-medium text-muted-foreground pt-0.5">
-                      {paid} pagos
+                      Pagos {total}/{paid}
                     </p>
                   </div>
                 ) : (
                   inMonth && total > 0 && (
                     <span className="text-[10px] text-muted-foreground font-medium">
-                      pagos {paid}/{total}
+                      Pagos {total}/{paid}
                     </span>
                   )
                 )}
