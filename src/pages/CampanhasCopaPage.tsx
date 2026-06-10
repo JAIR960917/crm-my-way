@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ExternalLink, Pencil, RefreshCw, Search, Share2, Trophy } from "lucide-react";
+import { ExternalLink, Pencil, RefreshCw, Search, Share2, Trash2, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import AppLayout from "@/components/AppLayout";
 import CampanhaCopaSubmissionDialog, {
@@ -48,6 +48,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type Profile = {
   user_id: string;
@@ -62,7 +72,7 @@ const ALL = "__all__";
 const NONE = "__none__";
 
 export default function CampanhasCopaPage() {
-  const { isAdmin, user } = useAuth();
+  const { isAdmin, isGerente, user } = useAuth();
   const [rows, setRows] = useState<CampanhaCopaSubmission[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [userRoles, setUserRoles] = useState<UserRole[]>([]);
@@ -75,6 +85,8 @@ export default function CampanhasCopaPage() {
   const [detailRow, setDetailRow] = useState<CampanhaCopaSubmission | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const [deletingRow, setDeletingRow] = useState<CampanhaCopaSubmission | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [jogoConfigRaw, setJogoConfigRaw] = useState<string | null>(null);
   const [pixelForm, setPixelForm] = useState("");
   const [pixelSuccess, setPixelSuccess] = useState("");
@@ -298,6 +310,43 @@ export default function CampanhasCopaPage() {
       toast.error(e instanceof Error ? e.message : "Erro ao redirecionar");
     } finally {
       setReassigning(null);
+    }
+  };
+
+  const deleteSubmission = async () => {
+    if (!deletingRow) return;
+
+    setDeleteLoading(true);
+    try {
+      const leadId = deletingRow.lead_id;
+
+      const { error: subErr } = await supabase
+        .from("campanha_copa_submissions")
+        .delete()
+        .eq("id", deletingRow.id);
+      if (subErr) throw subErr;
+
+      if (leadId) {
+        if (isAdmin) {
+          const { error: leadErr } = await supabase.from("crm_leads").delete().eq("id", leadId);
+          if (leadErr) throw leadErr;
+        } else {
+          const { error: softErr } = await supabase.rpc("soft_delete_lead", { _lead_id: leadId });
+          if (softErr) console.warn("[campanha-copa] soft_delete_lead:", softErr.message);
+        }
+      }
+
+      setRows((prev) => prev.filter((r) => r.id !== deletingRow.id));
+      if (detailRow?.id === deletingRow.id) {
+        setDetailOpen(false);
+        setDetailRow(null);
+      }
+      toast.success("Inscrição excluída.");
+      setDeletingRow(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao excluir inscrição");
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -548,15 +597,28 @@ export default function CampanhasCopaPage() {
                       return (
                         <TableRow key={r.id}>
                           <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              title="Ver inscrição"
-                              onClick={() => openDetail(r)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
+                            <div className="flex items-center">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title="Ver inscrição"
+                                onClick={() => openDetail(r)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              {(isAdmin || isGerente) && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  title="Excluir inscrição"
+                                  onClick={() => setDeletingRow(r)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-xs">
                             {format(new Date(r.created_at), "dd/MM/yy HH:mm", { locale: ptBR })}
@@ -619,6 +681,36 @@ export default function CampanhasCopaPage() {
         profileName={profileName}
         historyRefreshKey={historyRefreshKey}
       />
+
+      <AlertDialog open={!!deletingRow} onOpenChange={(open) => !open && setDeletingRow(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir inscrição?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A inscrição de <strong>{deletingRow?.nome}</strong> será removida
+              {deletingRow?.lead_id
+                ? isAdmin
+                  ? ", junto com o lead vinculado no CRM"
+                  : ". O lead vinculado será movido para Excluídos, se possível"
+                : ""}
+              . Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void deleteSubmission();
+              }}
+              disabled={deleteLoading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteLoading ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }

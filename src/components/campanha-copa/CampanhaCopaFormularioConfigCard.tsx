@@ -5,8 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import ImageUploadField from "@/components/whatsapp/ImageUploadField";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import DateTimePicker from "@/components/ui/datetime-picker";
 import { CAMPANHA_COPA_BANNER_URL_KEY } from "@/lib/campanha-copa-jogo";
 import {
   CAMPANHA_COPA_PERIODO_FIM_KEY,
@@ -98,20 +98,20 @@ export default function CampanhaCopaFormularioConfigCard({
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="periodo-inicio">Início do período</Label>
-            <Input
+            <DateTimePicker
               id="periodo-inicio"
-              type="datetime-local"
               value={periodoInicio}
-              onChange={(e) => setPeriodoInicio(e.target.value)}
+              onChange={setPeriodoInicio}
+              placeholder="dd/mm/aaaa —:—"
             />
           </div>
           <div className="space-y-2">
             <Label htmlFor="periodo-fim">Fim do período</Label>
-            <Input
+            <DateTimePicker
               id="periodo-fim"
-              type="datetime-local"
               value={periodoFim}
-              onChange={(e) => setPeriodoFim(e.target.value)}
+              onChange={setPeriodoFim}
+              placeholder="dd/mm/aaaa —:—"
             />
           </div>
         </div>
