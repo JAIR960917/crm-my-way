@@ -563,6 +563,31 @@ function isRemocaoCobrancaJuridica(situacao: string): boolean {
   return situacao.startsWith("remover do cobranca") || situacao.startsWith("remover cobranca");
 }
 
+// Situações SSÓtica (parcela ou cliente) que não devem entrar na Cobrança.
+function isSituacaoCobrancaExcluida(situacao: string): boolean {
+  if (!situacao) return false;
+  return situacao === "folha de pagamento"
+    || situacao.includes("folha de pagamento")
+    || situacao === "acerta com walyson"
+    || situacao.includes("acerta com walyson");
+}
+
+function getClienteSituacaoNormalizada(cliente: any): string {
+  const raw = String(
+    cliente?.situacao
+    ?? cliente?.["situação"]
+    ?? cliente?.situacao_cliente
+    ?? cliente?.classificacao
+    ?? "",
+  );
+  return normalizeSituacaoLabel(raw);
+}
+
+function clienteDeveSerIgnoradoNaCobranca(cliente: any, parcelas: Array<{ situacao?: string | null }> = []): boolean {
+  if (isSituacaoCobrancaExcluida(getClienteSituacaoNormalizada(cliente))) return true;
+  return parcelas.some((p) => isSituacaoCobrancaExcluida(normalizeSituacaoLabel(p?.situacao ?? "")));
+}
+
 function isSamePerson(nameA: unknown, nameB: unknown): boolean {
   const a = normalizeName(nameA);
   const b = normalizeName(nameB);
@@ -612,6 +637,7 @@ async function syncContasReceber(
     semVencimento: 0,
     naoEmAtraso: 0,
     semCliente: 0,
+    situacaoExcluida: 0,
   };
   const situacoesVistas = new Map<string, number>();
   // Contas a Receber: usamos `cnpj=` (e não `empresa=<license_code>`), pois o
@@ -732,6 +758,7 @@ async function syncContasReceber(
   const clientesAfetados = new Set<number>();
   // Agrupa todas as parcelas em atraso por cliente para upsert único depois
   const parcelasPorCliente = new Map<number, { cliente: any; parcelas: any[]; hasNegativadoSerasa: boolean; hasAjuizado: boolean; ajuizadoVariant: string | null; hasEmAtraso: boolean }>();
+  const clientesComSituacaoExcluida = new Set<number>();
 
   // Janela única (definida por overallStart/overallEnd) dividida em sub-janelas de 30 dias
   // por causa do limite da API SSótica.
@@ -755,6 +782,19 @@ async function syncContasReceber(
         const situacaoRaw = String(parcela.situacao ?? parcela["situação"] ?? "");
         const situacao = normalizeSituacaoLabel(situacaoRaw);
         situacoesVistas.set(situacao, (situacoesVistas.get(situacao) ?? 0) + 1);
+
+        const cliRef = parcela.titulo?.cliente ?? parcela.cliente ?? {};
+        if (isSituacaoCobrancaExcluida(situacao) || isSituacaoCobrancaExcluida(getClienteSituacaoNormalizada(cliRef))) {
+          skipped.situacaoExcluida++;
+          if (cliRef?.id) {
+            const cidExcl = Number(cliRef.id);
+            clientesComSituacaoExcluida.add(cidExcl);
+            clientesAfetados.add(cidExcl);
+            parcelasPorCliente.delete(cidExcl);
+          }
+          if (parcela.id) parcelasInativasIds.add(Number(parcela.id));
+          continue;
+        }
 
         // ⚠️ REGRA: puxamos para o CRM parcelas com situação "Em atraso",
         // "Em aberto", "Vencido", "A vencer" (e variantes), além dos casos
@@ -866,9 +906,11 @@ async function syncContasReceber(
 
         if (parcela.id) parcelasAtivasIds.add(Number(parcela.id));
 
-        const cliente = parcela.titulo?.cliente ?? parcela.cliente ?? {};
+        const cliente = cliRef;
         if (!cliente?.id) { skipped.semCliente++; continue; }
-        clientesAfetados.add(Number(cliente.id));
+        const clienteIdNumEarly = Number(cliente.id);
+        if (clientesComSituacaoExcluida.has(clienteIdNumEarly)) continue;
+        clientesAfetados.add(clienteIdNumEarly);
 
         const clienteIdNum = Number(cliente.id);
         let bucket = parcelasPorCliente.get(clienteIdNum);
@@ -920,7 +962,29 @@ async function syncContasReceber(
       `[ssotica-sync][cobrancas] empresa=${integ.company_id} chunk histórico vazio (${ymd(overallStart)}→${ymd(overallEnd)}); seguindo para o próximo lote sem erro.`,
     );
   }
+  for (const cid of clientesComSituacaoExcluida) {
+    parcelasPorCliente.delete(cid);
+  }
+  if (clientesComSituacaoExcluida.size > 0) {
+    console.log(
+      `[ssotica-sync][cobrancas] empresa=${integ.company_id} clientes_ignorados_situacao=${clientesComSituacaoExcluida.size} backfill_chunk=${isBackfillChunk}`,
+    );
+  }
   console.log(`[ssotica-sync][cobrancas] empresa=${integ.company_id} janela=${ymd(overallStart)}→${ymd(overallEnd)} processed=${processed} clientes_em_atraso=${parcelasPorCliente.size} backfill_chunk=${isBackfillChunk}${manualRecentWindow ? " manual_recent=true" : incrementalWindow ? ` slot=${incrementalWindow.slot + 1}/${INCREMENTAL_COBRANCAS_SLICES}` : ""}`);
+
+  // Remove cards já existentes de clientes com situação excluída (ex.: backfill).
+  for (const clienteIdNum of clientesComSituacaoExcluida) {
+    const { data: cobExcluida } = await supabase
+      .from("crm_cobrancas")
+      .select("id")
+      .eq("ssotica_cliente_id", clienteIdNum)
+      .eq("ssotica_company_id", integ.company_id)
+      .maybeSingle();
+    if (cobExcluida?.id) {
+      await supabase.from("crm_cobrancas").delete().eq("id", cobExcluida.id);
+      removed++;
+    }
+  }
 
   // Janela atual em formato YYYY-MM-DD para decidir quais parcelas existentes
   // foram efetivamente revisadas neste slot (e portanto podem ser substituídas).
@@ -941,6 +1005,7 @@ async function syncContasReceber(
   // ===== Upsert por cliente: 1 card com a lista de TODAS as parcelas em atraso =====
   for (const [clienteIdNum, bucket] of parcelasPorCliente.entries()) {
     const { cliente, parcelas, hasNegativadoSerasa, hasAjuizado, ajuizadoVariant, hasEmAtraso } = bucket;
+    if (clientesComSituacaoExcluida.has(clienteIdNum)) continue;
 
     // Procura primeiro card da PRÓPRIA loja. Se não existir, busca card consolidado
     // em OUTRA loja para o mesmo cliente — assim evitamos o flap onde a consolidação
@@ -997,6 +1062,13 @@ async function syncContasReceber(
     // de OUTRAS lojas não as removam por engano.
     const parcelasComLoja = parcelas.map((p) => ({ ...p, ssotica_company_id: currentCompany }));
     const parcelasMerged = [...preservadas, ...parcelasComLoja];
+    if (clienteDeveSerIgnoradoNaCobranca(cliente, parcelasMerged)) {
+      if (existingCobranca?.id) {
+        await supabase.from("crm_cobrancas").delete().eq("id", existingCobranca.id);
+        removed++;
+      }
+      continue;
+    }
     // Ordena parcelas pelo vencimento mais antigo primeiro
     parcelasMerged.sort((a, b) => (a.vencimento < b.vencimento ? -1 : a.vencimento > b.vencimento ? 1 : 0));
     const maisAntiga = parcelasMerged[0];
