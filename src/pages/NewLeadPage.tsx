@@ -118,7 +118,12 @@ export default function NewLeadPage() {
     const fetchData = async () => {
       try {
         const [{ data: flds }, { data: sts }, { data: profs }, { data: myProfile }, { data: managerCos }] = await Promise.all([
-          supabase.from("crm_form_fields").select("id, label, field_type, options, position, is_required, parent_field_id, parent_trigger_value, status_mapping, date_status_ranges, is_name_field, is_phone_field, show_at_end, appear_after_field_id").order("position"),
+          supabase.from("crm_form_fields").select("id, label, field_type, options, position, is_required, parent_field_id, parent_trigger_value, status_mapping, date_status_ranges, is_name_field, is_phone_field, show_at_end, appear_after_field_id").order("position").then((res) => {
+            if (res.error?.code === "PGRST204") {
+              return supabase.from("crm_form_fields").select("id, label, field_type, options, position, is_required, parent_field_id, parent_trigger_value, status_mapping, date_status_ranges, is_name_field, is_phone_field").order("position");
+            }
+            return res;
+          }),
           supabase.from("crm_statuses").select("*").order("position"),
           supabase.rpc("get_profile_names"),
           supabase.from("profiles").select("company_id").eq("user_id", user!.id).maybeSingle(),

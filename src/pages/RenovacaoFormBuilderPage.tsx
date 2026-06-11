@@ -13,6 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Pencil, Trash2, GripVertical, ChevronRight, CornerDownRight, CalendarHeart } from "lucide-react";
 import { DragDropContext, Droppable, Draggable, DropResult, DragStart } from "@hello-pangea/dnd";
 import { buildFormFillOrderIndex, getFormFieldParent } from "@/lib/formFieldOrder";
+import { formatSupabaseError } from "@/lib/supabaseError";
 
 type FormField = {
   id: string;
@@ -60,6 +61,7 @@ export default function RenovacaoFormBuilderPage() {
   const [parentFieldId, setParentFieldId] = useState<string>("__none__");
   const [parentTriggerValues, setParentTriggerValues] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [positionColumnsReady, setPositionColumnsReady] = useState<boolean | null>(null);
   const [activeDragGroup, setActiveDragGroup] = useState<string | null>(null);
 
   const fetchFields = async () => {
@@ -70,7 +72,14 @@ export default function RenovacaoFormBuilderPage() {
     setFields((data || []) as unknown as FormField[]);
   };
 
-  useEffect(() => { fetchFields(); }, []);
+  useEffect(() => {
+    fetchFields();
+    supabase
+      .from("crm_renovacao_form_fields")
+      .select("show_at_end, appear_after_field_id")
+      .limit(1)
+      .then(({ error }) => setPositionColumnsReady(!error));
+  }, []);
 
   const fillOrderIndex = useMemo(() => buildFormFillOrderIndex(fields), [fields]);
 
@@ -177,6 +186,27 @@ export default function RenovacaoFormBuilderPage() {
 
   const handleSave = async () => {
     if (!label.trim()) return;
+
+    if (
+      positionColumnsReady &&
+      parentFieldId !== "__none__" &&
+      displayPosition !== "__parent__" &&
+      displayPosition !== "__end__" &&
+      editingField?.id === displayPosition
+    ) {
+      toast.error("Uma pergunta não pode aparecer após ela mesma.");
+      return;
+    }
+
+    if (
+      positionColumnsReady === false &&
+      parentFieldId !== "__none__" &&
+      displayPosition !== "__parent__"
+    ) {
+      toast.error(formatSupabaseError({ code: "PGRST204" }));
+      return;
+    }
+
     setSaving(true);
     const autoIsPhoneField = fieldType === "phone" ? true : isPhoneField;
     const autoFieldType = isLastVisitField ? "date" : fieldType;
@@ -185,7 +215,7 @@ export default function RenovacaoFormBuilderPage() {
       ? options.split(",").map((o) => o.trim()).filter(Boolean)
       : null;
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       label: label.trim(),
       field_type: autoFieldType,
       options: parsedOptions,
@@ -194,22 +224,35 @@ export default function RenovacaoFormBuilderPage() {
       is_phone_field: autoIsPhoneField,
       is_last_visit_field: isLastVisitField,
       show_on_card: showOnCard || isLastVisitField,
-      show_at_end: parentFieldId !== "__none__" && displayPosition === "__end__",
-      appear_after_field_id:
-        parentFieldId !== "__none__" && displayPosition !== "__parent__" && displayPosition !== "__end__"
-          ? displayPosition
-          : null,
       parent_field_id: parentFieldId === "__none__" ? null : parentFieldId,
       parent_trigger_value: parentFieldId === "__none__" ? null : (parentTriggerValues.length > 0 ? JSON.stringify(parentTriggerValues) : null),
     };
 
+    if (positionColumnsReady) {
+      payload.show_at_end = parentFieldId !== "__none__" && displayPosition === "__end__";
+      payload.appear_after_field_id =
+        parentFieldId !== "__none__" && displayPosition !== "__parent__" && displayPosition !== "__end__"
+          ? displayPosition
+          : null;
+    }
+
     if (editingField) {
       const { error } = await supabase.from("crm_renovacao_form_fields").update(payload).eq("id", editingField.id);
-      if (error) toast.error("Erro ao atualizar"); else toast.success("Pergunta atualizada");
+      if (error) {
+        toast.error(formatSupabaseError(error));
+        setSaving(false);
+        return;
+      }
+      toast.success("Pergunta atualizada");
     } else {
       const maxPos = fields.length > 0 ? Math.max(...fields.map((f) => f.position)) + 1 : 0;
       const { error } = await supabase.from("crm_renovacao_form_fields").insert({ ...payload, position: maxPos });
-      if (error) toast.error("Erro ao criar"); else toast.success("Pergunta criada");
+      if (error) {
+        toast.error(formatSupabaseError(error));
+        setSaving(false);
+        return;
+      }
+      toast.success("Pergunta criada");
     }
 
     setSaving(false);
@@ -417,6 +460,13 @@ export default function RenovacaoFormBuilderPage() {
         )}
       </div>
 
+      {positionColumnsReady === false && (
+        <div className="mb-4 rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm">
+          <strong>Atualização do banco pendente.</strong> Execute na VPS:{" "}
+          <code className="text-xs bg-muted px-1 py-0.5 rounded">./deploy.sh --migrations</code>
+        </div>
+      )}
+
       <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <Droppable droppableId="root" type="root" isDropDisabled={activeDragGroup !== null && activeDragGroup !== "root"}>
           {(provided) => (
@@ -520,7 +570,7 @@ export default function RenovacaoFormBuilderPage() {
               </Select>
             </div>
 
-            {parentFieldId !== "__none__" && (
+            {parentFieldId !== "__none__" && positionColumnsReady && (
               <div className="space-y-2">
                 <Label>Exibir após qual pergunta no formulário</Label>
                 <Select value={displayPosition} onValueChange={setDisplayPosition}>
