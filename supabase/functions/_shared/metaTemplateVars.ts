@@ -135,8 +135,12 @@ export function buildCobrancaVars(
   if (!valorParcelaAVencer && data?.valor != null) valorParcelaAVencer = formatBRL(data.valor);
   if (!dataParcelaAVencer && data?.vencimento) dataParcelaAVencer = formatDateBR(data.vencimento);
 
-  const valorParcelaVencida = pVencida ? formatBRL(pVencida.valor) : "";
-  const dataParcelaVencida = pVencida ? formatDateBR(pVencida.vencimento) : "";
+  let valorParcelaVencida = pVencida ? formatBRL(pVencida.valor) : "";
+  let dataParcelaVencida = pVencida ? formatDateBR(pVencida.vencimento) : "";
+  if (!valorParcelaVencida && card?.valor != null) valorParcelaVencida = formatBRL(card.valor);
+  if (!dataParcelaVencida && card?.vencimento) dataParcelaVencida = formatDateBR(card.vencimento);
+  if (!valorParcelaVencida && data?.valor != null) valorParcelaVencida = formatBRL(data.valor);
+  if (!dataParcelaVencida && data?.vencimento) dataParcelaVencida = formatDateBR(data.vencimento);
 
   const valorTotalFmt = formatBRL(totalEffective);
   const dataBoletoAnt = maisAntigo ? formatDateBR(maisAntigo.vencimento) : "";
@@ -172,6 +176,166 @@ export function applyTemplateVars(template: string, vars: Record<string, string>
   return out;
 }
 
+/** Nomes Meta → chaves CRM (para montar params a partir do schema da Meta). */
+const META_PARAM_TO_CRM_KEYS: Record<string, string[]> = {
+  nome: ["nome"],
+  valor_a_vencer: ["valor_a_vencer", "valor_parcela_a_vencer"],
+  valor_vencido: ["valor_vencido", "valor_parcela_vencida"],
+  data_a_vencer: ["data_a_vencer", "data_parcela_a_vencer"],
+  data_vencida: ["data_vencida", "data_parcela_vencida"],
+  cnpj_empresa: ["cnpj_empresa"],
+  nome_empresa: ["nome_empresa"],
+  valor_total: ["valor_total", "valor_total_parcelas"],
+  parcelas_vencidas: ["parcelas_vencidas"],
+  data_boleto_ant: ["data_boleto_ant", "data_boleto_mais_antigo"],
+};
+
+function resolveVarForMetaParam(metaName: string, varsLower: Record<string, string>): string {
+  const metaLower = metaName.toLowerCase();
+  const crmKeys = META_PARAM_TO_CRM_KEYS[metaLower] || [metaLower];
+  for (const key of crmKeys) {
+    const val = varsLower[key];
+    if (val != null && String(val).trim() !== "") return val;
+  }
+  return varsLower[metaLower] ?? "";
+}
+
+/** Extrai variáveis {{x}} do texto do template Meta (ordem de 1ª aparição). */
+export function parseMetaTemplateVariableNames(text: string): string[] {
+  if (!text?.trim()) return [];
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const re = /\{\{([^}#][^}]*)\}\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const name = m[1].trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
+export type MetaTemplateSchema = {
+  bodyVarNames: string[];
+  headerVarNames: string[];
+};
+
+const templateSchemaCache = new Map<string, { expires: number; schema: MetaTemplateSchema | null }>();
+const TEMPLATE_SCHEMA_CACHE_TTL_MS = 5 * 60 * 1000;
+
+export async function fetchMetaTemplateSchema(
+  accessToken: string,
+  wabaId: string,
+  templateName: string,
+  languageCode: string,
+): Promise<MetaTemplateSchema | null> {
+  const cacheKey = `${wabaId}::${templateName}::${languageCode}`;
+  const cached = templateSchemaCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.schema;
+
+  const url = new URL(`https://graph.facebook.com/v21.0/${wabaId}/message_templates`);
+  url.searchParams.set("name", templateName);
+  url.searchParams.set("fields", "name,language,components");
+  url.searchParams.set("limit", "20");
+
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    console.warn("[metaTemplate] fetch schema failed:", (json as { error?: { message?: string } })?.error?.message);
+    templateSchemaCache.set(cacheKey, { expires: Date.now() + 60_000, schema: null });
+    return null;
+  }
+
+  const templates = ((json as { data?: unknown[] }).data || []) as Array<{
+    name?: string;
+    language?: string;
+    components?: Array<{ type?: string; format?: string; text?: string }>;
+  }>;
+  const lang = languageCode || "pt_BR";
+  const tpl = templates.find((t) => t.name === templateName && t.language === lang)
+    || templates.find((t) => t.name === templateName)
+    || null;
+  if (!tpl) {
+    templateSchemaCache.set(cacheKey, { expires: Date.now() + 60_000, schema: null });
+    return null;
+  }
+
+  let headerVarNames: string[] = [];
+  let bodyVarNames: string[] = [];
+  for (const comp of tpl.components || []) {
+    const type = String(comp.type || "").toUpperCase();
+    if (type === "HEADER" && String(comp.format || "TEXT").toUpperCase() === "TEXT" && comp.text) {
+      headerVarNames = parseMetaTemplateVariableNames(comp.text);
+    }
+    if (type === "BODY" && comp.text) {
+      bodyVarNames = parseMetaTemplateVariableNames(comp.text);
+    }
+  }
+
+  const schema: MetaTemplateSchema = { bodyVarNames, headerVarNames };
+  templateSchemaCache.set(cacheKey, { expires: Date.now() + TEMPLATE_SCHEMA_CACHE_TTL_MS, schema });
+  return schema;
+}
+
+export function buildMetaTemplateBodyParamsFromSchema(
+  metaVarNames: string[],
+  vars: Record<string, string>,
+  messageTemplate = "",
+): MetaTemplateBodyParam[] {
+  if (!metaVarNames.length) return [];
+  const fromMessage = messageTemplate.trim()
+    ? buildMetaTemplateBodyParams(messageTemplate, vars)
+    : [];
+  const allPositional = metaVarNames.every((n) => /^\d+$/.test(String(n)));
+
+  // Template Meta posicional ({{1}}, {{2}}): valores vêm da ordem das chaves no texto do CRM.
+  if (allPositional) {
+    return metaVarNames.map((name, index) => ({
+      name,
+      text: fromMessage[index]?.text ?? "-",
+    }));
+  }
+
+  const varsLower: Record<string, string> = {};
+  for (const [k, v] of Object.entries(vars)) {
+    varsLower[k.toLowerCase()] = v ?? "";
+  }
+  return metaVarNames.map((name) => ({
+    name,
+    text: sanitizeMetaTemplateParam(resolveVarForMetaParam(name, varsLower)),
+  }));
+}
+
+/**
+ * Alinha parâmetros com o template aprovado na Meta (por WABA).
+ * Se a consulta falhar, usa a mensagem do CRM como fallback.
+ */
+export async function resolveMetaTemplateParams(
+  accessToken: string,
+  wabaId: string | null | undefined,
+  templateName: string,
+  languageCode: string,
+  messageTemplate: string,
+  vars: Record<string, string>,
+): Promise<{ bodyParams: MetaTemplateBodyParam[]; headerParams: MetaTemplateBodyParam[]; source: "meta" | "message" }> {
+  const fallback = buildMetaTemplateBodyParams(messageTemplate, vars);
+  if (!accessToken || !wabaId?.trim() || !templateName?.trim()) {
+    return { bodyParams: fallback, headerParams: [], source: "message" };
+  }
+  const schema = await fetchMetaTemplateSchema(accessToken, wabaId.trim(), templateName.trim(), languageCode || "pt_BR");
+  if (!schema) {
+    return { bodyParams: fallback, headerParams: [], source: "message" };
+  }
+  return {
+    bodyParams: buildMetaTemplateBodyParamsFromSchema(schema.bodyVarNames, vars, messageTemplate),
+    headerParams: buildMetaTemplateBodyParamsFromSchema(schema.headerVarNames, vars, messageTemplate),
+    source: "meta",
+  };
+}
+
 /**
  * Parâmetros nomeados do corpo do template Meta, na ordem em que as variáveis
  * aparecem na mensagem do CRM ({nome}, {valor_a_vencer}, etc.).
@@ -185,16 +349,24 @@ export function buildMetaTemplateBodyParams(
   for (const [k, v] of Object.entries(vars)) {
     varsLower[k.toLowerCase()] = v ?? "";
   }
-  const seen = new Set<string>();
+  const seenKeys = new Set<string>();
+  const seenMetaNames = new Set<string>();
   const params: MetaTemplateBodyParam[] = [];
   const re = /\{\s*([a-z0-9_]+)\s*\}/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(messageTemplate)) !== null) {
     const key = m[1].toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (seenKeys.has(key)) continue;
+    const metaName = CRM_KEY_TO_META_PARAM[key] || key;
+    // Aliases ({valor_parcela_vencida} + {valor_vencido}) viram o mesmo param na Meta — duplicar causa #132018.
+    if (seenMetaNames.has(metaName)) {
+      seenKeys.add(key);
+      continue;
+    }
+    seenKeys.add(key);
+    seenMetaNames.add(metaName);
     params.push({
-      name: CRM_KEY_TO_META_PARAM[key] || key,
+      name: metaName,
       text: sanitizeMetaTemplateParam(resolveVarValue(key, varsLower)),
     });
   }

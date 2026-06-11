@@ -157,6 +157,8 @@ async function dispatchSend(
     metaTemplateName?: string | null;
     metaTemplateLanguage?: string | null;
     metaTemplateBodyParams?: import("../_shared/whatsappSend.ts").MetaTemplateBodyParam[];
+    metaTemplateMessageSource?: string | null;
+    metaTemplateVars?: Record<string, string>;
   },
 ) {
   const target = await resolveSendTargetBySession(supabase, session);
@@ -174,6 +176,8 @@ async function dispatchSend(
     metaTemplateName: metaOpts?.metaTemplateName,
     metaTemplateLanguage: metaOpts?.metaTemplateLanguage,
     metaTemplateBodyParams: metaOpts?.metaTemplateBodyParams,
+    metaTemplateMessageSource: metaOpts?.metaTemplateMessageSource,
+    metaTemplateVars: metaOpts?.metaTemplateVars,
     supabase,
   });
   return {
@@ -667,6 +671,8 @@ serve(async (req) => {
                 metaTemplateName: campaign.meta_template_name,
                 metaTemplateLanguage: campaign.meta_template_language,
                 metaTemplateBodyParams: buildMetaTemplateBodyParams(campaign.message, vars),
+                metaTemplateMessageSource: campaign.message,
+                metaTemplateVars: vars,
               },
             );
             if (result.ok) {
@@ -985,6 +991,8 @@ serve(async (req) => {
                   metaTemplateName: step.meta_template_name,
                   metaTemplateLanguage: step.meta_template_language,
                   metaTemplateBodyParams: templateParams,
+                  metaTemplateMessageSource: step.message,
+                  metaTemplateVars: vars,
                 },
               );
               const instanceName = sessionToInstanceName.get(session!) || session!;

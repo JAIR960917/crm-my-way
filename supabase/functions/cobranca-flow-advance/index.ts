@@ -85,6 +85,8 @@ async function sendMessage(
   metaTemplateName?: string | null,
   metaTemplateLanguage?: string | null,
   metaTemplateBodyParams?: import("../_shared/whatsappSend.ts").MetaTemplateBodyParam[],
+  metaTemplateMessageSource?: string | null,
+  metaTemplateVars?: Record<string, string>,
 ) {
   const target = await resolveSendTargetBySession(supabase, session);
   if (!target) return { ok: false, error: "Instância não encontrada", raw: null };
@@ -99,6 +101,8 @@ async function sendMessage(
     metaTemplateName: metaTemplateName || target.metaDefaultTemplate,
     metaTemplateLanguage: metaTemplateLanguage || target.metaTemplateLanguage,
     metaTemplateBodyParams,
+    metaTemplateMessageSource,
+    metaTemplateVars,
     supabase,
   });
   const errMsg = result.errorMessage ? translateWhatsAppError(result.errorMessage) : null;
@@ -253,7 +257,9 @@ serve(async (req) => {
                 step.image_url || null,
                 step.meta_template_name,
                 step.meta_template_language,
-                buildMetaTemplateBodyParams(step.message || "", vars),
+                templateParams,
+                step.message || "",
+                vars,
               );
               if (result.ok) {
                 const sentAt = new Date().toISOString();

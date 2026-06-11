@@ -1,6 +1,7 @@
 /**
  * Envio WhatsApp unificado: API Full (legado) ou Cloud API (Meta).
  */
+import { resolveMetaTemplateParams } from "./metaTemplateVars.ts";
 export type WhatsAppProvider = "apifull" | "meta";
 
 export type InstanceRow = {
@@ -19,6 +20,7 @@ export type SendTarget = {
   session: string | null;
   phoneNumberId: string | null;
   instanceId: string | null;
+  wabaId: string | null;
   metaDefaultTemplate: string | null;
   metaTemplateLanguage: string;
 };
@@ -103,6 +105,7 @@ export function instanceRowToTarget(row: InstanceRow | null): SendTarget | null 
       session: row.session || phoneNumberId,
       phoneNumberId,
       instanceId: row.id || null,
+      wabaId: row.waba_id || null,
       metaDefaultTemplate: row.meta_default_template || null,
       metaTemplateLanguage: row.meta_template_language || "pt_BR",
     };
@@ -113,6 +116,7 @@ export function instanceRowToTarget(row: InstanceRow | null): SendTarget | null 
     session: row.session,
     phoneNumberId: null,
     instanceId: row.id || null,
+    wabaId: null,
     metaDefaultTemplate: null,
     metaTemplateLanguage: "pt_BR",
   };
@@ -376,9 +380,25 @@ async function sendMetaTemplate(
   templateName: string,
   languageCode: string,
   bodyParams: MetaTemplateBodyParam[],
+  headerParams: MetaTemplateBodyParam[] = [],
 ): Promise<SendResult> {
   const postTemplate = async (useNamedParams: boolean): Promise<SendResult> => {
     const components: { type: string; parameters: Record<string, string>[] }[] = [];
+    if (headerParams.length > 0) {
+      components.push({
+        type: "header",
+        parameters: headerParams.map((param) => {
+          const item: Record<string, string> = {
+            type: "text",
+            text: (param.text ?? "").trim() || "-",
+          };
+          if (useNamedParams && param.name?.trim() && !/^\d+$/.test(param.name.trim())) {
+            item.parameter_name = param.name.trim();
+          }
+          return item;
+        }),
+      });
+    }
     if (bodyParams.length > 0) {
       components.push({
         type: "body",
@@ -387,7 +407,7 @@ async function sendMetaTemplate(
             type: "text",
             text: (param.text ?? "").trim() || "-",
           };
-          if (useNamedParams && param.name?.trim()) {
+          if (useNamedParams && param.name?.trim() && !/^\d+$/.test(param.name.trim())) {
             item.parameter_name = param.name.trim();
           }
           return item;
@@ -426,15 +446,19 @@ async function sendMetaTemplate(
     return { ok: true, errorMessage: null, raw: json, metaMessageId: messageId, usedTemplate: true };
   };
 
-  let result = await postTemplate(true);
+  const allParams = [...headerParams, ...bodyParams];
+  const preferPositional = allParams.length > 0 && allParams.every((p) => /^\d+$/.test(String(p.name || "")));
+
+  let result = await postTemplate(preferPositional ? false : true);
   if (
     !result.ok
-    && bodyParams.length > 0
+    && allParams.length > 0
     && isMetaTemplateParamError(result.errorMessage || "")
   ) {
-    // Algumas contas Meta usam {{1}}, {{2}} (posicional) em vez de {{nome}}, {{valor}}.
     const positionalRetry = await postTemplate(false);
     if (positionalRetry.ok) return positionalRetry;
+    const namedRetry = await postTemplate(true);
+    if (namedRetry.ok) return namedRetry;
   }
   return result;
 }
@@ -450,6 +474,10 @@ export type SendWhatsAppParams = {
   metaTemplateLanguage?: string | null;
   /** Parâmetros nomeados do corpo do template Meta. Se vazio, envia só o nome do template. */
   metaTemplateBodyParams?: MetaTemplateBodyParam[];
+  /** Texto do gatilho/campanha no CRM — usado para alinhar params com o template Meta. */
+  metaTemplateMessageSource?: string | null;
+  /** Variáveis resolvidas ({nome}, {valor_vencido}, etc.). */
+  metaTemplateVars?: Record<string, string>;
   supabase?: ReturnType<typeof import("https://esm.sh/@supabase/supabase-js@2").createClient>;
   skipWindowCheck?: boolean;
   conversationId?: string | null;
@@ -466,6 +494,8 @@ export async function sendWhatsAppMessage(params: SendWhatsAppParams): Promise<S
     metaTemplateName,
     metaTemplateLanguage,
     metaTemplateBodyParams = [],
+    metaTemplateMessageSource = null,
+    metaTemplateVars = {},
     supabase,
     skipWindowCheck = false,
     conversationId = null,
@@ -510,10 +540,22 @@ export async function sendWhatsAppMessage(params: SendWhatsAppParams): Promise<S
     };
   }
 
-  const bodyParams =
-    metaTemplateBodyParams.length > 0
-      ? metaTemplateBodyParams
-      : [];
+  let bodyParams = metaTemplateBodyParams.length > 0 ? metaTemplateBodyParams : [];
+  let headerParams: MetaTemplateBodyParam[] = [];
+
+  if (metaTemplateMessageSource || Object.keys(metaTemplateVars).length > 0) {
+    const wabaId = target.wabaId || Deno.env.get("WHATSAPP_WABA_ID") || null;
+    const resolved = await resolveMetaTemplateParams(
+      metaAccessToken,
+      wabaId,
+      templateName,
+      lang,
+      metaTemplateMessageSource || "",
+      metaTemplateVars,
+    );
+    bodyParams = resolved.bodyParams;
+    headerParams = resolved.headerParams;
+  }
 
   const tplResult = await sendMetaTemplate(
     metaAccessToken,
@@ -522,6 +564,7 @@ export async function sendWhatsAppMessage(params: SendWhatsAppParams): Promise<S
     templateName,
     lang,
     bodyParams,
+    headerParams,
   );
 
   if (!tplResult.ok && imageUrl) {
@@ -579,6 +622,7 @@ export async function resolveSendTargetBySession(
     session: session.trim(),
     phoneNumberId: null,
     instanceId: null,
+    wabaId: null,
     metaDefaultTemplate: null,
     metaTemplateLanguage: "pt_BR",
   };

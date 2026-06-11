@@ -649,11 +649,15 @@ export default function TransitionLogsPage() {
                         ) : (
                           <Badge variant="outline">{e.event_type}</Badge>
                         );
+                      const paramHint =
+                        e.event_type === "gatilho_falhou" && Array.isArray(e.details?.template_params)
+                          ? ` (${e.details.template_params.length} parâm.)`
+                          : "";
                       const detalhe =
                         e.event_type === "avancou_coluna" && e.next_status_label
                           ? `${e.status_label ?? "—"} → ${e.next_status_label}`
                           : e.event_type === "gatilho_falhou"
-                            ? (e.details?.error || e.details?.reason || e.whatsapp_trigger_campaign_name || "—")
+                            ? `${e.details?.error || e.details?.reason || e.whatsapp_trigger_campaign_name || "—"}${paramHint}`
                             : e.event_type === "gatilho_enviado"
                               ? (e.whatsapp_trigger_campaign_name ?? "—")
                               : e.details?.tratativa ?? e.details?.note ?? "—";
@@ -674,7 +678,14 @@ export default function TransitionLogsPage() {
                             className="text-sm text-muted-foreground max-w-[280px] truncate"
                             title={
                               e.event_type === "gatilho_falhou"
-                                ? [e.details?.error, e.details?.api_response].filter(Boolean).join(" | ")
+                                ? [
+                                    e.details?.error,
+                                    e.details?.template ? `template: ${e.details.template}` : null,
+                                    Array.isArray(e.details?.template_params)
+                                      ? `params: ${JSON.stringify(e.details.template_params)}`
+                                      : null,
+                                    e.details?.api_response,
+                                  ].filter(Boolean).join(" | ")
                                 : String(detalhe)
                             }
                           >
