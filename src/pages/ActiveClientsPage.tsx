@@ -18,6 +18,7 @@ import RenovacaoEditSheet from "@/components/renovacoes/RenovacaoEditSheet";
 import ScheduleLeadDialog from "@/components/leads/ScheduleLeadDialog";
 import { usePaginatedColumns } from "@/hooks/use-paginated-columns";
 import { useVisibleStatusKeys } from "@/hooks/use-visible-status-keys";
+import { formatVisualAcuityDisplay } from "@/lib/visualAcuity";
 import { logTransition } from "@/lib/transitionLogs";
 import { sortKanbanByExamAndTratativa } from "@/lib/kanbanCardSort";
 import { resolveCanalFromLeadData } from "@/lib/appointmentUtils";
@@ -840,7 +841,13 @@ export default function ActiveClientsPage() {
         {cardFields.map(f => {
           const v = d[`field_${f.id}`];
           if (v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0)) return null;
-          const display = Array.isArray(v) ? v.join(", ") : (f.field_type === "date" ? (parseStoredDate(v) ? format(parseStoredDate(v)!, "dd/MM/yyyy", { locale: ptBR }) : String(v)) : String(v));
+          const display = f.field_type === "visual_acuity"
+            ? formatVisualAcuityDisplay(v)
+            : Array.isArray(v)
+              ? v.join(", ")
+              : f.field_type === "date"
+                ? (parseStoredDate(v) ? format(parseStoredDate(v)!, "dd/MM/yyyy", { locale: ptBR }) : String(v))
+                : String(v);
           return (
             <div key={f.id} className="text-xs">
               <span className="text-muted-foreground">{f.label}: </span>

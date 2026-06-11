@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { buildVisibleFormFieldOrder } from "@/lib/formFieldOrder";
+import { formatVisualAcuityDisplay, parseVisualAcuity } from "@/lib/visualAcuity";
+import VisualAcuityInput from "@/components/forms/VisualAcuityInput";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -188,6 +190,10 @@ const normalizeFieldValue = (field: FormField, value: unknown) => {
     const parsed = parseStoredDate(value);
     if (!parsed) return typeof value === "string" ? value : "";
     return format(parsed, "yyyy-MM-dd");
+  }
+
+  if (field.field_type === "visual_acuity") {
+    return parseVisualAcuity(value);
   }
 
   return typeof value === "string" ? value : String(value);
@@ -519,6 +525,14 @@ export default function LeadFormDialog({
           />
         )}
 
+        {field.field_type === "visual_acuity" && (
+          <VisualAcuityInput
+            compact
+            value={formData[fieldKey]}
+            onChange={(v) => set(fieldKey, v)}
+          />
+        )}
+
         {field.field_type === "date" && (
           <Popover>
             <PopoverTrigger asChild>
@@ -549,7 +563,7 @@ export default function LeadFormDialog({
           />
         )}
 
-        {!['select', 'checkbox_group', 'textarea', 'phone', 'text', 'number', 'date', 'email'].includes(field.field_type) && !field.is_phone_field && (
+        {!['select', 'checkbox_group', 'textarea', 'phone', 'text', 'number', 'date', 'email', 'visual_acuity'].includes(field.field_type) && !field.is_phone_field && (
           <Input
             type="text"
             value={value}
@@ -583,7 +597,9 @@ export default function LeadFormDialog({
       const fieldKey = `field_${field.id}`;
       const raw = formData[fieldKey];
       let display = "";
-      if (Array.isArray(raw)) {
+      if (field.field_type === "visual_acuity") {
+        display = formatVisualAcuityDisplay(raw);
+      } else if (Array.isArray(raw)) {
         display = raw.length > 0 ? raw.join(", ") : "—";
       } else {
         display = raw ? String(raw) : "—";

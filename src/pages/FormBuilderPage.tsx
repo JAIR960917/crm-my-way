@@ -47,6 +47,7 @@ const FIELD_TYPES = [
   { value: "select", label: "Seleção" },
   { value: "checkbox_group", label: "Múltipla escolha" },
   { value: "textarea", label: "Texto longo" },
+  { value: "visual_acuity", label: "Acuidade visual (4 medidas %)" },
 ];
 
 export default function FormBuilderPage() {
@@ -658,26 +659,38 @@ export default function FormBuilderPage() {
               </div>
             )}
 
+            {fieldType === "visual_acuity" && (
+              <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
+                <p className="font-medium text-foreground">Teste de acuidade visual</p>
+                <p>O vendedor preenche 4 medidas em %: OD Longe, OE Longe, OE Perto e OD Perto.</p>
+                <p>Use condicional (ex.: Forma de captação = Ação Adam) e &quot;Exibir após qual pergunta&quot; para definir quando aparece no fluxo.</p>
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <Switch checked={isRequired} onCheckedChange={setIsRequired} />
               <Label>Obrigatório</Label>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Switch checked={isNameField} onCheckedChange={(v) => { setIsNameField(v); if (v) setIsPhoneField(false); }} />
-              <Label>Este campo é o nome do cliente</Label>
-            </div>
+            {fieldType !== "visual_acuity" && (
+              <>
+                <div className="flex items-center gap-2">
+                  <Switch checked={isNameField} onCheckedChange={(v) => { setIsNameField(v); if (v) setIsPhoneField(false); }} />
+                  <Label>Este campo é o nome do cliente</Label>
+                </div>
 
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={isPhoneField}
-                onCheckedChange={(v) => {
-                  setIsPhoneField(v);
-                  if (v) setIsNameField(false);
-                }}
-              />
-              <Label>Este campo é o telefone</Label>
-            </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={isPhoneField}
+                    onCheckedChange={(v) => {
+                      setIsPhoneField(v);
+                      if (v) setIsNameField(false);
+                    }}
+                  />
+                  <Label>Este campo é o telefone</Label>
+                </div>
+              </>
+            )}
 
             <div className="flex items-center gap-2">
               <Switch checked={showOnCard} onCheckedChange={setShowOnCard} />

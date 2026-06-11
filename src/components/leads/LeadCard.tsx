@@ -5,12 +5,14 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { resolveLeadIdentity } from "@/lib/leadIdentity";
 import { formatPhoneBR } from "@/lib/phoneFormat";
+import { formatVisualAcuityDisplay } from "@/lib/visualAcuity";
 
 type Profile = { user_id: string; full_name: string; email?: string; avatar_url?: string | null };
 
 type FormFieldInfo = {
   id: string;
   label: string;
+  field_type?: string;
   is_name_field?: boolean;
   is_phone_field?: boolean;
   show_on_card?: boolean;
@@ -180,12 +182,16 @@ export default function LeadCard({
           if (nameFieldIds.has(f.id) || phoneFieldIds.has(f.id)) return false;
           if (f.show_on_card) return true;
           const label = (f.label || "").toLowerCase();
-          return /exame|dor|sintoma|doen|idade|cidade/.test(label);
+          return /exame|dor|sintoma|doen|idade|cidade|acuidade/.test(label);
         })
         .map((f) => {
           const value = data[`field_${f.id}`];
           if (value === undefined || value === null || value === "") return null;
-          const display = Array.isArray(value) ? value.join(", ") : String(value);
+          const display = f.field_type === "visual_acuity"
+            ? formatVisualAcuityDisplay(value)
+            : Array.isArray(value)
+              ? value.join(", ")
+              : String(value);
           if (!display.trim()) return null;
           return (
             <div key={f.id} className="mt-1.5">

@@ -41,6 +41,7 @@ const FIELD_TYPES = [
   { value: "select", label: "Seleção" },
   { value: "checkbox_group", label: "Múltipla escolha" },
   { value: "textarea", label: "Texto longo" },
+  { value: "visual_acuity", label: "Acuidade visual (4 medidas %)" },
 ];
 
 export default function RenovacaoFormBuilderPage() {
@@ -534,6 +535,12 @@ export default function RenovacaoFormBuilderPage() {
                 <Label>Opções (separadas por vírgula)</Label>
                 <Input value={options} onChange={(e) => setOptions(e.target.value)} placeholder="Sim, Não, Talvez" />
               </div>
+            )}
+
+            {fieldType === "visual_acuity" && (
+              <p className="text-xs text-muted-foreground rounded-md border bg-muted/40 px-3 py-2">
+                Quatro medidas em %: OD Longe, OE Longe, OE Perto e OD Perto. Use condicional para definir quando aparece.
+              </p>
             )}
 
             <div className="flex items-center gap-2"><Switch checked={isRequired} onCheckedChange={setIsRequired} /><Label>Obrigatório</Label></div>

@@ -27,6 +27,9 @@ import {
   resolveCanalFromForm,
 } from "@/lib/appointmentUtils";
 import { buildVisibleFormFieldOrder } from "@/lib/formFieldOrder";
+import { isFormFieldValueMissing } from "@/lib/formFieldValidation";
+import { formatVisualAcuityDisplay } from "@/lib/visualAcuity";
+import VisualAcuityInput from "@/components/forms/VisualAcuityInput";
 
 type DateStatusRange = { max_years: number; status_key: string };
 type DateStatusConfig = { ranges: DateStatusRange[]; above_all: string; no_answer: string };
@@ -225,7 +228,9 @@ export default function NewLeadPage() {
       const fieldKey = `field_${field.id}`;
       const raw = formData[fieldKey];
       let display = "";
-      if (Array.isArray(raw)) {
+      if (field.field_type === "visual_acuity") {
+        display = formatVisualAcuityDisplay(raw);
+      } else if (Array.isArray(raw)) {
         display = raw.length > 0 ? raw.join(", ") : "—";
       } else {
         display = raw ? String(raw) : "—";
@@ -313,13 +318,9 @@ export default function NewLeadPage() {
 
   const handleSubmit = async () => {
     // Validate all required visible fields
-    const missing = visibleFields.filter(f => {
-      if (!f.is_required) return false;
-      const val = formData[`field_${f.id}`];
-      if (val === undefined || val === null || val === "") return true;
-      if (Array.isArray(val) && val.length === 0) return true;
-      return false;
-    });
+    const missing = visibleFields.filter((f) =>
+      isFormFieldValueMissing(f, formData[`field_${f.id}`]),
+    );
     if (missing.length > 0) {
       toast.error(`Preencha o campo obrigatório: ${missing[0].label}`);
       return;
@@ -614,6 +615,13 @@ export default function NewLeadPage() {
           />
         )}
 
+        {field.field_type === "visual_acuity" && (
+          <VisualAcuityInput
+            value={formData[fieldKey]}
+            onChange={(v) => set(fieldKey, v)}
+          />
+        )}
+
         {field.field_type === "date" && (
           <Popover>
             <PopoverTrigger asChild>
@@ -644,7 +652,7 @@ export default function NewLeadPage() {
         )}
 
         {/* Fallback for unknown field types (e.g. cached PWA with old bundle) */}
-        {!["select", "checkbox_group", "textarea", "phone", "text", "number", "date", "email"].includes(field.field_type) && (
+        {!["select", "checkbox_group", "textarea", "phone", "text", "number", "date", "email", "visual_acuity"].includes(field.field_type) && (
           <Input
             type="text"
             value={value}
@@ -872,13 +880,9 @@ export default function NewLeadPage() {
             <Button className="flex-1" onClick={() => {
               // Validate required fields on current page
               if (step > 0) {
-                const missing = currentPageFields.filter(f => {
-                  if (!f.is_required) return false;
-                  const val = formData[`field_${f.id}`];
-                  if (val === undefined || val === null || val === "") return true;
-                  if (Array.isArray(val) && val.length === 0) return true;
-                  return false;
-                });
+                const missing = currentPageFields.filter((f) =>
+                  isFormFieldValueMissing(f, formData[`field_${f.id}`]),
+                );
                 if (missing.length > 0) {
                   toast.error(`Preencha o campo obrigatório: ${missing[0].label}`);
                   return;
