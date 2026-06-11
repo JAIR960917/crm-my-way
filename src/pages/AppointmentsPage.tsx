@@ -340,9 +340,9 @@ export default function AppointmentsPage() {
       .gte("scheduled_datetime", queryStart.toISOString())
       .lte("scheduled_datetime", queryEnd.toISOString())
       .order("scheduled_datetime", { ascending: true });
+    query = query.is("deleted_at", null).is("returned_at", null);
     if (!isAdmin) {
       query = query
-        .is("deleted_at", null)
         .eq("is_reschedule_snapshot", false)
         .neq("venda", "Gerou Orçamento")
         .neq("venda", "Não Gerou Orçamento");
@@ -859,8 +859,30 @@ export default function AppointmentsPage() {
     const appt = appointments.find(a => a.id === deleteId);
     if (!appt) return;
 
+    const actorName = getProfileName(user.id);
+    const leadName = appt?.nome?.trim() || "Lead";
+    const vendedorPart = appt && user.id !== appt.scheduled_by
+      ? ` (vendedor: ${getProfileName(appt.scheduled_by)})`
+      : "";
+
     let error: { message: string } | null = null;
-    if (usesTeamAppointmentRpc(appt)) {
+    if (isAdmin) {
+      await logAppointmentHistory(
+        deleteId,
+        user.id,
+        "deleted",
+        `${actorName} excluiu definitivamente o agendamento de ${leadName}${vendedorPart}`,
+        {
+          lead_nome: leadName,
+          scheduled_by: appt.scheduled_by ?? null,
+          permanent: true,
+        },
+      );
+      const res = await supabase.rpc("hard_delete_crm_appointment", {
+        p_appointment_id: deleteId,
+      });
+      error = res.error;
+    } else if (usesTeamAppointmentRpc(appt)) {
       const res = await supabase.rpc("soft_delete_crm_appointment", {
         p_appointment_id: deleteId,
       });
@@ -874,6 +896,13 @@ export default function AppointmentsPage() {
           updated_at: deletedAt,
         } as any).eq("id", appt.lead_id);
       }
+      if (appt.renovacao_id) {
+        await supabase.from("crm_renovacoes").update({
+          status: appt.previous_status || "novo",
+          scheduled_date: null,
+          updated_at: deletedAt,
+        } as any).eq("id", appt.renovacao_id);
+      }
       const res = await supabase.from("crm_appointments").update({
         deleted_at: deletedAt,
         deleted_by: user.id,
@@ -886,22 +915,19 @@ export default function AppointmentsPage() {
 
     if (error) toast.error(error.message || "Erro ao excluir");
     else {
-      const actorName = getProfileName(user.id);
-      const leadName = appt?.nome?.trim() || "Lead";
-      const vendedorPart = appt && user.id !== appt.scheduled_by
-        ? ` (vendedor: ${getProfileName(appt.scheduled_by)})`
-        : "";
-      await logAppointmentHistory(
-        deleteId,
-        user.id,
-        "deleted",
-        `${actorName} excluiu o agendamento de ${leadName}${vendedorPart}`,
-        {
-          lead_nome: leadName,
-          scheduled_by: appt?.scheduled_by ?? null,
-        },
-      );
-      toast.success(isAdmin ? "Agendamento marcado como excluído" : "Agendamento removido da sua lista");
+      if (!isAdmin) {
+        await logAppointmentHistory(
+          deleteId,
+          user.id,
+          "deleted",
+          `${actorName} excluiu o agendamento de ${leadName}${vendedorPart}`,
+          {
+            lead_nome: leadName,
+            scheduled_by: appt.scheduled_by ?? null,
+          },
+        );
+      }
+      toast.success(isAdmin ? "Agendamento excluído definitivamente" : "Agendamento removido da sua lista");
     }
     setDeleteId(null);
     fetchAll();
@@ -1417,7 +1443,11 @@ export default function AppointmentsPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir agendamento?</AlertDialogTitle>
-            <AlertDialogDescription>O lead será devolvido à coluna original.</AlertDialogDescription>
+            <AlertDialogDescription>
+              {isAdmin
+                ? "O agendamento será excluído permanentemente e o lead voltará à coluna original."
+                : "O lead será devolvido à coluna original."}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
