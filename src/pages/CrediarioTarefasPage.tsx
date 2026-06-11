@@ -85,6 +85,52 @@ function toDateString(d: Date): string {
   return format(d, "yyyy-MM-dd");
 }
 
+function isTaskConcluded(task: Pick<TaskRow, "completed_at" | "renegociacao_status" | "source">) {
+  if (task.completed_at) return true;
+  if (task.source === "crediario" && task.renegociacao_status) return true;
+  return false;
+}
+
+async function markLeadTratativaFromTask(
+  leadId: string,
+  userId: string,
+  agendou: RenegociacaoStatus,
+  comentario: string,
+) {
+  const { data: cur } = await supabase
+    .from("crm_leads")
+    .select("data, status")
+    .eq("id", leadId)
+    .maybeSingle();
+  const curData = ((cur?.data as Record<string, unknown>) || {});
+  const nowIso = new Date().toISOString();
+  await supabase
+    .from("crm_leads")
+    .update({
+      data: {
+        ...curData,
+        tratativa_em: nowIso,
+        tratativa_status_key: cur?.status ?? "",
+        tratativa_atendeu: "sim",
+        tratativa_agendou: agendou === "sim" ? "sim" : "nao",
+        tratativa_by: userId,
+      },
+      updated_at: nowIso,
+    } as any)
+    .eq("id", leadId);
+
+  const lines = [
+    "📞 Tentativa de contato — Tratativa da tarefa",
+    agendou === "sim" ? "Cliente ATENDEU — Agendei" : "Cliente ATENDEU — Não agendei",
+  ];
+  if (comentario.trim()) lines.push(`Tratativa: ${comentario.trim()}`);
+  await supabase.from("crm_lead_notes").insert({
+    lead_id: leadId,
+    user_id: userId,
+    content: lines.join("\n"),
+  });
+}
+
 export default function CrediarioTarefasPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -135,6 +181,7 @@ export default function CrediarioTarefasPage() {
         .from("cobranca_activities")
         .select("id, cobranca_id, title, description, scheduled_date, completed_at")
         .eq("created_by", user.id)
+        .is("completed_at", null)
         .gte("scheduled_date", startIso)
         .lte("scheduled_date", endIso)
         .order("scheduled_date", { ascending: true }),
@@ -142,6 +189,7 @@ export default function CrediarioTarefasPage() {
         .from("lead_activities")
         .select("id, lead_id, title, description, scheduled_date, completed_at, crm_leads(data)")
         .eq("created_by", user.id)
+        .is("completed_at", null)
         .gte("scheduled_date", startIso)
         .lte("scheduled_date", endIso)
         .order("scheduled_date", { ascending: true }),
@@ -153,9 +201,9 @@ export default function CrediarioTarefasPage() {
       return;
     }
 
-    const crediarioTasks: TaskRow[] = ((crediarioRes.data || []) as Omit<TaskRow, "source">[]).map(
-      (task) => ({ ...task, source: "crediario" as const }),
-    );
+    const crediarioTasks: TaskRow[] = ((crediarioRes.data || []) as Omit<TaskRow, "source">[])
+      .filter((task) => !task.completed_at && !task.renegociacao_status)
+      .map((task) => ({ ...task, source: "crediario" as const, is_pending: true }));
 
     const activities = (activitiesRes.data || []).filter((a) =>
       isManualCobrancaActivity(a.title),
@@ -183,9 +231,12 @@ export default function CrediarioTarefasPage() {
     const leadActivities = ((leadActivitiesRes.data || []) as LeadActivityWithLead[]).filter((a) =>
       isManualCobrancaActivity(a.title),
     );
-    const leadTasks: TaskRow[] = leadActivities.map((activity) =>
-      mapLeadActivityToCalendarTask(activity, activity.crm_leads?.data ?? null),
-    );
+    const leadTasks: TaskRow[] = leadActivities
+      .filter((activity) => !activity.completed_at)
+      .map((activity) => ({
+        ...mapLeadActivityToCalendarTask(activity, activity.crm_leads?.data ?? null),
+        is_pending: true,
+      }));
 
     const merged = [...crediarioTasks, ...cobrancaTasks, ...leadTasks].sort((a, b) => {
       const dateCmp = a.scheduled_date.localeCompare(b.scheduled_date);
@@ -267,6 +318,69 @@ export default function CrediarioTarefasPage() {
     }
 
     setSaving(true);
+
+    if (editing?.source === "lead" && editing.activityId && formRenegociou) {
+      if (formRenegociou === "sim" && !formRenegComentario.trim()) {
+        toast.error("Informe os comentários da tratativa");
+        setSaving(false);
+        return;
+      }
+      if (formRenegociou === "sim" && !formProximaData) {
+        toast.error("Informe a data da próxima tarefa");
+        setSaving(false);
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase
+        .from("lead_activities")
+        .update({
+          completed_at: nowIso,
+          description: formRenegComentario.trim() || formObservacao.trim() || null,
+        })
+        .eq("id", editing.activityId);
+
+      if (error) {
+        toast.error("Erro ao salvar tratativa");
+        setSaving(false);
+        return;
+      }
+
+      if (editing.leadId) {
+        await markLeadTratativaFromTask(
+          editing.leadId,
+          user.id,
+          formRenegociou,
+          formRenegComentario,
+        );
+      }
+
+      if (formRenegociou === "sim" && formProximaData) {
+        const [h, m] = formProximaTime.split(":").map(Number);
+        const dt = new Date(formProximaData);
+        dt.setHours(h || 9, m || 0, 0, 0);
+        const { error: followUpErr } = await supabase.from("lead_activities").insert({
+          lead_id: editing.leadId,
+          title: formTitulo.trim() || "Retorno",
+          description: formRenegComentario.trim() || null,
+          scheduled_date: dt.toISOString(),
+          created_by: user.id,
+        } as any);
+        if (followUpErr) {
+          toast.error("Tratativa salva, mas falhou ao agendar a próxima tarefa");
+        } else {
+          toast.success("Tratativa registrada e próxima tarefa agendada");
+        }
+      } else {
+        toast.success("Tratativa registrada");
+      }
+
+      setDialogOpen(false);
+      resetForm();
+      fetchTasks();
+      setSaving(false);
+      return;
+    }
 
     if (
       (editing?.source === "cobranca" || editing?.source === "lead") &&
@@ -561,26 +675,34 @@ export default function CrediarioTarefasPage() {
               {editing?.source === "cobranca" && editing.cobrancaId && (
                 <CobrancaTaskHistoryPanel cobrancaId={editing.cobrancaId} />
               )}
-
-              {editing && editing.source === "crediario" && !editing.renegociacao_status && (
-                <CrediarioRenegociacaoPanel
-                  status={formRenegociou}
-                  onStatusChange={setFormRenegociou}
-                  comentario={formRenegComentario}
-                  onComentarioChange={setFormRenegComentario}
-                  proximaData={formProximaData}
-                  onProximaDataChange={setFormProximaData}
-                  proximaTime={formProximaTime}
-                  onProximaTimeChange={setFormProximaTime}
-                />
-              )}
             </div>
 
-            {editing?.renegociacao_status && (
+            {editing &&
+              !isTaskConcluded(editing) &&
+              (editing.source === "crediario" || editing.source === "lead") && (
+              <CrediarioRenegociacaoPanel
+                status={formRenegociou}
+                onStatusChange={setFormRenegociou}
+                comentario={formRenegComentario}
+                onComentarioChange={setFormRenegComentario}
+                proximaData={formProximaData}
+                onProximaDataChange={setFormProximaData}
+                proximaTime={formProximaTime}
+                onProximaTimeChange={setFormProximaTime}
+              />
+            )}
+
+            {editing && isTaskConcluded(editing) && (
               <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
                 Tratativa registrada:{" "}
-                {editing.renegociacao_status === "sim" ? "Agendei" : "Não agendei"}
-                {editing.renegociacao_comentario ? ` — ${editing.renegociacao_comentario}` : ""}
+                {editing.renegociacao_status === "sim"
+                  ? "Agendei"
+                  : editing.renegociacao_status === "nao"
+                    ? "Não agendei"
+                    : "Concluída"}
+                {editing.renegociacao_comentario || editing.observacao
+                  ? ` — ${editing.renegociacao_comentario || editing.observacao}`
+                  : ""}
               </div>
             )}
 

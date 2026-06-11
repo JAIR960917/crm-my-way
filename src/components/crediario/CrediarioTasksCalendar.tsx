@@ -21,6 +21,8 @@ export type CrediarioTask = {
   lead_name: string;
   scheduled_date: string;
   scheduled_time: string;
+  /** Tarefa pendente (cinza); concluídas não aparecem no calendário */
+  is_pending?: boolean;
 };
 
 export type CrediarioTaskWithDatetime = CrediarioTask & {
@@ -29,11 +31,8 @@ export type CrediarioTaskWithDatetime = CrediarioTask & {
 
 const MONTH_MAX_VISIBLE = 5;
 
-const CHIP_COLORS = [
-  "bg-emerald-900 text-emerald-50 border-emerald-700 hover:bg-emerald-800",
-  "bg-violet-900 text-violet-50 border-violet-700 hover:bg-violet-800",
-  "bg-zinc-700 text-zinc-200 border-zinc-500 hover:bg-zinc-600",
-];
+const PENDING_CHIP = "bg-zinc-700 text-zinc-200 border-zinc-500 hover:bg-zinc-600";
+const TRATATIVA_CHIP = "bg-emerald-900 text-emerald-50 border-emerald-700 hover:bg-emerald-800";
 
 export function toScheduledDatetime(scheduled_date: string, scheduled_time: string): string {
   const d = scheduled_date.slice(0, 10);
@@ -48,10 +47,9 @@ export function withScheduledDatetime<T extends CrediarioTask>(task: T): T & { s
   };
 }
 
-function taskChipColor(id: string) {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash + id.charCodeAt(i)) % CHIP_COLORS.length;
-  return CHIP_COLORS[hash];
+function taskChipColor(task: CrediarioTask) {
+  if (task.is_pending === false) return TRATATIVA_CHIP;
+  return PENDING_CHIP;
 }
 
 function tasksByDay(tasks: CrediarioTaskWithDatetime[]) {
@@ -108,7 +106,7 @@ function TaskChip({
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       className={cn(
         "h-full w-full text-left rounded truncate border overflow-hidden box-border",
-        taskChipColor(task.id),
+        taskChipColor(task),
         compact ? "h-4 shrink-0 text-[9px] px-1 py-0 leading-4" : "h-full max-h-full px-1 py-0 text-[11px] leading-none",
       )}
       title={title}
