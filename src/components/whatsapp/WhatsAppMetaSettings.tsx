@@ -31,6 +31,7 @@ type MetaStatus = {
     id: string;
     name: string;
     phone_number_id: string | null;
+    waba_id?: string | null;
     display_phone: string | null;
     meta_default_template?: string | null;
     meta_template_language?: string | null;
@@ -44,9 +45,11 @@ type MetaStatus = {
 type TemplateRow = { name: string; status: string; category: string; language: string };
 
 type MetaInstanceEditState = {
+  waba_id: string;
   meta_default_template: string;
   meta_template_language: string;
   saving: boolean;
+  resolvingWaba: boolean;
 };
 
 /** Extrai mensagem legível quando a edge function responde 4xx/5xx. */
@@ -92,9 +95,11 @@ export default function WhatsAppMetaSettings() {
 
   const [instName, setInstName] = useState("");
   const [phoneNumberId, setPhoneNumberId] = useState("");
+  const [instWabaId, setInstWabaId] = useState("");
   const [displayPhone, setDisplayPhone] = useState("");
   const [defaultTemplate, setDefaultTemplate] = useState("");
   const [creatingInst, setCreatingInst] = useState(false);
+  const [resolvingCreateWaba, setResolvingCreateWaba] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [registeringId, setRegisteringId] = useState<string | null>(null);
 
@@ -118,9 +123,11 @@ export default function WhatsAppMetaSettings() {
       (nextStatus.meta_instances || []).forEach((i) => {
         if (!i?.id) return;
         edits[i.id] = {
+          waba_id: i.waba_id || "",
           meta_default_template: i.meta_default_template || "",
           meta_template_language: i.meta_template_language || "pt_BR",
           saving: false,
+          resolvingWaba: false,
         };
       });
       setInstanceEdits(edits);
@@ -204,6 +211,37 @@ export default function WhatsAppMetaSettings() {
     }
   };
 
+  const resolveWabaFromPhone = async (
+    pid: string,
+    onResolved: (wabaId: string, wabaName?: string | null) => void,
+  ) => {
+    if (!pid.trim()) {
+      toast.error("Informe o Phone Number ID primeiro");
+      return;
+    }
+    const data = await invokeMeta({
+      action: "resolve-waba-from-phone",
+      phone_number_id: pid.trim(),
+    });
+    const waba = (data as { waba_id?: string | null; waba_name?: string | null }).waba_id;
+    if (!waba) {
+      const fallback = (data as { fallback_env_waba_id?: string | null }).fallback_env_waba_id;
+      if (fallback) {
+        onResolved(fallback);
+        toast.success("WABA do .env aplicado (número sem WABA explícita na Meta)");
+        return;
+      }
+      toast.error("Meta não retornou WABA para este número");
+      return;
+    }
+    onResolved(waba, (data as { waba_name?: string }).waba_name);
+    toast.success(
+      (data as { waba_name?: string }).waba_name
+        ? `WABA detectado: ${(data as { waba_name?: string }).waba_name}`
+        : "WABA detectado pela Meta",
+    );
+  };
+
   const handleCreateInstance = async () => {
     if (!instName.trim() || !phoneNumberId.trim()) {
       toast.error("Preencha nome e Phone Number ID");
@@ -215,12 +253,14 @@ export default function WhatsAppMetaSettings() {
         action: "create-meta-instance",
         name: instName.trim(),
         phone_number_id: phoneNumberId.trim(),
+        waba_id: instWabaId.trim() || undefined,
         display_phone: displayPhone.trim() || undefined,
         meta_default_template: defaultTemplate.trim() || undefined,
       });
       toast.success("Número oficial cadastrado");
       setInstName("");
       setPhoneNumberId("");
+      setInstWabaId("");
       setDisplayPhone("");
       setDefaultTemplate("");
       await loadStatus();
@@ -305,6 +345,7 @@ export default function WhatsAppMetaSettings() {
       await invokeMeta({
         action: "update-meta-instance",
         id,
+        waba_id: current.waba_id.trim() || null,
         meta_default_template: current.meta_default_template.trim() || null,
         meta_template_language: current.meta_template_language.trim() || "pt_BR",
       });
@@ -522,6 +563,40 @@ export default function WhatsAppMetaSettings() {
             <Label className="text-xs">Phone Number ID *</Label>
             <Input value={phoneNumberId} onChange={(e) => setPhoneNumberId(e.target.value)} placeholder="Do painel Meta" />
           </div>
+          <div className="space-y-1 sm:col-span-2">
+            <Label className="text-xs">WABA ID (conta WhatsApp Business)</Label>
+            <div className="flex gap-2">
+              <Input
+                value={instWabaId}
+                onChange={(e) => setInstWabaId(e.target.value)}
+                placeholder="ID da conta WABA no Gestor WhatsApp"
+                className="font-mono text-xs"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                disabled={resolvingCreateWaba || !phoneNumberId.trim()}
+                onClick={async () => {
+                  setResolvingCreateWaba(true);
+                  try {
+                    await resolveWabaFromPhone(phoneNumberId, (waba) => setInstWabaId(waba));
+                  } catch (e: unknown) {
+                    toast.error(e instanceof Error ? e.message : "Erro ao detectar WABA");
+                  } finally {
+                    setResolvingCreateWaba(false);
+                  }
+                }}
+              >
+                {resolvingCreateWaba ? <Loader2 className="h-4 w-4 animate-spin" /> : "Detectar"}
+              </Button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Cada número oficial pertence a uma conta WABA. Obrigatório para gatilhos com template — use o mesmo ID do
+              Gestor WhatsApp ou clique em Detectar após preencher o Phone Number ID.
+            </p>
+          </div>
           <div className="space-y-1">
             <Label className="text-xs">Telefone exibido</Label>
             <Input value={displayPhone} onChange={(e) => setDisplayPhone(e.target.value)} placeholder="+55 11 …" />
@@ -547,6 +622,68 @@ export default function WhatsAppMetaSettings() {
                   {!i.is_active ? <Badge variant="secondary">Inativa</Badge> : null}
                 </div>
 
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">WABA ID (conta WhatsApp Business)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={instanceEdits[i.id]?.waba_id ?? ""}
+                      onChange={(e) =>
+                        setInstanceEdits((prev) => ({
+                          ...prev,
+                          [i.id]: {
+                            ...prev[i.id],
+                            waba_id: e.target.value,
+                            meta_default_template: prev[i.id]?.meta_default_template || "",
+                            meta_template_language: prev[i.id]?.meta_template_language || "pt_BR",
+                            saving: prev[i.id]?.saving || false,
+                            resolvingWaba: prev[i.id]?.resolvingWaba || false,
+                          },
+                        }))
+                      }
+                      placeholder="ID da conta WABA"
+                      className="font-mono text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={
+                        instanceEdits[i.id]?.resolvingWaba
+                        || instanceEdits[i.id]?.saving
+                        || !i.phone_number_id
+                      }
+                      onClick={async () => {
+                        setInstanceEdits((prev) => ({
+                          ...prev,
+                          [i.id]: { ...prev[i.id], resolvingWaba: true },
+                        }));
+                        try {
+                          await resolveWabaFromPhone(i.phone_number_id || "", (waba) => {
+                            setInstanceEdits((prev) => ({
+                              ...prev,
+                              [i.id]: { ...prev[i.id], waba_id: waba },
+                            }));
+                          });
+                        } catch (e: unknown) {
+                          toast.error(e instanceof Error ? e.message : "Erro ao detectar WABA");
+                        } finally {
+                          setInstanceEdits((prev) => ({
+                            ...prev,
+                            [i.id]: { ...prev[i.id], resolvingWaba: false },
+                          }));
+                        }
+                      }}
+                    >
+                      {instanceEdits[i.id]?.resolvingWaba ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Detectar"
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
                 <div className="grid sm:grid-cols-3 gap-2 items-end">
                   <div className="space-y-1 sm:col-span-2">
                     <Label className="text-[11px] text-muted-foreground">Template padrão (fora da janela 24h)</Label>
@@ -556,9 +693,12 @@ export default function WhatsAppMetaSettings() {
                         setInstanceEdits((prev) => ({
                           ...prev,
                           [i.id]: {
+                            ...prev[i.id],
+                            waba_id: prev[i.id]?.waba_id || "",
                             meta_default_template: e.target.value,
                             meta_template_language: prev[i.id]?.meta_template_language || "pt_BR",
                             saving: prev[i.id]?.saving || false,
+                            resolvingWaba: prev[i.id]?.resolvingWaba || false,
                           },
                         }))
                       }
@@ -574,9 +714,12 @@ export default function WhatsAppMetaSettings() {
                         setInstanceEdits((prev) => ({
                           ...prev,
                           [i.id]: {
+                            ...prev[i.id],
+                            waba_id: prev[i.id]?.waba_id || "",
                             meta_default_template: prev[i.id]?.meta_default_template || "",
                             meta_template_language: e.target.value,
                             saving: prev[i.id]?.saving || false,
+                            resolvingWaba: prev[i.id]?.resolvingWaba || false,
                           },
                         }))
                       }

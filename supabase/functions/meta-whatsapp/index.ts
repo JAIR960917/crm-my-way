@@ -76,7 +76,7 @@ serve(async (req) => {
         .maybeSingle();
       const { data: metaInstances } = await supabase
         .from("whatsapp_instances")
-        .select("id, name, phone_number_id, display_phone, meta_default_template, meta_template_language, is_active")
+        .select("id, name, phone_number_id, waba_id, display_phone, meta_default_template, meta_template_language, is_active")
         .eq("provider", "meta");
 
       return new Response(JSON.stringify({
@@ -97,10 +97,11 @@ serve(async (req) => {
     }
 
     if (action === "update-meta-instance") {
-      const { id, meta_default_template, meta_template_language } = body as {
+      const { id, meta_default_template, meta_template_language, waba_id } = body as {
         id?: string;
         meta_default_template?: string | null;
         meta_template_language?: string | null;
+        waba_id?: string | null;
       };
 
       if (!id?.trim()) {
@@ -116,6 +117,9 @@ serve(async (req) => {
       }
       if (meta_template_language === null || typeof meta_template_language === "string") {
         payload.meta_template_language = (meta_template_language?.trim() || "pt_BR");
+      }
+      if (waba_id === null || typeof waba_id === "string") {
+        payload.waba_id = waba_id?.trim() || null;
       }
 
       const { data: row, error: rowErr } = await supabase
@@ -165,6 +169,44 @@ serve(async (req) => {
       return new Response(JSON.stringify({ ok: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    /** Descobre o WABA ID vinculado a um Phone Number ID (útil ao cadastrar instâncias). */
+    if (action === "resolve-waba-from-phone") {
+      const { phone_number_id } = body as { phone_number_id?: string };
+      const pid = phone_number_id?.trim();
+      if (!pid) {
+        return new Response(JSON.stringify({ error: "Phone Number ID é obrigatório" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!accessToken) {
+        return new Response(JSON.stringify({ error: "WHATSAPP_ACCESS_TOKEN não configurado no servidor" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const res = await fetch(
+        `https://graph.facebook.com/${GRAPH_API_VERSION}/${pid}?fields=whatsapp_business_account`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      const json = await res.json();
+      if (!res.ok) {
+        return new Response(JSON.stringify({
+          error: (json as { error?: { message?: string } })?.error?.message || "Falha ao consultar número na Meta",
+          raw: json,
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const waba = (json as { whatsapp_business_account?: { id?: string; name?: string } })?.whatsapp_business_account;
+      return new Response(JSON.stringify({
+        waba_id: waba?.id || null,
+        waba_name: waba?.name || null,
+        fallback_env_waba_id: wabaId || null,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (action === "create-meta-instance") {
