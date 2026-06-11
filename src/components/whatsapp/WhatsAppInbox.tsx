@@ -923,7 +923,8 @@ export default function WhatsAppInbox() {
                   c.contact_name?.trim() && c.card_id
                     ? c.contact_name
                     : formatPhoneDisplay(c.phone_display || c.wa_id);
-                const lineLabel = formatInstanceShort(getInstance(c.instance_id));
+                const instanceName = inst?.name ?? "Número não identificado";
+                const customerPhone = formatPhoneDisplay(c.phone_display || c.wa_id);
                 const lastAt = c.last_message_at ? new Date(c.last_message_at) : null;
                 const windowIsOpen = c.window_expires_at ? new Date(c.window_expires_at).getTime() > Date.now() : false;
                 const unread = c.unread_count || 0;
@@ -939,18 +940,11 @@ export default function WhatsAppInbox() {
                         hasUnread && !active && "bg-muted/40",
                       )}
                     >
-                      <div className="relative shrink-0">
-                        <Avatar className="h-11 w-11">
-                          <AvatarFallback className="text-xs font-medium">
-                            {initials(contact)}
-                          </AvatarFallback>
-                        </Avatar>
-                        {hasUnread && !active ? (
-                          <span className="absolute -bottom-0.5 -right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-background">
-                            {formatUnreadCount(unread)}
-                          </span>
-                        ) : null}
-                      </div>
+                      <Avatar className="h-11 w-11 shrink-0">
+                        <AvatarFallback className="text-xs font-medium">
+                          {initials(contact)}
+                        </AvatarFallback>
+                      </Avatar>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
                           <span className={cn("truncate", hasUnread ? "font-semibold" : "font-medium")}>
@@ -973,9 +967,19 @@ export default function WhatsAppInbox() {
                         >
                           {c.last_preview || "—"}
                         </p>
-                        <p className="mt-0.5 truncate text-[10px] font-medium text-sky-800 dark:text-sky-300">
-                          <Smartphone className="mr-0.5 inline h-3 w-3 opacity-80" />
-                          {lineLabel}
+                        <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-sky-800 dark:text-sky-300">
+                          <Smartphone className="h-3 w-3 shrink-0 opacity-80" />
+                          <span className="min-w-0 truncate">
+                            {instanceName} · {customerPhone}
+                          </span>
+                          {hasUnread && !active ? (
+                            <span
+                              className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1 text-[9px] font-bold leading-none text-white"
+                              title={`${unread} mensagem(ns) não lida(s)`}
+                            >
+                              {formatUnreadCount(unread)}
+                            </span>
+                          ) : null}
                         </p>
                         <div className="mt-1 flex items-center gap-1.5">
                           <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", m.className)}>
