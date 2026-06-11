@@ -490,10 +490,11 @@ serve(async (req) => {
     const GLOBAL_LOCK_TTL_SECONDS = Math.max(180, Math.ceil((SEND_DELAY_MS * 3) / 1000));
 
     // GLOBAL RATE LIMIT: respeita o intervalo entre envios mesmo entre
-    // execuções diferentes do cron. Sem isto, cada invocação reseta
-    // isFirstSend=true e envia imediatamente, gerando rajadas.
+    // execuções diferentes do cron. Aguarda o tempo restante em vez de
+    // pular o ciclo (evita dobrar o intervalo quando cron=1min e delay=70s).
     if (SEND_DELAY_MS > 0) {
-      const sinceIso = new Date(Date.now() - SEND_DELAY_MS).toISOString();
+      const lookbackMs = Math.max(SEND_DELAY_MS * 2, 120_000);
+      const sinceIso = new Date(Date.now() - lookbackMs).toISOString();
       const [{ data: lastTrig }, { data: lastCamp }] = await Promise.all([
         supabase.from("whatsapp_trigger_sends")
           .select("sent_at").eq("status", "sent").gte("sent_at", sinceIso)
@@ -509,12 +510,13 @@ serve(async (req) => {
       if (lastTs > 0) {
         const elapsed = Date.now() - lastTs;
         if (elapsed < SEND_DELAY_MS) {
-          // Outro envio aconteceu recentemente — aborta esta execução para
-          // não furar o intervalo configurado (ex.: 60s/envio).
-          console.log(`[send-whatsapp] rate limit: último envio há ${Math.round(elapsed/1000)}s, intervalo ${Math.round(SEND_DELAY_MS/1000)}s. Pulando ciclo.`);
-          return new Response(JSON.stringify({ ok: true, skipped: "rate_limit", elapsed_ms: elapsed, delay_ms: SEND_DELAY_MS }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          const waitMs = SEND_DELAY_MS - elapsed;
+          console.log(
+            `[send-whatsapp] aguardando ${Math.round(waitMs / 1000)}s (intervalo ${Math.round(SEND_DELAY_MS / 1000)}s, último envio há ${Math.round(elapsed / 1000)}s)`,
+          );
+          await refreshGlobalSendLock(supabase, GLOBAL_LOCK_TTL_SECONDS);
+          await sleep(waitMs);
+          await refreshGlobalSendLock(supabase, GLOBAL_LOCK_TTL_SECONDS);
         }
       }
     }

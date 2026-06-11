@@ -359,7 +359,9 @@ export default function SettingsPage() {
             <span className="text-sm text-muted-foreground">minutos</span>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Define a cada quantos minutos o sistema envia mensagens das campanhas ativas automaticamente.
+            Com que frequência o cron verifica a fila e dispara envios (mínimo 1 minuto). O tempo real entre mensagens
+            é o <strong>intervalo entre envios</strong> em WhatsApp → Configurações de envio (segundos). Salve aqui e
+            aguarde a mensagem &quot;Cron reagendado&quot; após alterar.
           </p>
 
           <div className="pt-2">

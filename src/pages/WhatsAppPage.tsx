@@ -655,7 +655,9 @@ export default function WhatsAppPage() {
                       onChange={(e) => setSendDelaySeconds(e.target.value)}
                     />
                     <p className="text-[10px] text-muted-foreground">
-                      Tempo de espera entre cada mensagem enviada. Vale para todos os módulos (incluindo o round-robin de Cobranças).
+                      Pausa entre cada mensagem (gatilhos e campanhas). Em cada ciclo do cron o sistema pode enviar várias mensagens
+                      respeitando este intervalo. Para fila andar mais rápido: use 30–45s aqui e cron de 1 min em Configurações.
+                      Valores muito baixos (&lt;15s) aumentam risco de bloqueio na Meta.
                     </p>
                   </div>
                   <div>
