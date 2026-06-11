@@ -9,9 +9,19 @@ interface Props {
   value: string | null;
   onChange: (url: string | null) => void;
   label?: string;
+  /** Bucket do Supabase Storage (padrão: whatsapp-media) */
+  bucket?: "whatsapp-media" | "logos";
+  /** Subpasta fixa no bucket (ex.: campanha-copa no logos — leitura pública) */
+  folder?: string;
 }
 
-export default function ImageUploadField({ value, onChange, label = "Imagem (opcional)" }: Props) {
+export default function ImageUploadField({
+  value,
+  onChange,
+  label = "Imagem (opcional)",
+  bucket = "whatsapp-media",
+  folder,
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -36,14 +46,15 @@ export default function ImageUploadField({ value, onChange, label = "Imagem (opc
       }
 
       const ext = file.name.split(".").pop() || "jpg";
-      // RLS do bucket whatsapp-media exige pasta = auth.uid()
-      const path = `${user.id}/${crypto.randomUUID()}.${ext}`;
-      const { error } = await supabase.storage.from("whatsapp-media").upload(path, file, {
+      const fileId = `${crypto.randomUUID()}.${ext}`;
+      // whatsapp-media: RLS exige pasta = auth.uid(); logos: pasta pública da campanha
+      const path = folder ? `${folder}/${fileId}` : `${user.id}/${fileId}`;
+      const { error } = await supabase.storage.from(bucket).upload(path, file, {
         contentType: file.type,
         upsert: false,
       });
       if (error) throw error;
-      const { data } = supabase.storage.from("whatsapp-media").getPublicUrl(path);
+      const { data } = supabase.storage.from(bucket).getPublicUrl(path);
       onChange(data.publicUrl);
       toast.success("Imagem enviada");
     } catch (e: any) {

@@ -129,6 +129,8 @@ export default function CampanhaCopaFormularioConfigCard({
             value={bannerUrl || null}
             onChange={(url) => setBannerUrl(url || "")}
             label="Banner da campanha"
+            bucket="logos"
+            folder="campanha-copa"
           />
         </div>
 
