@@ -1,4 +1,4 @@
-import { CalendarIcon, ThumbsDown, ThumbsUp } from "lucide-react";
+import { CalendarCheck, CalendarIcon, CalendarX } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
@@ -35,14 +35,14 @@ export default function CrediarioRenegociacaoPanel({
   return (
     <div className="rounded-lg border bg-muted/30 p-4 space-y-4 h-full">
       <div>
-        <h3 className="text-sm font-semibold">Renegociação</h3>
+        <h3 className="text-sm font-semibold">Tratativa da tarefa</h3>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Informe se conseguiu realizar a renegociação com o lead.
+          Informe o resultado do contato com o lead nesta tarefa.
         </p>
       </div>
 
       <div className="space-y-2">
-        <Label className="text-xs text-muted-foreground">Conseguiu realizar a renegociação?</Label>
+        <Label className="text-xs text-muted-foreground">O que aconteceu?</Label>
         <div className="flex flex-col sm:flex-row gap-2">
           <Button
             type="button"
@@ -51,7 +51,7 @@ export default function CrediarioRenegociacaoPanel({
             className={cn("flex-1", status === "sim" && "bg-emerald-600 hover:bg-emerald-700")}
             onClick={() => onStatusChange("sim")}
           >
-            <ThumbsUp className="h-3.5 w-3.5 mr-1" /> Sim, renegociei
+            <CalendarCheck className="h-3.5 w-3.5 mr-1" /> Agendei
           </Button>
           <Button
             type="button"
@@ -60,7 +60,7 @@ export default function CrediarioRenegociacaoPanel({
             className="flex-1"
             onClick={() => onStatusChange("nao")}
           >
-            <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Não renegociei
+            <CalendarX className="h-3.5 w-3.5 mr-1" /> Não agendei
           </Button>
         </div>
       </div>
@@ -69,7 +69,7 @@ export default function CrediarioRenegociacaoPanel({
         <>
           <div className="space-y-2">
             <Label className="text-xs">
-              Comentários da renegociação <span className="text-destructive">*</span>
+              Comentários da tratativa <span className="text-destructive">*</span>
             </Label>
             <Textarea
               value={comentario}
@@ -82,7 +82,7 @@ export default function CrediarioRenegociacaoPanel({
 
           <div className="space-y-2">
             <Label className="text-xs">
-              Próxima renegociação <span className="text-destructive">*</span>
+              Próxima tarefa <span className="text-destructive">*</span>
             </Label>
             <p className="text-[11px] text-muted-foreground">
               Será criada uma nova tarefa no calendário para este lead.

@@ -257,11 +257,11 @@ export default function CrediarioTarefasPage() {
 
     if (editing && formRenegociou === "sim") {
       if (!formRenegComentario.trim()) {
-        toast.error("Informe os comentários da renegociação");
+        toast.error("Informe os comentários da tratativa");
         return;
       }
       if (!formProximaData) {
-        toast.error("Informe a data da próxima renegociação");
+        toast.error("Informe a data da próxima tarefa");
         return;
       }
     }
@@ -342,12 +342,12 @@ export default function CrediarioTarefasPage() {
           parent_task_id: editing.id,
         });
         if (followUpErr) {
-          toast.error("Tarefa salva, mas falhou ao agendar a próxima renegociação");
+          toast.error("Tarefa salva, mas falhou ao agendar a próxima tarefa");
         } else {
-          toast.success("Renegociação registrada e próxima tarefa agendada");
+          toast.success("Tratativa registrada e próxima tarefa agendada");
         }
       } else if (formRenegociou) {
-        toast.success("Renegociação registrada");
+        toast.success("Tratativa registrada");
       } else {
         toast.success("Tarefa atualizada");
       }
@@ -578,8 +578,8 @@ export default function CrediarioTarefasPage() {
 
             {editing?.renegociacao_status && (
               <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-                Renegociação registrada:{" "}
-                {editing.renegociacao_status === "sim" ? "Sim, renegociou" : "Não renegociou"}
+                Tratativa registrada:{" "}
+                {editing.renegociacao_status === "sim" ? "Agendei" : "Não agendei"}
                 {editing.renegociacao_comentario ? ` — ${editing.renegociacao_comentario}` : ""}
               </div>
             )}
