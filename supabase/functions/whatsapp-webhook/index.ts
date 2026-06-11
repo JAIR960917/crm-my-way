@@ -243,25 +243,20 @@ async function upsertConversationMessage(
     return false;
   }
 
-  const patch: Record<string, unknown> = {
-    last_message_at: now.toISOString(),
-    last_preview: previewText,
-    phone_display: canonicalWaId,
-    wa_id: canonicalWaId,
-    updated_at: now.toISOString(),
-  };
-  if (direction === "in") patch.window_expires_at = windowExpires.toISOString();
-  if (contactName) patch.contact_name = contactName;
-  if (instanceId) patch.instance_id = instanceId;
-
-  const { error: updErr } = await supabase.from("whatsapp_conversations").update(patch).eq("id", conversationId);
-  if (updErr) {
-    console.error("[whatsapp-webhook] erro ao atualizar conversa:", updErr.message);
+  const { error: metaErr } = await supabase.rpc("apply_whatsapp_conversation_message_meta", {
+    p_conversation_id: conversationId,
+    p_preview: previewText,
+    p_last_message_at: now.toISOString(),
+    p_phone_display: canonicalWaId,
+    p_wa_id: canonicalWaId,
+    p_window_expires_at: direction === "in" ? windowExpires.toISOString() : null,
+    p_contact_name: contactName,
+    p_instance_id: instanceId,
+    p_increment_unread: incrementUnread,
+  });
+  if (metaErr) {
+    console.error("[whatsapp-webhook] erro ao atualizar conversa:", metaErr.message);
     return false;
-  }
-  if (incrementUnread) {
-    const { error: rpcErr } = await supabase.rpc("increment_whatsapp_unread", { p_conversation_id: conversationId });
-    if (rpcErr) console.warn("[whatsapp-webhook] increment_whatsapp_unread:", rpcErr.message);
   }
 
   console.log(`[whatsapp-webhook] gravado conv=${conversationId} wa_id=${canonicalWaId} dir=${direction}`);

@@ -175,6 +175,20 @@ function formatUnreadCount(count: number): string {
   return String(count);
 }
 
+function inboundMessagePreview(row: MessageRow): string {
+  return (
+    row.body?.trim() ||
+    row.caption?.trim() ||
+    (row.media_type === "audio"
+      ? "🎤 Áudio"
+      : row.media_type === "image"
+        ? "📷 Imagem"
+        : row.media_type
+          ? "📎 Anexo"
+          : "Nova mensagem")
+  );
+}
+
 export default function WhatsAppInbox() {
   const { user, isAdmin, isGerente, isFinanceiro, canAccessPath } = useAuth();
   const [searchParams] = useSearchParams();
@@ -434,9 +448,21 @@ export default function WhatsAppInbox() {
   const applyConversationPatch = useCallback((row: ConversationRow) => {
     setConversations((prev) => {
       const idx = prev.findIndex((c) => c.id === row.id);
+      const prevRow = idx >= 0 ? prev[idx] : null;
+      const merged: ConversationRow = prevRow ? { ...prevRow, ...row } : row;
+
+      // Mantém contador local se o payload realtime vier sem unread_count (replica parcial).
+      if (
+        (row.unread_count === undefined || row.unread_count === null) &&
+        prevRow &&
+        prevRow.unread_count > 0
+      ) {
+        merged.unread_count = prevRow.unread_count;
+      }
+
       const next = idx >= 0
-        ? prev.map((c, i) => (i === idx ? { ...c, ...row } : c))
-        : [row, ...prev];
+        ? prev.map((c, i) => (i === idx ? merged : c))
+        : [merged, ...prev];
       return sortConversations(next);
     });
   }, []);
@@ -596,6 +622,29 @@ export default function WhatsAppInbox() {
             // Se o usuário estiver no fim, acompanha a mensagem nova.
             // Se ele tiver subido para ler histórico, não puxa.
             if (pinnedToBottom) queueMicrotask(() => scrollToBottom("smooth"));
+            return;
+          }
+
+          if (row.direction === "in") {
+            const preview = inboundMessagePreview(row);
+            setConversations((prev) => {
+              const idx = prev.findIndex((c) => c.id === row.conversation_id);
+              if (idx < 0) {
+                void loadConversations();
+                return prev;
+              }
+              const next = prev.map((c, i) =>
+                i === idx
+                  ? {
+                      ...c,
+                      unread_count: (c.unread_count || 0) + 1,
+                      last_preview: preview,
+                      last_message_at: row.created_at || c.last_message_at,
+                    }
+                  : c,
+              );
+              return sortConversations(next);
+            });
           }
         },
       )
@@ -890,31 +939,31 @@ export default function WhatsAppInbox() {
                         hasUnread && !active && "bg-muted/40",
                       )}
                     >
-                      <Avatar className="h-11 w-11 shrink-0">
-                        <AvatarFallback className="text-xs font-medium">
-                          {initials(contact)}
-                        </AvatarFallback>
-                      </Avatar>
+                      <div className="relative shrink-0">
+                        <Avatar className="h-11 w-11">
+                          <AvatarFallback className="text-xs font-medium">
+                            {initials(contact)}
+                          </AvatarFallback>
+                        </Avatar>
+                        {hasUnread && !active ? (
+                          <span className="absolute -bottom-0.5 -right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-background">
+                            {formatUnreadCount(unread)}
+                          </span>
+                        ) : null}
+                      </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
                           <span className={cn("truncate", hasUnread ? "font-semibold" : "font-medium")}>
                             {contact}
                           </span>
-                          <div className="flex shrink-0 flex-col items-end gap-1">
-                            <span
-                              className={cn(
-                                "text-[10px] leading-none",
-                                hasUnread ? "font-medium text-emerald-600 dark:text-emerald-400" : "text-muted-foreground",
-                              )}
-                            >
-                              {lastAt ? formatDistanceToNow(lastAt, { addSuffix: true, locale: ptBR }) : "—"}
-                            </span>
-                            {hasUnread ? (
-                              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-bold leading-none text-white">
-                                {formatUnreadCount(unread)}
-                              </span>
-                            ) : null}
-                          </div>
+                          <span
+                            className={cn(
+                              "shrink-0 text-[10px] leading-none",
+                              hasUnread ? "font-medium text-emerald-600 dark:text-emerald-400" : "text-muted-foreground",
+                            )}
+                          >
+                            {lastAt ? formatDistanceToNow(lastAt, { addSuffix: true, locale: ptBR }) : "—"}
+                          </span>
                         </div>
                         <p
                           className={cn(
