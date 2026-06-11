@@ -65,7 +65,12 @@ export function formatDateBR(s: unknown): string {
 
 /** Meta rejeita parâmetros vazios no corpo do template (erro #100). */
 export function sanitizeMetaTemplateParam(value: string): string {
-  const v = (value ?? "").trim();
+  let v = String(value ?? "").trim();
+  if (!v) return "-";
+  v = v.replace(/\0/g, "").replace(/\t/g, " ");
+  v = v.replace(/\n{3,}/g, "\n\n");
+  // Limite da Meta por parâmetro de corpo
+  if (v.length > 1024) v = `${v.slice(0, 1021)}...`;
   return v || "-";
 }
 
@@ -120,7 +125,7 @@ export function buildCobrancaVars(
     .join("\n");
   const maisAntigo = vencidasParaLista[0];
 
-  const companyId = (card?.company_id || card?.ssotica_company_id || null) as string | null;
+  const companyId = (card?.ssotica_company_id || card?.company_id || null) as string | null;
   const company = companyId ? companies.get(companyId) : null;
 
   let valorParcelaAVencer = pAVencer ? formatBRL(pAVencer.valor) : "";
@@ -142,8 +147,8 @@ export function buildCobrancaVars(
     valor_a_vencer: valorParcelaAVencer,
     data_vencida: dataParcelaVencida,
     data_a_vencer: dataParcelaAVencer,
-    cnpj_empresa: company?.cnpj || "",
-    nome_empresa: company?.name || "",
+    cnpj_empresa: company?.cnpj?.replace(/\D/g, "") || "-",
+    nome_empresa: company?.name || "-",
     valor_total: valorTotalFmt,
     parcelas_vencidas: listaParcelasVencidas,
     data_boleto_ant: dataBoletoAnt,

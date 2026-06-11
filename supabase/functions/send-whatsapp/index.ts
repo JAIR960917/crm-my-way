@@ -926,6 +926,7 @@ serve(async (req) => {
 
             const vars = buildCobrancaVars(card, name, companiesMap);
             const messageBody = applyTemplateVars(step.message, vars);
+            const templateParams = buildMetaTemplateBodyParams(step.message, vars);
             const cp = cleanPhone(phone);
 
             await refreshGlobalSendLock(supabase, GLOBAL_LOCK_TTL_SECONDS);
@@ -983,7 +984,7 @@ serve(async (req) => {
                 {
                   metaTemplateName: step.meta_template_name,
                   metaTemplateLanguage: step.meta_template_language,
-                  metaTemplateBodyParams: buildMetaTemplateBodyParams(step.message, vars),
+                  metaTemplateBodyParams: templateParams,
                 },
               );
               const instanceName = sessionToInstanceName.get(session!) || session!;
@@ -1097,6 +1098,8 @@ serve(async (req) => {
                       error: errMsg,
                       error_code: is463 ? 463 : undefined,
                       api_response: summarizeApiPayload(result.raw),
+                      template: step.meta_template_name || null,
+                      template_params: templateParams.map((p) => ({ name: p.name, text: p.text?.slice(0, 80) })),
                     },
                   });
                 }

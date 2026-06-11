@@ -215,6 +215,11 @@ export function translateWhatsAppError(message: string): string {
   return raw;
 }
 
+export function isMetaTemplateParamError(message: string): boolean {
+  const raw = (message || "").trim();
+  return /\b132018\b/.test(raw) || /issue with the parameters/i.test(raw);
+}
+
 async function sendApifull(
   apiKey: string,
   session: string,
@@ -372,52 +377,66 @@ async function sendMetaTemplate(
   languageCode: string,
   bodyParams: MetaTemplateBodyParam[],
 ): Promise<SendResult> {
-  const components: { type: string; parameters: Record<string, string>[] }[] = [];
-  if (bodyParams.length > 0) {
-    components.push({
-      type: "body",
-      parameters: bodyParams.map((param) => {
-        const item: Record<string, string> = {
-          type: "text",
-          text: (param.text ?? "").trim() || "-",
-        };
-        if (param.name?.trim()) {
-          item.parameter_name = param.name.trim();
-        }
-        return item;
+  const postTemplate = async (useNamedParams: boolean): Promise<SendResult> => {
+    const components: { type: string; parameters: Record<string, string>[] }[] = [];
+    if (bodyParams.length > 0) {
+      components.push({
+        type: "body",
+        parameters: bodyParams.map((param) => {
+          const item: Record<string, string> = {
+            type: "text",
+            text: (param.text ?? "").trim() || "-",
+          };
+          if (useNamedParams && param.name?.trim()) {
+            item.parameter_name = param.name.trim();
+          }
+          return item;
+        }),
+      });
+    }
+    const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to,
+        type: "template",
+        template: {
+          name: templateName,
+          language: { code: languageCode },
+          ...(components.length > 0 ? { components } : {}),
+        },
       }),
     });
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const err = (json as { error?: { message?: string } })?.error;
+      return {
+        ok: false,
+        errorMessage: translateWhatsAppError(err?.message || `Meta template HTTP ${response.status}`),
+        raw: json,
+        httpStatus: response.status,
+      };
+    }
+    const messageId = (json as { messages?: { id?: string }[] })?.messages?.[0]?.id;
+    return { ok: true, errorMessage: null, raw: json, metaMessageId: messageId, usedTemplate: true };
+  };
+
+  let result = await postTemplate(true);
+  if (
+    !result.ok
+    && bodyParams.length > 0
+    && isMetaTemplateParamError(result.errorMessage || "")
+  ) {
+    // Algumas contas Meta usam {{1}}, {{2}} (posicional) em vez de {{nome}}, {{valor}}.
+    const positionalRetry = await postTemplate(false);
+    if (positionalRetry.ok) return positionalRetry;
   }
-  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      type: "template",
-      template: {
-        name: templateName,
-        language: { code: languageCode },
-        ...(components.length > 0 ? { components } : {}),
-      },
-    }),
-  });
-  const json = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const err = (json as { error?: { message?: string } })?.error;
-    return {
-      ok: false,
-      errorMessage: translateWhatsAppError(err?.message || `Meta template HTTP ${response.status}`),
-      raw: json,
-      httpStatus: response.status,
-    };
-  }
-  const messageId = (json as { messages?: { id?: string }[] })?.messages?.[0]?.id;
-  return { ok: true, errorMessage: null, raw: json, metaMessageId: messageId, usedTemplate: true };
+  return result;
 }
 
 export type SendWhatsAppParams = {

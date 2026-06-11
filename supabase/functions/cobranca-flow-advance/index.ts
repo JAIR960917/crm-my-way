@@ -243,6 +243,7 @@ serve(async (req) => {
             } else {
               const vars = buildCobrancaVars(cob, clientName, companiesMap);
               const text = applyTemplateVars(step.message || "", vars);
+              const templateParams = buildMetaTemplateBodyParams(step.message || "", vars);
               const result = await sendMessage(
                 supabase,
                 APIFULL_API_KEY,
@@ -296,6 +297,11 @@ serve(async (req) => {
                 stats.gatilhos_enviados++;
               } else {
                 const errMsg = (result as any).error || "envio_falhou";
+                const { data: instRow } = await supabase
+                  .from("whatsapp_instances")
+                  .select("name")
+                  .eq("session", session)
+                  .maybeSingle();
                 await supabase.from("crm_cobrancas").update({
                   data: {
                     ...data,
@@ -313,7 +319,14 @@ serve(async (req) => {
                   event_type: "gatilho_falhou",
                   whatsapp_trigger_campaign_id: campaign.id,
                   whatsapp_trigger_campaign_name: campaign.name,
-                  details: { error: errMsg, session, phone },
+                  details: {
+                    error: errMsg,
+                    session,
+                    phone,
+                    instance_name: instRow?.name || session,
+                    template: step.meta_template_name || null,
+                    template_params: templateParams.map((p) => ({ name: p.name, text: p.text?.slice(0, 80) })),
+                  },
                 });
                 stats.gatilhos_falhos++;
               }
