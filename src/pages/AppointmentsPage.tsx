@@ -38,6 +38,7 @@ import { isRealtimeEnabled } from "@/lib/runtime-config";
 import {
   FORMAS_PAGAMENTO_CONSULTA,
   FORMAS_PAGAMENTO_OCULOS,
+  formaConsultaSemValor,
   formatRescheduleNote,
   isAppointmentInactive,
   isMovedToOrcamentos,
@@ -833,6 +834,10 @@ export default function AppointmentsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formDate || !formPagamentoOculos || !formPagamentoConsulta || !user) return;
+    if (!formaConsultaSemValor(formPagamentoConsulta) && !formValor.trim()) {
+      toast.error("Informe o valor da consulta.");
+      return;
+    }
     if (editingAppt?.is_reschedule_snapshot) return;
     if (editingAppt && isAppointmentInactive(editingAppt)) return;
     setSaving(true);
@@ -841,13 +846,16 @@ export default function AppointmentsPage() {
     dt.setHours(h, m, 0, 0);
 
     const pagaConsulta = consultaPagaFromForma(formPagamentoConsulta);
+    const valorConsulta = formaConsultaSemValor(formPagamentoConsulta)
+      ? 0
+      : (parseFloat(formValor) || 0);
     const nowIso = new Date().toISOString();
 
     if (editingAppt) {
       const payload: Record<string, unknown> = {
         nome: formNome, telefone: formTelefone, idade: formIdade,
         scheduled_datetime: dt.toISOString(),
-        valor: parseFloat(formValor) || 0,
+        valor: valorConsulta,
         forma_pagamento: formPagamentoOculos,
         forma_pagamento_oculos: formPagamentoOculos,
         forma_pagamento_consulta: formPagamentoConsulta,
@@ -877,7 +885,7 @@ export default function AppointmentsPage() {
         lead_id: null,
         scheduled_by: user.id,
         scheduled_datetime: dt.toISOString(),
-        valor: parseFloat(formValor) || 0,
+        valor: valorConsulta,
         forma_pagamento: formPagamentoOculos,
         forma_pagamento_oculos: formPagamentoOculos,
         forma_pagamento_consulta: formPagamentoConsulta,
@@ -1339,10 +1347,6 @@ export default function AppointmentsPage() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Valor (R$) <span className="text-destructive">*</span></Label>
-              <Input type="number" step="0.01" min="0" value={formValor} onChange={e => setFormValor(e.target.value)} required />
-            </div>
-            <div className="space-y-1.5">
               <Label>Forma de pagamento do Óculos <span className="text-destructive">*</span></Label>
               <Select value={formPagamentoOculos} onValueChange={setFormPagamentoOculos}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
@@ -1351,11 +1355,23 @@ export default function AppointmentsPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Pagamento da consulta <span className="text-destructive">*</span></Label>
-              <Select value={formPagamentoConsulta} onValueChange={setFormPagamentoConsulta}>
+              <Select
+                value={formPagamentoConsulta}
+                onValueChange={(v) => {
+                  setFormPagamentoConsulta(v);
+                  if (formaConsultaSemValor(v)) setFormValor("0");
+                }}
+              >
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>{FORMAS_PAGAMENTO_CONSULTA.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
               </Select>
             </div>
+            {formPagamentoConsulta && !formaConsultaSemValor(formPagamentoConsulta) && (
+              <div className="space-y-1.5">
+                <Label>Valor (R$) <span className="text-destructive">*</span></Label>
+                <Input type="number" step="0.01" min="0" value={formValor} onChange={e => setFormValor(e.target.value)} required />
+              </div>
+            )}
 
             {editingAppt && (
               <>
