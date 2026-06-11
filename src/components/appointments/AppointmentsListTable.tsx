@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
+  consultaPaymentLabel,
   formatRescheduleNote,
   getAppointmentRowColor,
   glassesPaymentLabel,
@@ -18,6 +19,7 @@ export type AppointmentListRow = {
   scheduled_datetime: string;
   valor: number;
   consulta_paga: boolean | null;
+  forma_pagamento_consulta?: string | null;
   forma_pagamento_oculos?: string | null;
   forma_pagamento?: string | null;
   canal_agendamento: string;
@@ -119,6 +121,7 @@ export default function AppointmentsListTable({
               <th className={cn(TH, "min-w-[128px]")}>Horário</th>
               <th className={cn(TH, "min-w-[130px]")}>Agendado por</th>
               <th className={cn(TH, "min-w-[72px]")}>Valor</th>
+              <th className={cn(TH, "min-w-[96px]")}>Pag. Consulta</th>
               <th className={cn(TH, "min-w-[108px]")}>Consulta paga</th>
               <th className={cn(TH, "min-w-[96px]")}>Pag. Óculos</th>
               <th className={cn(TH, "min-w-[88px]")}>Canal</th>
@@ -174,6 +177,9 @@ export default function AppointmentsListTable({
                     {scheduledByName}
                   </td>
                   <td className="px-2 py-1.5 align-middle whitespace-nowrap">R$ {Number(appt.valor).toFixed(2)}</td>
+                  <td className="px-2 py-1.5 align-middle whitespace-nowrap" title={consultaPaymentLabel(appt)}>
+                    {consultaPaymentLabel(appt)}
+                  </td>
                   <td className="px-2 py-1.5 align-middle whitespace-nowrap">
                     {isSnapshot ? (
                       <span>{cpaga === true ? "Sim" : cpaga === false ? "Não" : "—"}</span>

@@ -36,6 +36,7 @@ import {
 import { cn } from "@/lib/utils";
 import { isRealtimeEnabled } from "@/lib/runtime-config";
 import {
+  FORMAS_PAGAMENTO_CONSULTA,
   FORMAS_PAGAMENTO_OCULOS,
   formatRescheduleNote,
   isAppointmentInactive,
@@ -44,6 +45,7 @@ import {
   closeAppointmentRescheduleSnapshots,
   logAppointmentHistory,
 } from "@/lib/appointmentUtils";
+import { consultaPagaFromForma } from "@/components/shared/TratativaContatoForm";
 import AppointmentHistoryPanel from "@/components/appointments/AppointmentHistoryPanel";
 
 type ProdutoItem = { nome: string; valor: string };
@@ -140,6 +142,7 @@ export default function AppointmentsPage() {
   const [formTime, setFormTime] = useState("09:00");
   const [formValor, setFormValor] = useState("");
   const [formPagamentoOculos, setFormPagamentoOculos] = useState("");
+  const [formPagamentoConsulta, setFormPagamentoConsulta] = useState("");
   const [formConsultaPaga, setFormConsultaPaga] = useState("");
   const [formConfirmacao, setFormConfirmacao] = useState("Pendente");
   const [formComparecimento, setFormComparecimento] = useState("Pendente");
@@ -766,7 +769,7 @@ export default function AppointmentsPage() {
     setEditingAppt(null);
     setFormNome(""); setFormTelefone(""); setFormIdade("");
     setFormDate(undefined); setFormTime("09:00");
-    setFormValor(""); setFormPagamentoOculos("");
+    setFormValor(""); setFormPagamentoOculos(""); setFormPagamentoConsulta("");
     setFormConsultaPaga(""); setFormConfirmacao("Pendente");
     setFormComparecimento("Pendente"); setFormVenda("Pendente"); setFormResumo("");
     setFormRescheduleDate(undefined); setFormRescheduleTime("09:00");
@@ -785,6 +788,7 @@ export default function AppointmentsPage() {
     } catch { setFormDate(undefined); setFormTime("09:00"); }
     setFormValor(String(appt.valor));
     setFormPagamentoOculos(appt.forma_pagamento_oculos || appt.forma_pagamento || "");
+    setFormPagamentoConsulta(appt.forma_pagamento_consulta || "");
     setFormConsultaPaga(appt.consulta_paga === true ? "sim" : appt.consulta_paga === false ? "nao" : "");
     setFormConfirmacao(appt.confirmacao || "Pendente");
     setFormComparecimento(appt.comparecimento || "Pendente");
@@ -797,13 +801,16 @@ export default function AppointmentsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formDate || !formPagamentoOculos || !user) return;
+    if (!formDate || !formPagamentoOculos || !formPagamentoConsulta || !user) return;
     if (editingAppt?.is_reschedule_snapshot) return;
     if (editingAppt && isAppointmentInactive(editingAppt)) return;
     setSaving(true);
     const [h, m] = formTime.split(":").map(Number);
     const dt = new Date(formDate);
     dt.setHours(h, m, 0, 0);
+
+    const pagaConsulta = consultaPagaFromForma(formPagamentoConsulta);
+    const nowIso = new Date().toISOString();
 
     if (editingAppt) {
       const payload: Record<string, unknown> = {
@@ -812,6 +819,7 @@ export default function AppointmentsPage() {
         valor: parseFloat(formValor) || 0,
         forma_pagamento: formPagamentoOculos,
         forma_pagamento_oculos: formPagamentoOculos,
+        forma_pagamento_consulta: formPagamentoConsulta,
         confirmacao: formConfirmacao,
         comparecimento: formComparecimento,
         resumo: formResumo,
@@ -841,6 +849,11 @@ export default function AppointmentsPage() {
         valor: parseFloat(formValor) || 0,
         forma_pagamento: formPagamentoOculos,
         forma_pagamento_oculos: formPagamentoOculos,
+        forma_pagamento_consulta: formPagamentoConsulta,
+        consulta_paga: pagaConsulta,
+        consulta_paga_no_agendamento: pagaConsulta,
+        consulta_paga_em: pagaConsulta ? nowIso : null,
+        consulta_paga_por: pagaConsulta ? user.id : null,
         canal_agendamento: "Loja",
         nome: formNome, telefone: formTelefone, idade: formIdade,
         previous_status: "manual",
@@ -1304,6 +1317,13 @@ export default function AppointmentsPage() {
                 <SelectContent>{FORMAS_PAGAMENTO_OCULOS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label>Pagamento da consulta <span className="text-destructive">*</span></Label>
+              <Select value={formPagamentoConsulta} onValueChange={setFormPagamentoConsulta}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{FORMAS_PAGAMENTO_CONSULTA.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
 
             {editingAppt && (
               <>
@@ -1422,7 +1442,7 @@ export default function AppointmentsPage() {
               </div>
             )}
 
-            <Button type="submit" className="w-full" disabled={saving || !formDate || !formPagamentoOculos || !formNome || !!editingAppt?.is_reschedule_snapshot || !!(editingAppt && isAppointmentInactive(editingAppt))}>
+            <Button type="submit" className="w-full" disabled={saving || !formDate || !formPagamentoOculos || !formPagamentoConsulta || !formNome || !!editingAppt?.is_reschedule_snapshot || !!(editingAppt && isAppointmentInactive(editingAppt))}>
               {saving ? "Salvando..." : editingAppt ? (isAppointmentInactive(editingAppt) ? "Somente leitura" : "Atualizar") : "Criar Agendamento"}
             </Button>
             </>

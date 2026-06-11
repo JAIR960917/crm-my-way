@@ -9,6 +9,8 @@ export const CANAIS_AGENDAMENTO = [
 
 export const FORMAS_PAGAMENTO_OCULOS = ["Cartão", "Pix/Dinheiro", "Boleto"];
 
+export const FORMAS_PAGAMENTO_CONSULTA = ["Cartão", "Pix/Dinheiro", "Boleto", "Cortesia", "Convênio"];
+
 type FormFieldLike = {
   id: string;
   label: string;
@@ -196,6 +198,12 @@ export function glassesPaymentLabel(appt: {
   forma_pagamento?: string | null;
 }): string {
   return appt.forma_pagamento_oculos || appt.forma_pagamento || "—";
+}
+
+export function consultaPaymentLabel(appt: {
+  forma_pagamento_consulta?: string | null;
+}): string {
+  return appt.forma_pagamento_consulta?.trim() || "—";
 }
 
 export function formatRescheduleNote(appt: {
