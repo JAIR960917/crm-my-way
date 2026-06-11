@@ -14,6 +14,10 @@ import {
 } from "@/lib/pwaBootstrap";
 import "./index.css";
 
+document.documentElement.lang = "pt-BR";
+document.documentElement.setAttribute("translate", "no");
+document.documentElement.classList.add("notranslate");
+
 const isInIframe = (() => {
   try {
     return window.self !== window.top;

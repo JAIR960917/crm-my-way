@@ -79,6 +79,12 @@
   * {
     @apply border-border;
   }
+  html,
+  body,
+  #root {
+    translate: no;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'DM Sans', sans-serif;
