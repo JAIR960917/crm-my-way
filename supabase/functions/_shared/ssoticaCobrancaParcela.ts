@@ -9,6 +9,37 @@ export function normalizeSituacaoLabel(value: unknown): string {
     .trim();
 }
 
+export function normalizeDigits(s: string | null | undefined): string {
+  return String(s ?? "").replace(/\D/g, "");
+}
+
+export function getClienteCpfDigits(cliente: any): string {
+  return normalizeDigits(
+    cliente?.documento ?? cliente?.cpf_cnpj ?? cliente?.cpf ?? cliente?.cpfCnpj ?? "",
+  );
+}
+
+/** Agrupa parcelas do mesmo CPF mesmo quando a SSótica usa IDs de cliente diferentes. */
+export function getClienteBucketKey(cliente: any): string {
+  const cpf = getClienteCpfDigits(cliente);
+  if (cpf.length >= 11) return `cpf:${cpf}`;
+  const id = Number(cliente?.id);
+  return Number.isFinite(id) && id > 0 ? `id:${id}` : "id:0";
+}
+
+export type ParcelaClienteMatch = { clienteId?: number; cpfDigits?: string };
+
+export function parcelaMatchesCliente(parcela: any, match: ParcelaClienteMatch): boolean {
+  const cliRef = parcela.titulo?.cliente ?? parcela.cliente ?? {};
+  if (!cliRef?.id && !getClienteCpfDigits(cliRef)) return false;
+  if (match.clienteId != null && Number(cliRef.id) === match.clienteId) return true;
+  if (match.cpfDigits && match.cpfDigits.length >= 11) {
+    const cpfCli = getClienteCpfDigits(cliRef);
+    return cpfCli.length >= 11 && cpfCli === match.cpfDigits;
+  }
+  return false;
+}
+
 export function daysBetween(a: Date, b: Date): number {
   return Math.floor((b.getTime() - a.getTime()) / 86400000);
 }
@@ -24,6 +55,33 @@ function getAjuizadoVariantFromSituacao(situacao: string): "ajuizado_saniely" | 
   if (situacao.includes("saniely")) return "ajuizado_saniely";
   if (situacao.includes("navde")) return "ajuizado_navde";
   return "ajuizado_navde";
+}
+
+/** Indica quitação com evidência forte — não confundir recebimento parcial com parcela paga. */
+export function isParcelaQuitada(
+  parcela: any,
+  situacaoNorm: string,
+  isNegativada: boolean,
+  isAtiva: boolean,
+): boolean {
+  if (isNegativada) return false;
+  if (parcela.data_pagamento ?? parcela.dataPagamento) return true;
+  if (["pago", "paga", "quitado", "quitada", "liquidado", "liquidada"].includes(situacaoNorm)) {
+    return true;
+  }
+
+  const isEmAberto =
+    situacaoNorm === "em aberto" || situacaoNorm === "aberto" || situacaoNorm === "aberta";
+  const isEmAtraso =
+    situacaoNorm === "em atraso" || situacaoNorm === "atrasado" || situacaoNorm === "atrasada";
+  const isVencido = situacaoNorm === "vencido" || situacaoNorm === "vencida";
+  const isAVencer =
+    situacaoNorm === "a vencer" || situacaoNorm === "avencer" || situacaoNorm === "pendente";
+  if (isAtiva && (isEmAberto || isEmAtraso || isVencido || isAVencer)) return false;
+
+  const valorDevido = Number(parcela.valor_reajustado ?? parcela.valor_original ?? parcela.valor ?? 0);
+  const valorRecebido = Number(parcela.valor_recebido ?? parcela.valorRecebido ?? 0);
+  return valorDevido > 0 && valorRecebido >= valorDevido;
 }
 
 export type ParsedParcelaCobranca = {
@@ -45,12 +103,14 @@ export type ParsedParcelaCobranca = {
 export function parseParcelaCobrancaAtiva(
   parcela: any,
   today: Date,
-  clienteId: number,
+  match: number | ParcelaClienteMatch,
 ): ParsedParcelaCobranca | null {
+  const clienteMatch: ParcelaClienteMatch =
+    typeof match === "number" ? { clienteId: match } : match;
+
   const situacaoRaw = String(parcela.situacao ?? parcela["situação"] ?? "");
   const situacao = normalizeSituacaoLabel(situacaoRaw);
-  const cliRef = parcela.titulo?.cliente ?? parcela.cliente ?? {};
-  if (!cliRef?.id || Number(cliRef.id) !== clienteId) return null;
+  if (!parcelaMatchesCliente(parcela, clienteMatch)) return null;
 
   const ajuizadoVariant = getAjuizadoVariantFromSituacao(situacao);
   const isAjuizado = !!ajuizadoVariant;
@@ -61,27 +121,12 @@ export function parseParcelaCobrancaAtiva(
   const isAVencer = situacao === "a vencer" || situacao === "avencer" || situacao === "pendente";
   const isAtiva = isEmAberto || isEmAtraso || isVencido || isAVencer || isNegativadoSerasa || isAjuizado;
 
-  // Só ignora quando a situação explícita é de renegociação — o objeto
-  // `renegociacao` no JSON costuma existir em crediários ainda em aberto.
   const foiRenegociada = situacao.startsWith("renegoc");
   const isNegativada = isNegativadoSerasa || isAjuizado;
   const foiBaixada = !isNegativada && !!parcela.baixado_em;
   const foiCancelada = !isNegativada && !!parcela.cancelado_em;
   const foiEstornada = !isNegativada && !!parcela.estornado_em;
-  const dataPagamento = parcela.data_pagamento ?? parcela.dataPagamento ?? null;
-  const valorRecebido = Number(parcela.valor_recebido ?? parcela.valorRecebido ?? 0);
-  const valorParcela = Number(parcela.valor ?? 0);
-  const foiPaga =
-    !isNegativada && (
-      !!dataPagamento ||
-      situacao === "pago" ||
-      situacao === "paga" ||
-      situacao === "quitado" ||
-      situacao === "quitada" ||
-      situacao === "liquidado" ||
-      situacao === "liquidada" ||
-      (valorParcela > 0 && valorRecebido >= valorParcela)
-    );
+  const foiPaga = isParcelaQuitada(parcela, situacao, isNegativada, isAtiva);
 
   if (!isAtiva || foiRenegociada || foiBaixada || foiCancelada || foiEstornada || foiPaga) {
     return null;
@@ -99,7 +144,7 @@ export function parseParcelaCobrancaAtiva(
     numero_parcela: parcela.numero_parcela ?? null,
     vencimento,
     dias_atraso: diasAtraso,
-    valor: Number(parcela.valor_reajustado ?? parcela.valor_original ?? 0),
+    valor: Number(parcela.valor_reajustado ?? parcela.valor_original ?? parcela.valor ?? 0),
     situacao: situacaoRaw,
     forma_pagamento: parcela.forma_pagamento ?? "",
     numero_documento: parcela.titulo?.numero_documento ?? "",

@@ -203,10 +203,10 @@ export default function CobrancaEditSheet(props: Props) {
         }
         if (token) {
           const { data: live, error: liveErr } = await supabase.functions.invoke("ssotica-cliente-debitos", {
-            body: { ssoticaClienteId, ssoticaCompanyId },
+            body: { ssoticaClienteId, ssoticaCompanyId, cpf: cpfDigits },
             headers: { Authorization: `Bearer ${token}` },
           });
-          if (!liveErr && Array.isArray(live?.parcelas) && live.parcelas.length > 0) {
+          if (!liveErr && Array.isArray(live?.parcelas)) {
             const { data: cur } = await supabase
               .from("crm_cobrancas")
               .select("data, ssotica_parcela_id")
@@ -228,6 +228,7 @@ export default function CobrancaEditSheet(props: Props) {
               })
               .eq("id", cobrancaId);
             onCardUpdated?.();
+            if (totalAtraso > 0) setFormValor(String(totalAtraso.toFixed(2)));
             for (const p of mapRawParcelasToInfo(live.parcelas, {
               cobrancaId,
               currentParcelaId: (cur as any)?.ssotica_parcela_id,
@@ -236,6 +237,9 @@ export default function CobrancaEditSheet(props: Props) {
             })) {
               dedup.set(p.id, p);
             }
+            setParcelas(Array.from(dedup.values()));
+            setLoadingParcelas(false);
+            return;
           }
         }
       } catch {

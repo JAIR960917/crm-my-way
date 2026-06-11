@@ -2,6 +2,7 @@
 // Sincroniza Vendas (→ Renovações) e Contas a Receber (→ Cobranças) das lojas SSótica
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { assertCronServiceRoleOrStaff, internalCorsHeaders } from "../_shared/internalAuth.ts";
+import { getClienteBucketKey, isParcelaQuitada } from "../_shared/ssoticaCobrancaParcela.ts";
 
 const corsHeaders = internalCorsHeaders;
 
@@ -757,8 +758,8 @@ async function syncContasReceber(
   const parcelasInativasIds = new Set<number>(); // parcelas vistas pagas/canceladas/renegociadas/baixadas
   const clientesAfetados = new Set<number>();
   // Agrupa todas as parcelas em atraso por cliente para upsert único depois
-  const parcelasPorCliente = new Map<number, { cliente: any; parcelas: any[]; hasNegativadoSerasa: boolean; hasAjuizado: boolean; ajuizadoVariant: string | null; hasEmAtraso: boolean }>();
-  const clientesComSituacaoExcluida = new Set<number>();
+  const parcelasPorCliente = new Map<string, { cliente: any; parcelas: any[]; hasNegativadoSerasa: boolean; hasAjuizado: boolean; ajuizadoVariant: string | null; hasEmAtraso: boolean }>();
+  const clientesComSituacaoExcluida = new Set<string>();
 
   // Janela única (definida por overallStart/overallEnd) dividida em sub-janelas de 30 dias
   // por causa do limite da API SSótica.
@@ -787,10 +788,10 @@ async function syncContasReceber(
         if (isSituacaoCobrancaExcluida(situacao) || isSituacaoCobrancaExcluida(getClienteSituacaoNormalizada(cliRef))) {
           skipped.situacaoExcluida++;
           if (cliRef?.id) {
-            const cidExcl = Number(cliRef.id);
-            clientesComSituacaoExcluida.add(cidExcl);
-            clientesAfetados.add(cidExcl);
-            parcelasPorCliente.delete(cidExcl);
+            const bucketKeyExcl = getClienteBucketKey(cliRef);
+            clientesComSituacaoExcluida.add(bucketKeyExcl);
+            clientesAfetados.add(Number(cliRef.id));
+            parcelasPorCliente.delete(bucketKeyExcl);
           }
           if (parcela.id) parcelasInativasIds.add(Number(parcela.id));
           continue;
@@ -847,20 +848,7 @@ async function syncContasReceber(
         const foiBaixada = !isNegativada && !!parcela.baixado_em;
         const foiCancelada = !isNegativada && !!parcela.cancelado_em;
         const foiEstornada = !isNegativada && !!parcela.estornado_em;
-        const dataPagamento = parcela.data_pagamento ?? parcela.dataPagamento ?? null;
-        const valorRecebido = Number(parcela.valor_recebido ?? parcela.valorRecebido ?? 0);
-        const valorParcela = Number(parcela.valor ?? 0);
-        const foiPaga =
-          !isNegativada && (
-            !!dataPagamento ||
-            situacao === "pago" ||
-            situacao === "paga" ||
-            situacao === "quitado" ||
-            situacao === "quitada" ||
-            situacao === "liquidado" ||
-            situacao === "liquidada" ||
-            (valorParcela > 0 && valorRecebido >= valorParcela)
-          );
+        const foiPaga = isParcelaQuitada(parcela, situacao, isNegativada, isAtiva);
 
         if (!isAtiva) skipped.naoAtiva++;
         else if (foiRenegociada) skipped.renegociada++;
@@ -904,15 +892,14 @@ async function syncContasReceber(
 
         const cliente = cliRef;
         if (!cliente?.id) { skipped.semCliente++; continue; }
-        const clienteIdNumEarly = Number(cliente.id);
-        if (clientesComSituacaoExcluida.has(clienteIdNumEarly)) continue;
-        clientesAfetados.add(clienteIdNumEarly);
+        const bucketKey = getClienteBucketKey(cliente);
+        if (clientesComSituacaoExcluida.has(bucketKey)) continue;
+        clientesAfetados.add(Number(cliente.id));
 
-        const clienteIdNum = Number(cliente.id);
-        let bucket = parcelasPorCliente.get(clienteIdNum);
+        let bucket = parcelasPorCliente.get(bucketKey);
         if (!bucket) {
           bucket = { cliente, parcelas: [], hasNegativadoSerasa: false, hasAjuizado: false, ajuizadoVariant: null, hasEmAtraso: false };
-          parcelasPorCliente.set(clienteIdNum, bucket);
+          parcelasPorCliente.set(bucketKey, bucket);
         }
         if (isNegativadoSerasa) bucket.hasNegativadoSerasa = true;
         if (isEmAtraso) bucket.hasEmAtraso = true;
@@ -969,7 +956,22 @@ async function syncContasReceber(
   console.log(`[ssotica-sync][cobrancas] empresa=${integ.company_id} janela=${ymd(overallStart)}→${ymd(overallEnd)} processed=${processed} clientes_em_atraso=${parcelasPorCliente.size} backfill_chunk=${isBackfillChunk}${manualRecentWindow ? " manual_recent=true" : incrementalWindow ? ` slot=${incrementalWindow.slot + 1}/${INCREMENTAL_COBRANCAS_SLICES}` : ""}`);
 
   // Remove cards já existentes de clientes com situação excluída (ex.: backfill).
-  for (const clienteIdNum of clientesComSituacaoExcluida) {
+  for (const bucketKey of clientesComSituacaoExcluida) {
+    if (bucketKey.startsWith("cpf:")) {
+      const cpf = bucketKey.slice(4);
+      const { data: rowsExcluidas } = await supabase
+        .from("crm_cobrancas")
+        .select("id")
+        .eq("ssotica_company_id", integ.company_id)
+        .or(`data->>documento.eq.${cpf},data->>cpf.eq.${cpf}`);
+      for (const row of rowsExcluidas ?? []) {
+        await supabase.from("crm_cobrancas").delete().eq("id", row.id);
+        removed++;
+      }
+      continue;
+    }
+    const clienteIdNum = Number(bucketKey.slice(3));
+    if (!Number.isFinite(clienteIdNum) || clienteIdNum <= 0) continue;
     const { data: cobExcluida } = await supabase
       .from("crm_cobrancas")
       .select("id")
@@ -999,22 +1001,35 @@ async function syncContasReceber(
       : `tit:${p?.titulo_id ?? ""}-num:${p?.numero_parcela ?? ""}-venc:${p?.vencimento ?? ""}`;
 
   // ===== Upsert por cliente: 1 card com a lista de TODAS as parcelas em atraso =====
-  for (const [clienteIdNum, bucket] of parcelasPorCliente.entries()) {
+  for (const [bucketKey, bucket] of parcelasPorCliente.entries()) {
     const { cliente, parcelas, hasNegativadoSerasa, hasAjuizado, ajuizadoVariant, hasEmAtraso } = bucket;
-    if (clientesComSituacaoExcluida.has(clienteIdNum)) continue;
+    if (clientesComSituacaoExcluida.has(bucketKey)) continue;
 
-    // Procura primeiro card da PRÓPRIA loja. Se não existir, busca card consolidado
-    // em OUTRA loja para o mesmo cliente — assim evitamos o flap onde a consolidação
-    // cross-store deletava o card da loja perdedora a cada ciclo, e a sync por loja
-    // criava um novo no ciclo seguinte (loop "criado → excluído → criado…").
-    const { data: existingSameStore } = await supabase
-      .from("crm_cobrancas")
-      .select("id, assigned_to, created_by, scheduled_date, status, valor, vencimento, dias_atraso, data, ssotica_company_id")
-      .eq("ssotica_cliente_id", clienteIdNum)
-      .eq("ssotica_company_id", integ.company_id)
-      .maybeSingle();
+    const clienteIdNum = Number(cliente.id);
+    const docCliente = normalizeDigits(cliente.documento ?? cliente.cpf ?? cliente.cpf_cnpj);
 
-    let existingCobranca = existingSameStore as ExistingCobranca | null;
+    // Procura primeiro card da PRÓPRIA loja (CPF preferencial — cobre IDs duplicados na SSótica).
+    let existingCobranca: ExistingCobranca | null = null;
+    if (docCliente.length >= 11) {
+      const { data: existingByCpf } = await supabase
+        .from("crm_cobrancas")
+        .select("id, assigned_to, created_by, scheduled_date, status, valor, vencimento, dias_atraso, data, ssotica_company_id")
+        .eq("ssotica_company_id", integ.company_id)
+        .or(`data->>documento.eq.${docCliente},data->>cpf.eq.${docCliente}`)
+        .order("vencimento", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (existingByCpf) existingCobranca = existingByCpf as ExistingCobranca;
+    }
+    if (!existingCobranca) {
+      const { data: existingSameStore } = await supabase
+        .from("crm_cobrancas")
+        .select("id, assigned_to, created_by, scheduled_date, status, valor, vencimento, dias_atraso, data, ssotica_company_id")
+        .eq("ssotica_cliente_id", clienteIdNum)
+        .eq("ssotica_company_id", integ.company_id)
+        .maybeSingle();
+      existingCobranca = existingSameStore as ExistingCobranca | null;
+    }
     if (!existingCobranca) {
       const { data: existingOtherStore } = await supabase
         .from("crm_cobrancas")
@@ -1347,6 +1362,9 @@ async function syncContasReceber(
             .filter((id): id is number => Number.isFinite(id) && id > 0),
         ]));
         const clienteId = Number(cob.ssotica_cliente_id);
+        const dataCob = cob.data ?? {};
+        const cpfCob = normalizeDigits(dataCob.documento ?? dataCob.cpf);
+        const cobBucketKey = cpfCob.length >= 11 ? `cpf:${cpfCob}` : `id:${clienteId}`;
         const parcelasConhecidasDaLoja = parcelasDaLojaAtual.length > 0
           ? parcelasDaLojaAtual
           : (cob.vencimento ? [{ vencimento: cob.vencimento }] : []);
@@ -1354,7 +1372,7 @@ async function syncContasReceber(
           && parcelasConhecidasDaLoja.every((p) => isParcelaInWindow(p?.vencimento ?? null));
 
         // Cliente AINDA tem parcelas em atraso na janela atual → mantém o card
-        if (parcelasPorCliente.has(clienteId)) continue;
+        if (parcelasPorCliente.has(cobBucketKey)) continue;
 
         // Defesa extra: se QUALQUER parcela deste card apareceu como ativa nesta
         // sync, segura (race condition entre páginas / card consolidado com mais

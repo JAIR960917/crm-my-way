@@ -5,7 +5,7 @@ import {
   getAllowedCompanyIds,
   getUserFromRequest,
 } from "../_shared/staffAuth.ts";
-import { parseParcelaCobrancaAtiva } from "../_shared/ssoticaCobrancaParcela.ts";
+import { parseParcelaCobrancaAtiva, normalizeDigits } from "../_shared/ssoticaCobrancaParcela.ts";
 
 const SSOTICA_BASE = "https://app.ssotica.com.br/api/v1/integracoes";
 const COBRANCAS_LOOKBACK_DAYS = 730;
@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { ssoticaClienteId, ssoticaCompanyId } = await req.json();
+    const { ssoticaClienteId, ssoticaCompanyId, cpf } = await req.json();
     if (!ssoticaClienteId || !ssoticaCompanyId) {
       return new Response(
         JSON.stringify({ error: "ssoticaClienteId e ssoticaCompanyId são obrigatórios" }),
@@ -106,6 +106,11 @@ Deno.serve(async (req) => {
     const overallEnd = addDays(today, COBRANCAS_FUTURE_DAYS);
     const cnpjParam = normalizeIdentifier(integ.cnpj as string);
     const clienteId = Number(ssoticaClienteId);
+    const cpfDigits = normalizeDigits(cpf ?? "");
+    const clienteMatch = {
+      clienteId,
+      ...(cpfDigits.length >= 11 ? { cpfDigits } : {}),
+    };
 
     const parcelasMap = new Map<string, ReturnType<typeof parseParcelaCobrancaAtiva>>();
     const windows = buildWindows(overallStart, overallEnd);
@@ -120,7 +125,7 @@ Deno.serve(async (req) => {
         if (items.length === 0) break;
 
         for (const parcela of items) {
-          const parsed = parseParcelaCobrancaAtiva(parcela, today, clienteId);
+          const parsed = parseParcelaCobrancaAtiva(parcela, today, clienteMatch);
           if (!parsed) continue;
           const key = parsed.parcela_id != null
             ? `pid:${parsed.parcela_id}`
