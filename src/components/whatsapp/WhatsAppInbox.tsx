@@ -963,9 +963,9 @@ export default function WhatsAppInbox() {
                       type="button"
                       onClick={() => setSelectedId(c.id)}
                       className={cn(
-                        "flex w-full gap-3 rounded-lg p-3 text-left transition-colors",
+                        "flex w-full gap-3 rounded-lg border border-transparent p-3 text-left transition-colors",
                         active ? "bg-primary/10" : "hover:bg-muted",
-                        hasUnread && !active && "bg-muted/40",
+                        hasUnread && !active && "border-emerald-500/40 bg-emerald-500/10",
                       )}
                     >
                       <Avatar className="h-11 w-11 shrink-0">
@@ -1002,8 +1002,8 @@ export default function WhatsAppInbox() {
                           </span>
                           {hasUnread && !active ? (
                             <span
-                              className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1 text-[9px] font-bold leading-none text-white"
-                              title={`${unread} mensagem(ns) não lida(s)`}
+                              className="ml-auto flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-2 text-sm font-bold leading-none text-white shadow-lg ring-2 ring-emerald-400/50"
+                              title={`${unread} mensagem(ns) não lida(s) — aguardando resposta`}
                             >
                               {formatUnreadCount(unread)}
                             </span>
