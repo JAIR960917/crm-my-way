@@ -357,17 +357,63 @@ SQL
 # ---------------------------------------------------------------------------
 # Edge functions (copia para o container e reinicia o edge-runtime)
 # ---------------------------------------------------------------------------
+verify_functions_source() {
+  local src="${SUPABASE_DIR}/functions"
+  if [ ! -d "${src}" ]; then
+    err "Diretório ausente: ${src} — execute 'git pull' em ${PROJECT_DIR}."
+    return 1
+  fi
+  local missing=0
+  for probe in meta-whatsapp/index.ts send-whatsapp/index.ts whatsapp-webhook/index.ts; do
+    if [ ! -f "${src}/${probe}" ]; then
+      err "Arquivo ausente: ${src}/${probe}"
+      missing=1
+    fi
+  done
+  if [ "$missing" -eq 1 ]; then
+    err "Código incompleto no servidor. Rode: cd ${PROJECT_DIR} && git fetch origin && git reset --hard origin/main"
+    return 1
+  fi
+  return 0
+}
+
+copy_functions_to_container() {
+  local container="$1"
+  local src="${SUPABASE_DIR}/functions"
+  # tar evita falhas intermitentes do docker cp (missed writing / unexpected EOF)
+  tar -C "${src}" -cf - . | docker exec -i "${container}" tar -xf - -C /home/deno/functions
+}
+
 run_functions() {
   log "Sincronizando edge functions..."
   local container="supabase-edge-functions"
+  local src="${SUPABASE_DIR}/functions"
+
+  if ! verify_functions_source; then
+    return 1
+  fi
+
+  local avail_kb
+  avail_kb=$(df -Pk "$(dirname "$src")" 2>/dev/null | awk 'NR==2 {print $4}' || true)
+  if [ -n "$avail_kb" ] && [ "$avail_kb" -lt 51200 ]; then
+    warn "Pouco espaço em disco (~${avail_kb}KB livres). Libere espaço se a cópia falhar."
+  fi
 
   if ! docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
     err "Container ${container} não está rodando."
     return 1
   fi
 
-  # /home/deno/functions é o diretório padrão usado pela imagem oficial
-  docker cp "${SUPABASE_DIR}/functions/." "${container}:/home/deno/functions/"
+  log "Copiando functions para ${container}..."
+  if ! copy_functions_to_container "${container}"; then
+    warn "Primeira tentativa falhou — reiniciando ${container} e tentando de novo..."
+    docker restart "${container}" >/dev/null
+    sleep 3
+    if ! copy_functions_to_container "${container}"; then
+      err "Falha ao copiar functions. Verifique: df -h && docker logs ${container} --tail 50"
+      return 1
+    fi
+  fi
   ok "Functions copiadas"
 
   log "Reiniciando ${container}..."
