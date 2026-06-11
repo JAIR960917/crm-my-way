@@ -6,7 +6,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Phone, PhoneOff, CalendarCheck, CalendarX, CalendarIcon, Clock, Check } from "lucide-react";
 import { toast } from "sonner";
-import { FORMAS_PAGAMENTO_CONSULTA, FORMAS_PAGAMENTO_OCULOS } from "@/lib/appointmentUtils";
+import {
+  FORMAS_PAGAMENTO_CONSULTA,
+  FORMAS_PAGAMENTO_OCULOS,
+  formaConsultaSemValor,
+} from "@/lib/appointmentUtils";
 
 export type TratativaSavePayload = {
   atendeu: "sim" | "nao";
@@ -31,7 +35,7 @@ export function consultaPagaFromForma(forma: string): boolean {
 }
 
 export function valorConsultaFromForma(forma: string, valorStr: string): number {
-  if (forma === "Cortesia") return 0;
+  if (formaConsultaSemValor(forma)) return 0;
   return parseFloat(valorStr.replace(",", ".")) || 0;
 }
 
@@ -101,7 +105,7 @@ export default function TratativaContatoForm({
         toast.error("Preencha todos os campos do agendamento");
         return;
       }
-      if (formaPagamentoConsulta !== "Cortesia") {
+      if (!formaConsultaSemValor(formaPagamentoConsulta)) {
         const valorNum = parseFloat(valorConsulta.replace(",", "."));
         if (!valorConsulta.trim() || Number.isNaN(valorNum) || valorNum < 0) {
           toast.error("Informe o valor da consulta");
@@ -292,7 +296,7 @@ export default function TratativaContatoForm({
               value={formaPagamentoConsulta}
               onValueChange={(v) => {
                 setFormaPagamentoConsulta(v);
-                if (v === "Cortesia") setValorConsulta("");
+                if (formaConsultaSemValor(v)) setValorConsulta("");
               }}
               disabled={disabled}
             >
@@ -305,7 +309,7 @@ export default function TratativaContatoForm({
             </Select>
           </div>
 
-          {formaPagamentoConsulta && formaPagamentoConsulta !== "Cortesia" && (
+          {formaPagamentoConsulta && !formaConsultaSemValor(formaPagamentoConsulta) && (
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">
                 Valor da consulta (R$) <span className="text-destructive">*</span>

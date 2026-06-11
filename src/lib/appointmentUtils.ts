@@ -9,7 +9,19 @@ export const CANAIS_AGENDAMENTO = [
 
 export const FORMAS_PAGAMENTO_OCULOS = ["Cartão", "Pix/Dinheiro", "Boleto"];
 
-export const FORMAS_PAGAMENTO_CONSULTA = ["Cartão", "Pix/Dinheiro", "Boleto", "Cortesia", "Convênio"];
+export const FORMAS_PAGAMENTO_CONSULTA = [
+  "Cartão",
+  "Pix/Dinheiro",
+  "Boleto",
+  "Cortesia",
+  "Reavaliação de Consulta",
+  "A definir",
+];
+
+/** Formas em que o campo valor da consulta não é exibido (ex.: reavaliação). */
+export function formaConsultaSemValor(forma: string): boolean {
+  return forma === "Cortesia" || forma === "Reavaliação de Consulta";
+}
 
 type FormFieldLike = {
   id: string;
@@ -122,12 +134,21 @@ export type AppointmentColorInput = {
   consulta_paga_em?: string | null;
   created_at: string;
   scheduled_datetime: string;
+  forma_pagamento_consulta?: string | null;
   is_reschedule_snapshot?: boolean | null;
   deleted_at?: string | null;
   returned_at?: string | null;
   venda?: string | null;
   fez_orcamento?: boolean | null;
 };
+
+export function isFormaConsultaCortesia(forma: string | null | undefined): boolean {
+  return forma?.trim() === "Cortesia";
+}
+
+export function isFormaConsultaReavaliacao(forma: string | null | undefined): boolean {
+  return forma?.trim() === "Reavaliação de Consulta";
+}
 
 export function isMovedToOrcamentos(appt: {
   venda?: string | null;
@@ -159,6 +180,12 @@ export function getAppointmentRowColor(appt: AppointmentColorInput): string {
   if (appt.is_reschedule_snapshot) {
     return "bg-violet-700/35 border-violet-500/50 hover:bg-violet-700/45";
   }
+  if (isFormaConsultaReavaliacao(appt.forma_pagamento_consulta)) {
+    return "bg-indigo-700/35 border-indigo-500/40 hover:bg-indigo-700/45";
+  }
+  if (isFormaConsultaCortesia(appt.forma_pagamento_consulta)) {
+    return "bg-amber-700/35 border-amber-500/40 hover:bg-amber-700/45";
+  }
   if (appt.consulta_paga !== true) {
     return "bg-red-700/30 hover:bg-red-700/40";
   }
@@ -179,6 +206,12 @@ export function getAppointmentCalendarColor(appt: AppointmentColorInput): string
   }
   if (appt.is_reschedule_snapshot) {
     return "bg-violet-900 text-violet-50 border-violet-700 hover:bg-violet-800";
+  }
+  if (isFormaConsultaReavaliacao(appt.forma_pagamento_consulta)) {
+    return "bg-indigo-900 text-indigo-50 border-indigo-700 hover:bg-indigo-800";
+  }
+  if (isFormaConsultaCortesia(appt.forma_pagamento_consulta)) {
+    return "bg-amber-900 text-amber-50 border-amber-700 hover:bg-amber-800";
   }
   if (appt.consulta_paga !== true) {
     return "bg-red-950 text-red-50 border-red-800 hover:bg-red-900";

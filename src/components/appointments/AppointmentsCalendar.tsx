@@ -25,6 +25,7 @@ export type CalendarAppointment = {
   scheduled_datetime: string;
   consulta_paga: boolean | null;
   consulta_paga_em?: string | null;
+  forma_pagamento_consulta?: string | null;
   created_at: string;
   is_reschedule_snapshot?: boolean | null;
   rescheduled_from_datetime?: string | null;
