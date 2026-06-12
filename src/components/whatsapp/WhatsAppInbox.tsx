@@ -181,10 +181,11 @@ function formatUnreadCount(count: number): string {
 function getConversationUnreadState(
   c: ConversationRow,
   selectedId: string | null,
+  localBoost = 0,
 ): { show: boolean; count: number } {
   if (c.id === selectedId) return { show: false, count: 0 };
 
-  const unread = Math.max(0, Number(c.unread_count) || 0);
+  const unread = Math.max(Math.max(0, Number(c.unread_count) || 0), localBoost);
   if (unread > 0) return { show: true, count: unread };
 
   if (c.last_message_direction === "in" && c.last_message_at) {
@@ -221,6 +222,7 @@ export default function WhatsAppInbox() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "unread" | "mine">("all");
+  const [localUnreadBoost, setLocalUnreadBoost] = useState<Record<string, number>>({});
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -336,10 +338,17 @@ export default function WhatsAppInbox() {
     return new Date(conversation.window_expires_at).getTime() > Date.now();
   }, [conversation?.window_expires_at]);
 
+  const resolveUnreadState = useCallback(
+    (c: ConversationRow) => getConversationUnreadState(c, selectedId, localUnreadBoost[c.id] || 0),
+    [localUnreadBoost, selectedId],
+  );
+
   const filteredList = useMemo(() => {
     const q = search.trim().toLowerCase();
     return conversations.filter((c) => {
-      if (filter === "unread" && !getConversationUnreadState(c, null).show) return false;
+      if (filter === "unread" && !getConversationUnreadState(c, null, localUnreadBoost[c.id] || 0).show) {
+        return false;
+      }
       if (filter === "mine" && user?.id && c.assigned_to !== user.id) return false;
       if (!q) return true;
       const name = (c.contact_name || "").toLowerCase();
@@ -347,11 +356,11 @@ export default function WhatsAppInbox() {
       const preview = (c.last_preview || "").toLowerCase();
       return name.includes(q) || wa.includes(q) || preview.includes(q);
     });
-  }, [conversations, filter, search, user?.id]);
+  }, [conversations, filter, localUnreadBoost, search, user?.id]);
 
   const unreadConversationsCount = useMemo(
-    () => conversations.filter((c) => getConversationUnreadState(c, null).show).length,
-    [conversations],
+    () => conversations.filter((c) => getConversationUnreadState(c, null, localUnreadBoost[c.id] || 0).show).length,
+    [conversations, localUnreadBoost],
   );
 
   const loadInstances = useCallback(async () => {
@@ -429,28 +438,39 @@ export default function WhatsAppInbox() {
     const basicCols =
       "id, instance_id, wa_id, contact_name, phone_display, module, card_id, window_expires_at, last_message_at, last_preview, unread_count, assigned_to";
 
-    let { data, error } = await supabase
-      .from("whatsapp_conversations")
-      .select(extendedCols)
-      .order("last_message_at", { ascending: false, nullsFirst: false })
-      .limit(200);
+    let rows: ConversationRow[] | null = null;
 
-    if (error) {
-      const fallback = await supabase
+    const rpc = await supabase.rpc("list_whatsapp_inbox_conversations", { p_limit: 200 });
+    if (!rpc.error && rpc.data) {
+      rows = rpc.data as ConversationRow[];
+    }
+
+    if (!rows) {
+      let { data, error } = await supabase
         .from("whatsapp_conversations")
-        .select(basicCols)
+        .select(extendedCols)
         .order("last_message_at", { ascending: false, nullsFirst: false })
         .limit(200);
-      if (fallback.error) throw fallback.error;
-      data = (fallback.data || []).map((row) => ({
-        ...row,
-        last_message_direction: null,
-        last_read_at: null,
-      }));
+
+      if (error) {
+        const fallback = await supabase
+          .from("whatsapp_conversations")
+          .select(basicCols)
+          .order("last_message_at", { ascending: false, nullsFirst: false })
+          .limit(200);
+        if (fallback.error) throw fallback.error;
+        data = (fallback.data || []).map((row) => ({
+          ...row,
+          last_message_direction: null,
+          last_read_at: null,
+        }));
+      }
+      rows = (data || []) as ConversationRow[];
     }
+
     setConversations((prev) => {
       const prevById = new Map(prev.map((c) => [c.id, c]));
-      const merged = ((data || []) as ConversationRow[]).map((row) => {
+      const merged = rows!.map((row) => {
         const local = prevById.get(row.id);
         const dbUnread = Math.max(0, Number(row.unread_count) || 0);
         const localUnread = Math.max(0, Number(local?.unread_count) || 0);
@@ -458,6 +478,15 @@ export default function WhatsAppInbox() {
         return { ...row, unread_count: dbUnread };
       });
       return sortConversations(merged);
+    });
+
+    setLocalUnreadBoost((prev) => {
+      const next = { ...prev };
+      for (const row of rows!) {
+        const dbUnread = Math.max(0, Number(row.unread_count) || 0);
+        if (dbUnread >= (next[row.id] || 0)) delete next[row.id];
+      }
+      return next;
     });
     // Não abre a primeira conversa automaticamente — assim o contador de não lidas permanece visível.
   }, []);
@@ -485,6 +514,12 @@ export default function WhatsAppInbox() {
 
   const markAsRead = useCallback(async (conversationId: string) => {
     const readAt = new Date().toISOString();
+    setLocalUnreadBoost((prev) => {
+      if (!prev[conversationId]) return prev;
+      const next = { ...prev };
+      delete next[conversationId];
+      return next;
+    });
     setConversations((prev) =>
       prev.map((c) =>
         c.id === conversationId ? { ...c, unread_count: 0, last_read_at: readAt } : c,
@@ -501,6 +536,20 @@ export default function WhatsAppInbox() {
       const idx = prev.findIndex((c) => c.id === row.id);
       const prevRow = idx >= 0 ? prev[idx] : null;
       const merged: ConversationRow = prevRow ? { ...prevRow, ...row } : row;
+
+      const dbUnread = Math.max(0, Number(row.unread_count) || 0);
+      const prevUnread = Math.max(0, Number(prevRow?.unread_count) || 0);
+      const incomingReadAt = row.last_read_at ? new Date(row.last_read_at).getTime() : 0;
+      const prevReadAt = prevRow?.last_read_at ? new Date(prevRow.last_read_at).getTime() : 0;
+      const explicitlyRead = dbUnread === 0 && incomingReadAt > prevReadAt;
+
+      if (prevRow && !explicitlyRead) {
+        merged.unread_count = Math.max(prevUnread, dbUnread);
+      }
+
+      if (!row.last_message_direction && prevRow?.last_message_direction) {
+        merged.last_message_direction = prevRow.last_message_direction;
+      }
 
       // Mantém contador local se o payload realtime vier sem unread_count (replica parcial).
       if (
@@ -651,7 +700,7 @@ export default function WhatsAppInbox() {
           if (payload.new) {
             const row = payload.new as ConversationRow;
             const openId = selectedIdRef.current;
-            if (openId === row.id && getConversationUnreadState(row, null).show) {
+            if (openId === row.id && getConversationUnreadState(row, null, localUnreadBoost[row.id] || 0).show) {
               void markAsRead(row.id);
               applyConversationPatch({ ...row, unread_count: 0, last_read_at: new Date().toISOString() });
             } else {
@@ -678,6 +727,10 @@ export default function WhatsAppInbox() {
 
           if (row.direction === "in") {
             const preview = inboundMessagePreview(row);
+            setLocalUnreadBoost((prev) => ({
+              ...prev,
+              [row.conversation_id]: (prev[row.conversation_id] || 0) + 1,
+            }));
             setConversations((prev) => {
               const idx = prev.findIndex((c) => c.id === row.conversation_id);
               if (idx < 0) {
@@ -715,7 +768,7 @@ export default function WhatsAppInbox() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [applyConversationPatch, loadConversations, markAsRead]);
+  }, [applyConversationPatch, loadConversations, localUnreadBoost, markAsRead]);
 
   const handleSendText = async () => {
     if (!conversation?.id) return;
@@ -1006,7 +1059,7 @@ export default function WhatsAppInbox() {
                 const customerPhone = formatPhoneDisplay(c.phone_display || c.wa_id);
                 const lastAt = c.last_message_at ? new Date(c.last_message_at) : null;
                 const windowIsOpen = c.window_expires_at ? new Date(c.window_expires_at).getTime() > Date.now() : false;
-                const unreadState = getConversationUnreadState(c, selectedId);
+                const unreadState = resolveUnreadState(c);
                 const hasUnread = unreadState.show;
                 const unread = unreadState.count;
                 return (
@@ -1051,18 +1104,18 @@ export default function WhatsAppInbox() {
                           )}
                         </div>
                       </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1.5 self-start pt-0.5">
+                      <div className="flex w-10 shrink-0 flex-col items-end gap-1.5 self-start pt-0.5">
                         <span
                           className={cn(
                             "text-[11px] leading-none",
-                            hasUnread ? "font-medium text-[#25d366]" : "text-muted-foreground",
+                            hasUnread ? "font-semibold text-green-500" : "text-muted-foreground",
                           )}
                         >
                           {lastAt ? formatDistanceToNow(lastAt, { addSuffix: true, locale: ptBR }) : "—"}
                         </span>
                         {hasUnread ? (
                           <span
-                            className="flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-[#25d366] px-1.5 text-xs font-semibold leading-none text-white"
+                            className="flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-green-500 px-1.5 text-xs font-bold leading-none text-white shadow-sm"
                             title={`${unread} mensagem(ns) não lida(s)`}
                           >
                             {formatUnreadCount(unread)}
