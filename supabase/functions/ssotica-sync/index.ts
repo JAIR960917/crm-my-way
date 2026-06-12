@@ -2,7 +2,12 @@
 // Sincroniza Vendas (→ Renovações) e Contas a Receber (→ Cobranças) das lojas SSótica
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { assertCronServiceRoleOrStaff, internalCorsHeaders } from "../_shared/internalAuth.ts";
-import { getClienteBucketKey, isParcelaQuitada } from "../_shared/ssoticaCobrancaParcela.ts";
+import {
+  getClienteBucketKey,
+  getClienteCpfDigits,
+  isParcelaQuitada,
+  parseParcelaCobrancaAtiva,
+} from "../_shared/ssoticaCobrancaParcela.ts";
 
 const corsHeaders = internalCorsHeaders;
 
@@ -1562,6 +1567,102 @@ async function syncContasReceber(
   return { processed, created, updated, removed, chunks: chunksProcessed, clientesQuitados: Array.from(clientesQuitadosSet) };
 }
 
+/** Consulta o SSótica e retorna clientes com parcela ativa de cobrança na janela. */
+async function buildClientesComDividaAtivaFromSsotica(
+  integ: Integration,
+  overallStart: Date,
+  overallEnd: Date,
+): Promise<{ clienteIds: Set<number>; cpfDigits: Set<string> }> {
+  const nowBR = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const today = new Date(Date.UTC(nowBR.getUTCFullYear(), nowBR.getUTCMonth(), nowBR.getUTCDate()));
+  const cnpjParam = normalizeIdentifier(integ.cnpj);
+  const clienteIds = new Set<number>();
+  const cpfDigits = new Set<string>();
+  const windows = buildWindows(overallStart, overallEnd);
+
+  for (const w of windows) {
+    let page = 1;
+    while (true) {
+      const url =
+        `${SSOTICA_BASE}/financeiro/contas-a-receber/periodo?cnpj=${encodeURIComponent(cnpjParam)}&inicio_periodo=${w.start}&fim_periodo=${w.end}&page=${page}&perPage=100`;
+      const json = await fetchSSotica(url, integ.bearer_token) as {
+        currentPage?: number;
+        totalPages?: number;
+        data?: any[];
+      };
+      const items: any[] = json.data ?? [];
+      if (items.length === 0) break;
+
+      for (const parcela of items) {
+        const cliRef = parcela.titulo?.cliente ?? parcela.cliente ?? {};
+        const situacao = normalizeSituacaoLabel(String(parcela.situacao ?? parcela["situação"] ?? ""));
+        if (isSituacaoCobrancaExcluida(situacao) || isSituacaoCobrancaExcluida(getClienteSituacaoNormalizada(cliRef))) {
+          continue;
+        }
+        const clienteId = Number(cliRef?.id);
+        if (!Number.isFinite(clienteId) || clienteId <= 0) continue;
+        const parsed = parseParcelaCobrancaAtiva(parcela, today, clienteId);
+        if (!parsed) continue;
+        clienteIds.add(clienteId);
+        const cpf = getClienteCpfDigits(cliRef);
+        if (cpf.length >= 11) cpfDigits.add(cpf);
+      }
+
+      const totalPages = json.totalPages ?? 1;
+      if (page >= totalPages) break;
+      page++;
+    }
+  }
+
+  return { clienteIds, cpfDigits };
+}
+
+/** Remove cards de cobrança locais quando o SSótica não tem mais dívida em aberto. */
+async function purgeStaleCobrancasForCliente(
+  supabase: any,
+  companyId: string,
+  clienteId: number,
+): Promise<number> {
+  const { data: staleRows } = await supabase
+    .from("crm_cobrancas")
+    .select("id, data, status")
+    .eq("ssotica_cliente_id", clienteId)
+    .eq("ssotica_company_id", companyId)
+    .not("status", "in", "(pago,cancelado)");
+
+  const stale = (staleRows ?? []) as Array<{ id: string; data?: { nome?: string }; status?: string }>;
+  if (stale.length === 0) return 0;
+
+  for (const cob of stale) {
+    const clienteNome = String(cob.data?.nome ?? "Cliente SSótica");
+    await supabase.from("crm_cobrancas").delete().eq("id", cob.id);
+    await supabase.from("crm_module_transition_logs").insert({
+      cliente_nome: clienteNome,
+      from_module: "cobranca",
+      to_module: "none",
+      to_status_key: cob.status ?? null,
+      to_status_label: null,
+      source_record_id: cob.id,
+      ssotica_cliente_id: clienteId,
+      company_id: companyId,
+      triggered_by: null,
+      trigger_source: "auto_stale_cobranca_purge",
+    });
+  }
+  return stale.length;
+}
+
+function clienteTemDividaAtivaNoSsotica(
+  clienteId: number,
+  cliente: any,
+  clienteIds: Set<number>,
+  cpfDigits: Set<string>,
+): boolean {
+  if (clienteIds.has(clienteId)) return true;
+  const cpf = getClienteCpfDigits(cliente);
+  return cpf.length >= 11 && cpfDigits.has(cpf);
+}
+
 async function syncVendas(
   supabase: any,
   integ: Integration,
@@ -1779,60 +1880,98 @@ async function syncVendas(
   }
 
   // Para cada cliente que comprou: se NÃO tem cobrança em aberto/vencida, vai para Renovações.
-  // Se TEM cobrança aberta, garante que o card NÃO esteja em Renovação (remove se necessário).
-  for (const [clienteId, info] of ultimaCompraPorCliente) {
-    // Verifica se há cobrança em aberto desse cliente nesta loja
-    // (qualquer status que não seja pago/cancelado conta como dívida pendente)
-    const { data: cobrancasAbertas } = await supabase
+  // Se TEM cobrança aberta REAL no SSótica, garante que o card NÃO esteja em Renovação.
+  const clienteIdsNoChunk = Array.from(ultimaCompraPorCliente.keys());
+  const { data: cobrancasLocaisAbertas } = clienteIdsNoChunk.length > 0
+    ? await supabase
       .from("crm_cobrancas")
-      .select("id")
-      .eq("ssotica_cliente_id", clienteId)
+      .select("ssotica_cliente_id")
       .eq("ssotica_company_id", integ.company_id)
+      .in("ssotica_cliente_id", clienteIdsNoChunk)
       .not("status", "in", "(pago,cancelado)")
-      .limit(1);
+    : { data: [] as Array<{ ssotica_cliente_id: number }> };
+  const clientesComCobrancaLocal = new Set<number>(
+    (cobrancasLocaisAbertas ?? [])
+      .map((row) => Number(row.ssotica_cliente_id))
+      .filter((id) => Number.isFinite(id) && id > 0),
+  );
 
-    if (cobrancasAbertas && cobrancasAbertas.length > 0) {
-      // Cliente TEM dívida aberta → não pode estar em Renovação.
-      // Se já existe um card de renovação, remove e registra a transição reversa.
-      const { data: renExistente } = await supabase
-        .from("crm_renovacoes")
-        .select("id, data")
-        .eq("ssotica_cliente_id", clienteId)
-        .eq("ssotica_company_id", integ.company_id)
-        .maybeSingle();
-      if (renExistente) {
-        const renData = (renExistente as any).data ?? {};
-        const clienteNome = String(renData?.nome ?? info.cliente?.nome ?? "Cliente SSótica");
-        await supabase.from("crm_renovacoes").delete().eq("id", (renExistente as any).id);
-        // Log: exclusão automática do card de renovação (cliente entrou em cobrança)
-        await supabase.from("crm_module_transition_logs").insert({
-          cliente_nome: clienteNome,
-          from_module: "renovacao",
-          to_module: "none",
-          to_status_key: null,
-          to_status_label: null,
-          source_record_id: (renExistente as any).id,
-          ssotica_cliente_id: clienteId,
-          company_id: integ.company_id,
-          triggered_by: null,
-          trigger_source: "auto",
-        });
-        // Log: transição (renovacao -> cobranca)
-        await supabase.from("crm_module_transition_logs").insert({
-          cliente_nome: clienteNome,
-          from_module: "renovacao",
-          to_module: "cobranca",
-          to_status_key: null,
-          to_status_label: null,
-          source_record_id: (renExistente as any).id,
-          target_record_id: cobrancasAbertas[0].id,
-          ssotica_cliente_id: clienteId,
-          company_id: integ.company_id,
-          triggered_by: null,
-          trigger_source: "auto",
-        });
+  let dividaAtivaSsotica = { clienteIds: new Set<number>(), cpfDigits: new Set<string>() };
+  if (clientesComCobrancaLocal.size > 0) {
+    const debtCheckStart = addDays(today, -COBRANCAS_LOOKBACK_DAYS);
+    const debtCheckEnd = addDays(today, COBRANCAS_FUTURE_DAYS);
+    dividaAtivaSsotica = await buildClientesComDividaAtivaFromSsotica(integ, debtCheckStart, debtCheckEnd);
+    console.log(
+      `[ssotica-sync][vendas] empresa=${integ.company_id} cobrancas_locais=${clientesComCobrancaLocal.size} divida_real_ssotica=${dividaAtivaSsotica.clienteIds.size}`,
+    );
+  }
+
+  for (const [clienteId, info] of ultimaCompraPorCliente) {
+    if (clientesComCobrancaLocal.has(clienteId)) {
+      const temDividaReal = clienteTemDividaAtivaNoSsotica(
+        clienteId,
+        info.cliente,
+        dividaAtivaSsotica.clienteIds,
+        dividaAtivaSsotica.cpfDigits,
+      );
+
+      if (!temDividaReal) {
+        const purged = await purgeStaleCobrancasForCliente(supabase, integ.company_id, clienteId);
+        if (purged > 0) {
+          console.log(
+            `[ssotica-sync][vendas] empresa=${integ.company_id} cliente=${clienteId} removidos ${purged} card(s) de cobrança obsoleto(s)`,
+          );
+        }
+      } else {
+        const { data: cobrancasAbertas } = await supabase
+          .from("crm_cobrancas")
+          .select("id, status")
+          .eq("ssotica_cliente_id", clienteId)
+          .eq("ssotica_company_id", integ.company_id)
+          .not("status", "in", "(pago,cancelado)")
+          .limit(1);
+
+        if (cobrancasAbertas && cobrancasAbertas.length > 0) {
+          const { data: renExistente } = await supabase
+            .from("crm_renovacoes")
+            .select("id, data")
+            .eq("ssotica_cliente_id", clienteId)
+            .eq("ssotica_company_id", integ.company_id)
+            .maybeSingle();
+          if (renExistente) {
+            const renData = (renExistente as any).data ?? {};
+            const clienteNome = String(renData?.nome ?? info.cliente?.nome ?? "Cliente SSótica");
+            const cobStatus = String((cobrancasAbertas[0] as { status?: string }).status ?? "");
+            await supabase.from("crm_renovacoes").delete().eq("id", (renExistente as any).id);
+            await supabase.from("crm_module_transition_logs").insert({
+              cliente_nome: clienteNome,
+              from_module: "renovacao",
+              to_module: "none",
+              to_status_key: null,
+              to_status_label: null,
+              source_record_id: (renExistente as any).id,
+              ssotica_cliente_id: clienteId,
+              company_id: integ.company_id,
+              triggered_by: null,
+              trigger_source: "auto",
+            });
+            await supabase.from("crm_module_transition_logs").insert({
+              cliente_nome: clienteNome,
+              from_module: "renovacao",
+              to_module: "cobranca",
+              to_status_key: cobStatus || null,
+              to_status_label: null,
+              source_record_id: (renExistente as any).id,
+              target_record_id: (cobrancasAbertas[0] as { id: string }).id,
+              ssotica_cliente_id: clienteId,
+              company_id: integ.company_id,
+              triggered_by: null,
+              trigger_source: "auto",
+            });
+          }
+          continue;
+        }
       }
-      continue; // tem dívida → não cria nem mantém renovação
     }
 
     const cliente = info.cliente;
@@ -2338,6 +2477,8 @@ async function runBackfillChunk(
       }
     } else if (finished && scope === "renovacoes") {
       try {
+        const finalSweepCobrancas = await syncContasReceber(supabase, integ, undefined, { fullSweep: true });
+        console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} varredura final (renovações): removed=${finalSweepCobrancas.removed} quitados=${finalSweepCobrancas.clientesQuitados.length}`);
         const reconciled = await reconcileRenovacoesVsCobrancas(supabase, integ.company_id);
         console.log(`[ssotica-sync][backfill] empresa=${integ.company_id} reconciliação final (renovações) removeu ${reconciled} renovações com dívida aberta`);
       } catch (recErr) {
