@@ -1881,33 +1881,41 @@ async function syncVendas(
 
   // Para cada cliente que comprou: se NÃO tem cobrança em aberto/vencida, vai para Renovações.
   // Se TEM cobrança aberta REAL no SSótica, garante que o card NÃO esteja em Renovação.
-  const clienteIdsNoChunk = Array.from(ultimaCompraPorCliente.keys());
-  const { data: cobrancasLocaisAbertas } = clienteIdsNoChunk.length > 0
-    ? await supabase
-      .from("crm_cobrancas")
-      .select("ssotica_cliente_id")
-      .eq("ssotica_company_id", integ.company_id)
-      .in("ssotica_cliente_id", clienteIdsNoChunk)
-      .not("status", "in", "(pago,cancelado)")
-    : { data: [] as Array<{ ssotica_cliente_id: number }> };
-  const clientesComCobrancaLocal = new Set<number>(
-    (cobrancasLocaisAbertas ?? [])
-      .map((row) => Number(row.ssotica_cliente_id))
-      .filter((id) => Number.isFinite(id) && id > 0),
-  );
-
+  // Durante backfill histórico NÃO fazemos essa checagem aqui — varrer 24 meses de
+  // contas a receber por lote estoura o timeout da edge function. A reconciliação
+  // (full sweep + reconcile) roda uma vez ao concluir o backfill de renovações.
+  const clientesComCobrancaLocal = new Set<number>();
   let dividaAtivaSsotica = { clienteIds: new Set<number>(), cpfDigits: new Set<string>() };
-  if (clientesComCobrancaLocal.size > 0) {
-    const debtCheckStart = addDays(today, -COBRANCAS_LOOKBACK_DAYS);
-    const debtCheckEnd = addDays(today, COBRANCAS_FUTURE_DAYS);
-    dividaAtivaSsotica = await buildClientesComDividaAtivaFromSsotica(integ, debtCheckStart, debtCheckEnd);
-    console.log(
-      `[ssotica-sync][vendas] empresa=${integ.company_id} cobrancas_locais=${clientesComCobrancaLocal.size} divida_real_ssotica=${dividaAtivaSsotica.clienteIds.size}`,
-    );
+
+  if (!isBackfillChunk) {
+    const clienteIdsNoChunk = Array.from(ultimaCompraPorCliente.keys());
+    if (clienteIdsNoChunk.length > 0) {
+      const { data: cobrancasLocaisAbertas } = await supabase
+        .from("crm_cobrancas")
+        .select("ssotica_cliente_id")
+        .eq("ssotica_company_id", integ.company_id)
+        .in("ssotica_cliente_id", clienteIdsNoChunk)
+        .not("status", "in", "(pago,cancelado)");
+      for (const row of cobrancasLocaisAbertas ?? []) {
+        const id = Number((row as { ssotica_cliente_id: number }).ssotica_cliente_id);
+        if (Number.isFinite(id) && id > 0) clientesComCobrancaLocal.add(id);
+      }
+    }
+
+    if (clientesComCobrancaLocal.size > 0) {
+      const debtCheckStart = addDays(today, -COBRANCAS_LOOKBACK_DAYS);
+      const debtCheckEnd = addDays(today, COBRANCAS_FUTURE_DAYS);
+      dividaAtivaSsotica = await buildClientesComDividaAtivaFromSsotica(integ, debtCheckStart, debtCheckEnd);
+      console.log(
+        `[ssotica-sync][vendas] empresa=${integ.company_id} cobrancas_locais=${clientesComCobrancaLocal.size} divida_real_ssotica=${dividaAtivaSsotica.clienteIds.size}`,
+      );
+    }
+  } else {
+    console.log(`[ssotica-sync][vendas] empresa=${integ.company_id} checagem cobrança vs renovação adiada (backfill chunk)`);
   }
 
   for (const [clienteId, info] of ultimaCompraPorCliente) {
-    if (clientesComCobrancaLocal.has(clienteId)) {
+    if (!isBackfillChunk && clientesComCobrancaLocal.has(clienteId)) {
       const temDividaReal = clienteTemDividaAtivaNoSsotica(
         clienteId,
         info.cliente,

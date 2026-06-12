@@ -145,6 +145,11 @@ function getBackfillVisualProgress(
   const waiting =
     status === "scheduled" && integration?.sync_status !== "running";
 
+  const progressUnits =
+    isDone ? completed
+    : isActive && completed < total ? completed + 0.5
+    : completed;
+
   return {
     total,
     completed,
@@ -154,7 +159,7 @@ function getBackfillVisualProgress(
     isDone,
     waiting,
     currentChunk,
-    percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+    percent: total > 0 ? Math.round((progressUnits / total) * 100) : 0,
     percentInChunk: total > 0 ? Math.round((currentChunk / total) * 100) : 0,
   };
 }
