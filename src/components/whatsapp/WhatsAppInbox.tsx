@@ -1068,12 +1068,27 @@ export default function WhatsAppInbox() {
                       type="button"
                       onClick={() => setSelectedId(c.id)}
                       className={cn(
-                        "flex w-full gap-3 overflow-visible rounded-lg p-3 text-left transition-colors",
-                        active ? "bg-primary/10" : "hover:bg-muted",
+                        "relative flex w-full gap-3 overflow-visible rounded-lg border border-transparent p-3 text-left transition-colors",
+                        active
+                          ? "bg-primary/10"
+                          : hasUnread
+                            ? "border-green-500/20 bg-green-500/[0.08] hover:bg-green-500/[0.12]"
+                            : "hover:bg-muted",
+                        hasUnread && !active && "pl-2.5 before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[3px] before:rounded-full before:bg-green-500 before:content-['']",
                       )}
                     >
-                      <Avatar className="h-11 w-11 shrink-0">
-                        <AvatarFallback className="text-xs font-medium">
+                      <Avatar
+                        className={cn(
+                          "h-11 w-11 shrink-0",
+                          hasUnread && !active && "ring-2 ring-green-500/45 ring-offset-2 ring-offset-background",
+                        )}
+                      >
+                        <AvatarFallback
+                          className={cn(
+                            "text-xs font-medium",
+                            hasUnread && !active && "bg-green-500/15 font-semibold text-foreground",
+                          )}
+                        >
                           {initials(contact)}
                         </AvatarFallback>
                       </Avatar>
@@ -1084,11 +1099,16 @@ export default function WhatsAppInbox() {
                         <p
                           className={cn(
                             "mt-0.5 truncate text-xs",
-                            hasUnread ? "font-medium text-foreground" : "text-muted-foreground",
+                            hasUnread ? "font-semibold text-foreground" : "text-muted-foreground",
                           )}
                         >
                           {c.last_preview || "—"}
                         </p>
+                        {hasUnread && !active ? (
+                          <p className="mt-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+                            Aguardando resposta
+                          </p>
+                        ) : null}
                         <p className="mt-0.5 truncate text-[10px] font-medium text-sky-800 dark:text-sky-300">
                           <Smartphone className="mr-0.5 inline h-3 w-3 opacity-80" />
                           {instanceName} · {customerPhone}
