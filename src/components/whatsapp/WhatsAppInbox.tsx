@@ -62,6 +62,8 @@ type ConversationRow = {
   last_message_at: string | null;
   last_preview: string | null;
   unread_count: number;
+  last_message_direction: "in" | "out" | null;
+  last_read_at: string | null;
   assigned_to: string | null;
 };
 
@@ -174,6 +176,24 @@ function sortConversations(rows: ConversationRow[]): ConversationRow[] {
 function formatUnreadCount(count: number): string {
   if (count > 99) return "99+";
   return String(count);
+}
+
+function getConversationUnreadState(
+  c: ConversationRow,
+  selectedId: string | null,
+): { show: boolean; count: number } {
+  if (c.id === selectedId) return { show: false, count: 0 };
+
+  const unread = Math.max(0, Number(c.unread_count) || 0);
+  if (unread > 0) return { show: true, count: unread };
+
+  if (c.last_message_direction === "in" && c.last_message_at) {
+    const lastMsgAt = new Date(c.last_message_at).getTime();
+    const lastReadAt = c.last_read_at ? new Date(c.last_read_at).getTime() : 0;
+    if (lastReadAt < lastMsgAt) return { show: true, count: 1 };
+  }
+
+  return { show: false, count: 0 };
 }
 
 function inboundMessagePreview(row: MessageRow): string {
@@ -319,7 +339,7 @@ export default function WhatsAppInbox() {
   const filteredList = useMemo(() => {
     const q = search.trim().toLowerCase();
     return conversations.filter((c) => {
-      if (filter === "unread" && Math.max(0, Number(c.unread_count) || 0) === 0) return false;
+      if (filter === "unread" && !getConversationUnreadState(c, null).show) return false;
       if (filter === "mine" && user?.id && c.assigned_to !== user.id) return false;
       if (!q) return true;
       const name = (c.contact_name || "").toLowerCase();
@@ -330,7 +350,7 @@ export default function WhatsAppInbox() {
   }, [conversations, filter, search, user?.id]);
 
   const unreadConversationsCount = useMemo(
-    () => conversations.filter((c) => Math.max(0, Number(c.unread_count) || 0) > 0).length,
+    () => conversations.filter((c) => getConversationUnreadState(c, null).show).length,
     [conversations],
   );
 
@@ -404,12 +424,30 @@ export default function WhatsAppInbox() {
   }, [conversation?.instance_id, getInstance]);
 
   const loadConversations = useCallback(async () => {
-    const { data, error } = await supabase
+    const extendedCols =
+      "id, instance_id, wa_id, contact_name, phone_display, module, card_id, window_expires_at, last_message_at, last_preview, unread_count, last_message_direction, last_read_at, assigned_to";
+    const basicCols =
+      "id, instance_id, wa_id, contact_name, phone_display, module, card_id, window_expires_at, last_message_at, last_preview, unread_count, assigned_to";
+
+    let { data, error } = await supabase
       .from("whatsapp_conversations")
-      .select("id, instance_id, wa_id, contact_name, phone_display, module, card_id, window_expires_at, last_message_at, last_preview, unread_count, assigned_to")
+      .select(extendedCols)
       .order("last_message_at", { ascending: false, nullsFirst: false })
       .limit(200);
-    if (error) throw error;
+
+    if (error) {
+      const fallback = await supabase
+        .from("whatsapp_conversations")
+        .select(basicCols)
+        .order("last_message_at", { ascending: false, nullsFirst: false })
+        .limit(200);
+      if (fallback.error) throw fallback.error;
+      data = (fallback.data || []).map((row) => ({
+        ...row,
+        last_message_direction: null,
+        last_read_at: null,
+      }));
+    }
     setConversations((prev) => {
       const prevById = new Map(prev.map((c) => [c.id, c]));
       const merged = ((data || []) as ConversationRow[]).map((row) => {
@@ -446,8 +484,11 @@ export default function WhatsAppInbox() {
   );
 
   const markAsRead = useCallback(async (conversationId: string) => {
+    const readAt = new Date().toISOString();
     setConversations((prev) =>
-      prev.map((c) => (c.id === conversationId ? { ...c, unread_count: 0 } : c)),
+      prev.map((c) =>
+        c.id === conversationId ? { ...c, unread_count: 0, last_read_at: readAt } : c,
+      ),
     );
     const { error } = await supabase.rpc("mark_whatsapp_conversation_read", {
       p_conversation_id: conversationId,
@@ -610,9 +651,9 @@ export default function WhatsAppInbox() {
           if (payload.new) {
             const row = payload.new as ConversationRow;
             const openId = selectedIdRef.current;
-            if (openId === row.id && (row.unread_count || 0) > 0) {
+            if (openId === row.id && getConversationUnreadState(row, null).show) {
               void markAsRead(row.id);
-              applyConversationPatch({ ...row, unread_count: 0 });
+              applyConversationPatch({ ...row, unread_count: 0, last_read_at: new Date().toISOString() });
             } else {
               applyConversationPatch(row);
             }
@@ -648,6 +689,7 @@ export default function WhatsAppInbox() {
                   ? {
                       ...c,
                       unread_count: (c.unread_count || 0) + 1,
+                      last_message_direction: "in" as const,
                       last_preview: preview,
                       last_message_at: row.created_at || c.last_message_at,
                     }
@@ -964,15 +1006,16 @@ export default function WhatsAppInbox() {
                 const customerPhone = formatPhoneDisplay(c.phone_display || c.wa_id);
                 const lastAt = c.last_message_at ? new Date(c.last_message_at) : null;
                 const windowIsOpen = c.window_expires_at ? new Date(c.window_expires_at).getTime() > Date.now() : false;
-                const unread = Math.max(0, Number(c.unread_count) || 0);
-                const hasUnread = unread > 0 && c.id !== selectedId;
+                const unreadState = getConversationUnreadState(c, selectedId);
+                const hasUnread = unreadState.show;
+                const unread = unreadState.count;
                 return (
                   <li key={c.id}>
                     <button
                       type="button"
                       onClick={() => setSelectedId(c.id)}
                       className={cn(
-                        "flex w-full gap-3 rounded-lg p-3 text-left transition-colors",
+                        "flex w-full gap-3 overflow-visible rounded-lg p-3 text-left transition-colors",
                         active ? "bg-primary/10" : "hover:bg-muted",
                       )}
                     >
