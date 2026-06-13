@@ -88,7 +88,13 @@ export async function fetchCampanhaCopaRelatorio(
     p_assigned_to: filters.assigned_to || null,
   } as never);
 
-  if (error) throw error;
+  if (error) {
+    const msg =
+      (error as { message?: string; details?: string; hint?: string }).details
+      || (error as { message?: string }).message
+      || "Erro ao carregar relatório";
+    throw new Error(msg);
+  }
 
   const payload = (data ?? { metrics: {}, rows: [] }) as CampanhaCopaRelatorioResult;
   return {
