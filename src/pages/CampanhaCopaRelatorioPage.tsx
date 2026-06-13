@@ -7,7 +7,6 @@ import {
   Eye,
   Filter,
   Loader2,
-  MapPin,
   RefreshCw,
   Trophy,
   UserCheck,
