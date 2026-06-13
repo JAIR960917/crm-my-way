@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ExternalLink, Pencil, RefreshCw, Search, Share2, Trash2, Trophy } from "lucide-react";
+import { ExternalLink, Pencil, RefreshCw, Search, Share2, Trash2, Trophy, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import AppLayout from "@/components/AppLayout";
 import CampanhaCopaSubmissionDialog, {
@@ -442,7 +443,15 @@ export default function CampanhasCopaPage() {
               Inscrições do formulário público — distribuídas por cidade e loja.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            {isAdmin && (
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/campanha-copa-relatorio">
+                  <BarChart3 className="h-4 w-4 mr-1" />
+                  Relatório
+                </Link>
+              </Button>
+            )}
             <Button variant="outline" size="sm" asChild>
               <a href="/campanha-copa" target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="h-4 w-4 mr-1" />

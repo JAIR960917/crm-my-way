@@ -37,6 +37,7 @@ export const APP_PAGES: AppPage[] = [
   { key: "whatsapp_inbox_demo",  label: "Inbox WhatsApp",         path: "/whatsapp-inbox" },
   { key: "importar",             label: "Importar Leads",         path: "/importar" },
   { key: "campanhas_copa",       label: "Campanhas Copa",         path: "/campanhas-copa" },
+  { key: "campanha_copa_relatorio", label: "Relatório Campanha Copa", path: "/campanha-copa-relatorio" },
   { key: "integracoes_ssotica",  label: "Integrações SSótica",    path: "/integracoes-ssotica" },
   { key: "status_ssotica",       label: "Status SSótica",         path: "/status-ssotica" },
   { key: "logs_movimentacao",    label: "Logs Movimentação",      path: "/logs-movimentacao" },

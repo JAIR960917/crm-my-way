@@ -50,6 +50,7 @@ import OrcamentosPage from "./pages/OrcamentosPage";
 import ActiveClientsPage from "./pages/ActiveClientsPage";
 import ImportLeadsPage from "./pages/ImportLeadsPage";
 import CampanhasCopaPage from "./pages/CampanhasCopaPage";
+import CampanhaCopaRelatorioPage from "./pages/CampanhaCopaRelatorioPage";
 import CobrancasPage from "./pages/CobrancasPage";
 import CobrancaFlowPage from "./pages/CobrancaFlowPage";
 import SSoticaIntegrationsPage from "./pages/SSoticaIntegrationsPage";
@@ -160,6 +161,7 @@ const AppRoutes = () => {
       <Route path="/clientes-ativos" element={<RoleGate><ActiveClientsPage /></RoleGate>} />
       <Route path="/importar" element={<RoleGate><ImportLeadsPage /></RoleGate>} />
       <Route path="/campanhas-copa" element={<RoleGate><CampanhasCopaPage /></RoleGate>} />
+      <Route path="/campanha-copa-relatorio" element={<RoleGate><CampanhaCopaRelatorioPage /></RoleGate>} />
       <Route path="/cobrancas" element={<RoleGate><CobrancasPage /></RoleGate>} />
       <Route path="/cobrancas/fluxo" element={<RoleGate><CobrancaFlowPage /></RoleGate>} />
       <Route path="/tarefas-crediario" element={<RoleGate><CrediarioTarefasPage /></RoleGate>} />

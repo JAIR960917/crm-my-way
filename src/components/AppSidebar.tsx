@@ -49,6 +49,7 @@ const mainNavItems: NavItem[] = [
   { path: "/relatorio-vendas",     label: "Relatório de Vendas",    icon: FileBarChart },
   { path: "/",                     label: "Leads",                  icon: LayoutDashboard },
   { path: "/campanhas-copa",       label: "Campanhas Copa",         icon: Trophy },
+  { path: "/campanha-copa-relatorio", label: "Relatório Campanha Copa", icon: BarChart3 },
   { path: "/cobrancas",            label: "Cobranças",              icon: Receipt },
   { path: "/tarefas-crediario",    label: "Tarefas",               icon: CalendarClock },
   { path: "/agendamentos",         label: "Agendamentos",           icon: CalendarCheck },
