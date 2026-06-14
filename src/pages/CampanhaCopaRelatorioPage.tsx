@@ -4,6 +4,7 @@ import { ptBR } from "date-fns/locale";
 import {
   BarChart3,
   Building2,
+  Download,
   Eye,
   Filter,
   Loader2,
@@ -39,7 +40,10 @@ import {
 } from "@/components/ui/table";
 import {
   EXAME_VISTA_OPTIONS,
+  exportCampanhaCopaPlacarCsv,
   fetchCampanhaCopaRelatorio,
+  fetchCampanhaCopaRelatorioMeta,
+  normalizePlacarInput,
   renovacaoMatchLabel,
   type CampanhaCopaRelatorioFilters,
   type CampanhaCopaRelatorioRow,
@@ -126,9 +130,16 @@ export default function CampanhaCopaRelatorioPage() {
   const [dataFim, setDataFim] = useState("");
   const [renovacaoFiltro, setRenovacaoFiltro] = useState(ALL);
   const [assignedTo, setAssignedTo] = useState(ALL);
+  const [placarHome, setPlacarHome] = useState("");
+  const [placarAway, setPlacarAway] = useState("");
 
   const [cidadeOptions, setCidadeOptions] = useState<string[]>([]);
   const [jogoOptions, setJogoOptions] = useState<string[]>([]);
+
+  const placarFiltro = useMemo(
+    () => normalizePlacarInput(placarHome, placarAway),
+    [placarHome, placarAway],
+  );
 
   const filters = useMemo((): CampanhaCopaRelatorioFilters => ({
     ultimo_exame: ultimoExame === ALL ? null : ultimoExame,
@@ -138,28 +149,17 @@ export default function CampanhaCopaRelatorioPage() {
     data_fim: dataFim || null,
     renovacao_filtro: renovacaoFiltro === ALL ? null : (renovacaoFiltro as RenovacaoMatch),
     assigned_to: assignedTo === ALL ? null : assignedTo,
-  }), [ultimoExame, cidade, jogo, dataInicio, dataFim, renovacaoFiltro, assignedTo]);
+    placar: placarFiltro,
+  }), [ultimoExame, cidade, jogo, dataInicio, dataFim, renovacaoFiltro, assignedTo, placarFiltro]);
 
   const loadMeta = useCallback(async () => {
-    const [profRes, subRes] = await Promise.all([
+    const [profRes, meta] = await Promise.all([
       supabase.from("profiles").select("user_id, full_name, email").order("full_name"),
-      supabase
-        .from("campanha_copa_submissions")
-        .select("cidade, jogo, jogo_label")
-        .order("created_at", { ascending: false })
-        .limit(3000),
+      fetchCampanhaCopaRelatorioMeta(),
     ]);
     setProfiles((profRes.data || []) as Profile[]);
-
-    const cities = new Set<string>();
-    const jogos = new Map<string, string>();
-    for (const row of subRes.data || []) {
-      const r = row as { cidade?: string; jogo?: string; jogo_label?: string };
-      if (r.cidade?.trim()) cities.add(r.cidade.trim());
-      if (r.jogo) jogos.set(r.jogo, r.jogo_label || r.jogo);
-    }
-    setCidadeOptions(Array.from(cities).sort((a, b) => a.localeCompare(b, "pt-BR")));
-    setJogoOptions(Array.from(jogos.keys()).sort());
+    setCidadeOptions(meta.cities);
+    setJogoOptions(meta.jogos);
   }, []);
 
   const loadReport = useCallback(async () => {
@@ -236,7 +236,7 @@ export default function CampanhaCopaRelatorioPage() {
               Filtros
             </CardTitle>
             <CardDescription>
-              Refine por último exame de vista, cidade, jogo, período, status na Renovação e responsável.
+              Refine por último exame, cidade, jogo, placar, período, status na Renovação e responsável.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -335,6 +335,47 @@ export default function CampanhaCopaRelatorioPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Placar (palpite)</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={99}
+                    placeholder="Casa"
+                    value={placarHome}
+                    onChange={(e) => setPlacarHome(e.target.value)}
+                    className="w-24"
+                  />
+                  <span className="text-sm text-muted-foreground shrink-0">x</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={99}
+                    placeholder="Visitante"
+                    value={placarAway}
+                    onChange={(e) => setPlacarAway(e.target.value)}
+                    className="w-24"
+                  />
+                  {(placarHome || placarAway) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setPlacarHome("");
+                        setPlacarAway("");
+                      }}
+                    >
+                      Limpar
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Filtra quem palpitou exatamente esse placar. Preencha os dois gols para exportar CSV.
+                </p>
               </div>
             </div>
           </CardContent>
@@ -456,11 +497,26 @@ export default function CampanhaCopaRelatorioPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Inscrições detalhadas</CardTitle>
-            <CardDescription>
-              Até 5.000 registros. &quot;Em Renovação&quot; = CPF ou telefone encontrado em{" "}
-              <code className="text-xs">crm_renovacoes</code> da loja mapeada pela cidade informada.
-            </CardDescription>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="text-base">Inscrições detalhadas</CardTitle>
+                <CardDescription>
+                  Até 5.000 registros. &quot;Em Renovação&quot; = CPF ou telefone encontrado em{" "}
+                  <code className="text-xs">crm_renovacoes</code> da loja mapeada pela cidade informada.
+                </CardDescription>
+              </div>
+              {placarFiltro && rows.length > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => exportCampanhaCopaPlacarCsv(rows, placarFiltro, profileName)}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Exportar CSV ({rows.length}) — placar {placarFiltro}
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             {loading ? (
@@ -479,6 +535,7 @@ export default function CampanhaCopaRelatorioPage() {
                     <TableHead>Data</TableHead>
                     <TableHead>Nome</TableHead>
                     <TableHead>Cidade</TableHead>
+                    <TableHead>Palpite</TableHead>
                     <TableHead>Último exame</TableHead>
                     <TableHead>Em Renovação?</TableHead>
                     <TableHead>Coluna Renovação</TableHead>
@@ -498,6 +555,12 @@ export default function CampanhaCopaRelatorioPage() {
                         <div className="text-xs text-muted-foreground">{formatCpf(row.cpf)}</div>
                       </TableCell>
                       <TableCell className="text-sm">{row.cidade || "—"}</TableCell>
+                      <TableCell className="text-sm whitespace-nowrap font-medium">
+                        {row.palpite_texto ||
+                          (row.palpite_brasil != null && row.palpite_marrocos != null
+                            ? `${row.palpite_brasil} x ${row.palpite_marrocos}`
+                            : "—")}
+                      </TableCell>
                       <TableCell className="text-sm max-w-[140px]">
                         {row.ultimo_exame_vista || "—"}
                       </TableCell>
