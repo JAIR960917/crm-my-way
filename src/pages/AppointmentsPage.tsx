@@ -46,7 +46,6 @@ import {
   closeAppointmentRescheduleSnapshots,
   logAppointmentHistory,
 } from "@/lib/appointmentUtils";
-import { consultaPagaFromForma } from "@/components/shared/TratativaContatoForm";
 import AppointmentHistoryPanel from "@/components/appointments/AppointmentHistoryPanel";
 
 type ProdutoItem = { nome: string; valor: string };
@@ -104,9 +103,6 @@ const sortAppointmentsByTime = (list: Appointment[]) =>
 const CONFIRMACAO_OPTIONS = ["Pendente", "Confirmado", "Cancelado"];
 const COMPARECIMENTO_OPTIONS = ["Pendente", "Compareceu", "Não Compareceu"];
 const VENDA_OPTIONS = ["Pendente", "Vendido", "Gerou Orçamento", "Não Gerou Orçamento", "Laudo", "Doença no Olho"];
-const FORMAS_PAGAMENTO_VENDA = [
-  "Dinheiro", "Cartão de Crédito", "Cartão de Débito", "PIX", "Convênio", "Boleto", "Cortesia",
-];
 
 type Company = CompanyWithExamColor;
 type ProfileFull = { user_id: string; full_name: string; company_id: string | null };
@@ -166,7 +162,6 @@ export default function AppointmentsPage() {
   const [saleValor, setSaleValor] = useState("");
   const [salePagamento, setSalePagamento] = useState("");
   const [saleSaving, setSaleSaving] = useState(false);
-  const [saleEntrada, setSaleEntrada] = useState("");
 
   // Não Vendido / Gerou Orçamento dialog
   const [nvDialogOpen, setNvDialogOpen] = useState(false);
@@ -556,12 +551,14 @@ export default function AppointmentsPage() {
     if (field === "venda" && value === "Vendido") {
       setSaleApptId(id);
       setSaleValor("");
-      setSaleEntrada("");
       setSalePagamento("");
       setSaleDialogOpen(true);
       return;
     }
     const payload: Record<string, unknown> = { [field]: value };
+    if (field === "forma_pagamento_consulta" && formaConsultaSemValor(value)) {
+      payload.valor = 0;
+    }
     const { error } = usesTeamAppointmentRpc(apptBefore)
       ? await supabase.rpc("update_crm_appointment_field", {
           p_appointment_id: id,
@@ -593,7 +590,6 @@ export default function AppointmentsPage() {
     if (value === "Vendido") {
       setSaleApptId(editingAppt.id);
       setSaleValor("");
-      setSaleEntrada("");
       setSalePagamento("");
       setSaleDialogOpen(true);
     }
@@ -783,7 +779,6 @@ export default function AppointmentsPage() {
     await supabase.from("crm_appointments").update({
       venda: "Vendido",
       valor_venda: parseFloat(saleValor) || 0,
-      valor_entrada: parseFloat(saleEntrada) || 0,
       forma_pagamento_venda: salePagamento,
     } as any).eq("id", saleApptId);
     if (appt?.lead_id) {
@@ -833,8 +828,17 @@ export default function AppointmentsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formDate || !formPagamentoOculos || !formPagamentoConsulta || !user) return;
-    if (!formaConsultaSemValor(formPagamentoConsulta) && !formValor.trim()) {
+    if (!formDate || !formPagamentoOculos || !user) return;
+    if (!editingAppt && !formConsultaPaga) {
+      toast.error("Informe se a consulta foi paga (Sim ou Não).");
+      return;
+    }
+    const pagamentoConsultaNeeded = !!editingAppt || formConsultaPaga === "sim";
+    if (pagamentoConsultaNeeded && !formPagamentoConsulta) {
+      toast.error("Informe a forma de pagamento da consulta.");
+      return;
+    }
+    if (pagamentoConsultaNeeded && !formaConsultaSemValor(formPagamentoConsulta) && !formValor.trim()) {
       toast.error("Informe o valor da consulta.");
       return;
     }
@@ -845,7 +849,7 @@ export default function AppointmentsPage() {
     const dt = new Date(formDate);
     dt.setHours(h, m, 0, 0);
 
-    const pagaConsulta = consultaPagaFromForma(formPagamentoConsulta);
+    const pagaConsulta = formConsultaPaga === "sim";
     const valorConsulta = formaConsultaSemValor(formPagamentoConsulta)
       ? 0
       : (parseFloat(formValor) || 0);
@@ -1353,20 +1357,43 @@ export default function AppointmentsPage() {
                 <SelectContent>{FORMAS_PAGAMENTO_OCULOS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Pagamento da consulta <span className="text-destructive">*</span></Label>
-              <Select
-                value={formPagamentoConsulta}
-                onValueChange={(v) => {
-                  setFormPagamentoConsulta(v);
-                  if (formaConsultaSemValor(v)) setFormValor("0");
-                }}
-              >
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{FORMAS_PAGAMENTO_CONSULTA.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            {formPagamentoConsulta && !formaConsultaSemValor(formPagamentoConsulta) && (
+            {!editingAppt && (
+              <div className="space-y-1.5">
+                <Label>Consulta paga? <span className="text-destructive">*</span></Label>
+                <Select
+                  value={formConsultaPaga}
+                  onValueChange={(v) => {
+                    setFormConsultaPaga(v);
+                    if (v === "nao") {
+                      setFormPagamentoConsulta("");
+                      setFormValor("");
+                    }
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sim">Sim</SelectItem>
+                    <SelectItem value="nao">Não</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {(!!editingAppt || formConsultaPaga === "sim") && (
+              <div className="space-y-1.5">
+                <Label>Pagamento da consulta <span className="text-destructive">*</span></Label>
+                <Select
+                  value={formPagamentoConsulta}
+                  onValueChange={(v) => {
+                    setFormPagamentoConsulta(v);
+                    if (formaConsultaSemValor(v)) setFormValor("0");
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectContent>{FORMAS_PAGAMENTO_CONSULTA.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            )}
+            {(!!editingAppt || formConsultaPaga === "sim") && formPagamentoConsulta && !formaConsultaSemValor(formPagamentoConsulta) && (
               <div className="space-y-1.5">
                 <Label>Valor (R$) <span className="text-destructive">*</span></Label>
                 <Input type="number" step="0.01" min="0" value={formValor} onChange={e => setFormValor(e.target.value)} required />
@@ -1490,7 +1517,7 @@ export default function AppointmentsPage() {
               </div>
             )}
 
-            <Button type="submit" className="w-full" disabled={saving || !formDate || !formPagamentoOculos || !formPagamentoConsulta || !formNome || !!editingAppt?.is_reschedule_snapshot || !!(editingAppt && isAppointmentInactive(editingAppt))}>
+            <Button type="submit" className="w-full" disabled={saving || !formDate || !formPagamentoOculos || !formNome || (!editingAppt && !formConsultaPaga) || ((!!editingAppt || formConsultaPaga === "sim") && !formPagamentoConsulta) || !!editingAppt?.is_reschedule_snapshot || !!(editingAppt && isAppointmentInactive(editingAppt))}>
               {saving ? "Salvando..." : editingAppt ? (isAppointmentInactive(editingAppt) ? "Somente leitura" : "Atualizar") : "Criar Agendamento"}
             </Button>
             </>
@@ -1558,15 +1585,11 @@ export default function AppointmentsPage() {
               <Input type="number" step="0.01" min="0" value={saleValor} onChange={(e) => setSaleValor(e.target.value)} placeholder="0.00" />
             </div>
             <div className="space-y-1.5">
-              <Label>Valor da Entrada (R$)</Label>
-              <Input type="number" step="0.01" min="0" value={saleEntrada} onChange={(e) => setSaleEntrada(e.target.value)} placeholder="0.00" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Forma de Pagamento <span className="text-destructive">*</span></Label>
+              <Label>Forma de pagamento do Óculos <span className="text-destructive">*</span></Label>
               <Select value={salePagamento} onValueChange={setSalePagamento}>
                 <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
                 <SelectContent>
-                  {FORMAS_PAGAMENTO_VENDA.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                  {FORMAS_PAGAMENTO_OCULOS.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

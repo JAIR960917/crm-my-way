@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import {
   consultaPaymentLabel,
+  FORMAS_PAGAMENTO_CONSULTA,
   formatRescheduleNote,
   getAppointmentRowColor,
   glassesPaymentLabel,
@@ -199,8 +200,22 @@ export default function AppointmentsListTable({
                       <>R$ {Number(appt.valor).toFixed(2)}</>
                     )}
                   </td>
-                  <td className="px-2 py-1.5 align-middle whitespace-nowrap" title={consultaPaymentLabel(appt)}>
-                    {consultaPaymentLabel(appt)}
+                  <td className="px-2 py-1.5 align-middle whitespace-nowrap">
+                    {isSnapshot ? (
+                      <span title={consultaPaymentLabel(appt)}>{consultaPaymentLabel(appt)}</span>
+                    ) : (
+                      <Select
+                        value={appt.forma_pagamento_consulta || ""}
+                        onValueChange={(v) => onUpdateField(appt.id, "forma_pagamento_consulta", v)}
+                      >
+                        <SelectTrigger className="h-7 text-[11px] w-[96px] shrink-0 px-2">
+                          <SelectValue placeholder="—" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {FORMAS_PAGAMENTO_CONSULTA.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </td>
                   <td className="px-2 py-1.5 align-middle whitespace-nowrap">
                     {isSnapshot ? (
