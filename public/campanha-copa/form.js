@@ -375,6 +375,13 @@
     return checked ? checked.value : "";
   }
 
+  function getCheckboxValues(name) {
+    var checked = form.querySelectorAll('input[name="' + name + '"]:checked');
+    return Array.from(checked).map(function (el) {
+      return el.value;
+    });
+  }
+
   function maskCpf(value) {
     var d = (value || "").replace(/\D/g, "").slice(0, 11);
     if (d.length <= 3) return d;
@@ -484,6 +491,8 @@
       cidade: municipio && uf ? municipio + "/" + uf : municipio || uf,
       telefone: document.getElementById("telefone").value.trim(),
       usa_oculos: getRadioValue("usa_oculos"),
+      sintomas: getCheckboxValues("sintomas"),
+      doencas: getCheckboxValues("doencas"),
       ultimo_exame_vista: document.getElementById("ultimo_exame_vista").value,
       palpite_home: parseInt(document.getElementById("palpite_home").value, 10),
       palpite_away: parseInt(document.getElementById("palpite_away").value, 10),

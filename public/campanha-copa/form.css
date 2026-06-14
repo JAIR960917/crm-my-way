@@ -430,7 +430,8 @@ select.text-input:disabled {
   line-height: 1;
 }
 
-.radio-group {
+.radio-group,
+.checkbox-group {
   display: flex;
   flex-direction: column;
   gap: 10px;

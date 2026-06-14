@@ -14,6 +14,8 @@ export type CampanhaCopaSubmission = {
   cidade: string | null;
   telefone: string;
   usa_oculos: string | null;
+  sintomas: string[] | null;
+  doencas: string[] | null;
   ultimo_exame_vista: string | null;
   palpite_brasil: number | null;
   palpite_marrocos: number | null;
@@ -110,6 +112,40 @@ export default function CampanhaCopaSubmissionDialog({
             />
 
             <ReadField label="Último exame de vista" value={submission.ultimo_exame_vista || "—"} />
+
+            <ReadField
+              label="Sintomas"
+              value={
+                submission.sintomas && submission.sintomas.length > 0 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {submission.sintomas.map((sintoma) => (
+                      <Badge key={sintoma} variant="outline">
+                        {sintoma}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  "—"
+                )
+              }
+            />
+
+            <ReadField
+              label="Doenças"
+              value={
+                submission.doencas && submission.doencas.length > 0 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {submission.doencas.map((doenca) => (
+                      <Badge key={doenca} variant="outline">
+                        {doenca}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  "—"
+                )
+              }
+            />
 
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Jogo</Label>

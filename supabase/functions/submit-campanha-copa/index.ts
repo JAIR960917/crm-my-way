@@ -26,6 +26,13 @@ function cleanCpf(cpf: string): string {
   return (cpf || "").replace(/\D/g, "");
 }
 
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || "").trim())
+    .filter((item) => item.length > 0);
+}
+
 function isValidCpf(cpf: string): boolean {
   if (cpf.length !== 11) return false;
   if (/^(\d)\1+$/.test(cpf)) return false;
@@ -126,6 +133,8 @@ serve(async (req) => {
     const cidade = String(body.cidade || "").trim();
     const telefoneRaw = String(body.telefone || "").trim();
     const usaOculos = String(body.usa_oculos || "").trim();
+    const sintomas = toStringArray(body.sintomas);
+    const doencas = toStringArray(body.doencas);
     const ultimoExame = String(body.ultimo_exame_vista || "").trim();
     const palpiteHome = Number(body.palpite_home ?? body.palpite_brasil);
     const palpiteAway = Number(body.palpite_away ?? body.palpite_marrocos);
@@ -204,6 +213,8 @@ serve(async (req) => {
       idade,
       cidade,
       usa_oculos: usaOculosNorm,
+      sintomas,
+      doencas,
       palpite_home: palpiteHome,
       palpite_away: palpiteAway,
       palpite_brasil: palpiteHome,
@@ -244,6 +255,8 @@ serve(async (req) => {
         cidade,
         telefone,
         usa_oculos: usaOculosNorm,
+        sintomas,
+        doencas,
         ultimo_exame_vista: ultimoExame,
         palpite_brasil: palpiteHome,
         palpite_marrocos: palpiteAway,
