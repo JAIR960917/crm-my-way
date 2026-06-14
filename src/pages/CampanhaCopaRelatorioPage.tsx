@@ -195,8 +195,8 @@ export default function CampanhaCopaRelatorioPage() {
     [profiles],
   );
 
-  const empresaBase = Math.max(1, metrics.prospect);
-  const exameBase = Math.max(1, metrics.prospect);
+  const empresaBase = Math.max(1, metrics.total);
+  const exameBase = Math.max(1, metrics.total);
 
   if (!isAdmin) {
     return <Navigate to="/campanhas-copa" replace />;
