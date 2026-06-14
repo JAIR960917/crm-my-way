@@ -127,8 +127,8 @@
       </section>
 
       <section class="field-block">
-        <p class="field-label">Você sente algum desses sintomas?</p>
-        <p class="field-hint">Selecione todos os sintomas que você sente (se houver).</p>
+        <p class="field-label">Você sente algum desses sintomas? <span class="req">*</span></p>
+        <p class="field-hint">Selecione todos os sintomas que você sente (ou "Nenhum Sintoma").</p>
         <div class="checkbox-group">
           <label class="checkbox-item"><input type="checkbox" name="sintomas" value="Dor de cabeça" /> Dor de
             cabeça</label>
@@ -152,6 +152,7 @@
           <label class="checkbox-item"><input type="checkbox" name="sintomas" value="Nenhum" /> Nenhum
             Sintoma</label>
         </div>
+        <p id="sintomas-error" class="field-error" hidden></p>
       </section>
 
       <section class="field-block">

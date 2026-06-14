@@ -13,6 +13,8 @@
   var estadoSelect = document.getElementById("estado");
   var cidadeSelect = document.getElementById("cidade_municipio");
   var cidadeErrorEl = document.getElementById("cidade-error");
+  var sintomasErrorEl = document.getElementById("sintomas-error");
+  var sintomasCheckboxes = document.querySelectorAll('input[name="sintomas"]');
 
   var currentJogoKey = "";
   var pixelSuccessSnippet = "";
@@ -383,6 +385,34 @@
     });
   }
 
+  function showSintomasError(msg) {
+    if (!sintomasErrorEl) return;
+    if (msg) {
+      sintomasErrorEl.textContent = msg;
+      sintomasErrorEl.hidden = false;
+    } else {
+      sintomasErrorEl.hidden = true;
+      sintomasErrorEl.textContent = "";
+    }
+  }
+
+  function validateSintomasField() {
+    if (getCheckboxValues("sintomas").length === 0) {
+      showSintomasError("Selecione ao menos uma opção (ou \"Nenhum Sintoma\").");
+      return false;
+    }
+    showSintomasError("");
+    return true;
+  }
+
+  Array.from(sintomasCheckboxes).forEach(function (el) {
+    el.addEventListener("change", function () {
+      if (getCheckboxValues("sintomas").length > 0) {
+        showSintomasError("");
+      }
+    });
+  });
+
   function maskCpf(value) {
     var d = (value || "").replace(/\D/g, "").slice(0, 11);
     if (d.length <= 3) return d;
@@ -521,6 +551,11 @@
 
     if (!validateCpfField()) {
       cpfInput.focus();
+      return;
+    }
+
+    if (!validateSintomasField()) {
+      if (sintomasErrorEl) sintomasErrorEl.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
 
