@@ -452,9 +452,38 @@ export async function fetchCampanhaCopaRelatorioMeta(): Promise<{
   };
 }
 
-function csvEscape(value: string | number | boolean | null | undefined): string {
+const CSV_DELIMITER = ",";
+
+function sanitizeCsvCell(value: string | number | boolean | null | undefined): string {
   const text = value == null ? "" : String(value);
+  return text
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/\r\n|\r|\n/g, " ")
+    .trim();
+}
+
+function csvEscape(value: string | number | boolean | null | undefined): string {
+  const text = sanitizeCsvCell(value);
   return `"${text.replace(/"/g, '""')}"`;
+}
+
+/** CPF/telefone como texto no Google Planilhas e Excel (evita notação científica). */
+function csvTextCell(value: string | number | boolean | null | undefined): string {
+  const text = sanitizeCsvCell(value);
+  if (!text) return '""';
+  return `"'\t${text.replace(/"/g, '""')}"`;
+}
+
+function formatCsvDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function sanitizeCsvFilename(part: string): string {
+  return part.replace(/[^\w.-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "export";
 }
 
 export function exportCampanhaCopaPlacarCsv(
@@ -470,20 +499,20 @@ export function exportCampanhaCopaPlacarCsv(
     "Idade",
     "Palpite",
     "Jogo",
-    "Último exame",
-    "Em Renovação",
+    "Ultimo exame",
+    "Em Renovacao",
     "Loja",
-    "Responsável",
-    "Data inscrição",
+    "Responsavel",
+    "Data inscricao",
   ];
 
   const lines = [
-    headers.join(";"),
+    headers.join(CSV_DELIMITER),
     ...rows.map((row) =>
       [
         csvEscape(row.nome),
-        csvEscape(row.cpf),
-        csvEscape(row.telefone),
+        csvTextCell(row.cpf),
+        csvTextCell(row.telefone),
         csvEscape(row.cidade),
         csvEscape(row.idade),
         csvEscape(row.palpite_texto || `${row.palpite_brasil ?? "?"} x ${row.palpite_marrocos ?? "?"}`),
@@ -498,20 +527,23 @@ export function exportCampanhaCopaPlacarCsv(
               : row.company_name,
         ),
         csvEscape(profileName(row.assigned_to)),
-        csvEscape(row.created_at ? new Date(row.created_at).toLocaleString("pt-BR") : ""),
-      ].join(";"),
+        csvEscape(formatCsvDate(row.created_at)),
+      ].join(CSV_DELIMITER),
     ),
   ];
 
-  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], {
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n") + "\r\n"], {
     type: "text/csv;charset=utf-8",
   });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `campanha-copa-placar-${placar.replace(/\s+/g, "-")}.csv`;
+  anchor.download = `campanha-copa-placar-${sanitizeCsvFilename(placar.replace(/\s+/g, "-"))}.csv`;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  document.body.removeChild(anchor);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export function renovacaoMatchLabel(match: RenovacaoMatch): string {
