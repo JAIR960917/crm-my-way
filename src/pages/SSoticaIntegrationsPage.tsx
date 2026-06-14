@@ -654,7 +654,7 @@ export default function SSoticaIntegrationsPage() {
               <Plug className="h-6 w-6" /> Integrações SSótica
             </h1>
             <p className="text-muted-foreground text-sm">
-              Configure o token de acesso de cada loja. A sincronização automática está desativada — cada loja só sincroniza ao clicar em <strong>Sincronizar</strong> ou <strong>Backfill 96m</strong>.
+              Configure o token de acesso de cada loja. Os backfills de Renovação e Cobrança rodam automaticamente a cada 6 horas em sequência loja por loja.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -674,17 +674,14 @@ export default function SSoticaIntegrationsPage() {
           </div>
         </div>
 
-        {/* Aviso: sincronização automática desativada — agora é só manual */}
+        {/* Aviso: sincronização automática de backfill ativa */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Clock className="h-4 w-4" /> Sincronização manual
+              <Clock className="h-4 w-4" /> Sincronização e Backfill Automáticos
             </CardTitle>
             <CardDescription>
-              A sincronização automática está <strong>desativada</strong>. Cada loja só sincroniza
-              quando você clicar em <strong>Sincronizar</strong> no card dela abaixo. Assim, você
-              evita disputa de recursos entre as lojas e garante que a atualização da loja escolhida
-              vá até o fim.
+              O backfill de 96 meses é executado automaticamente <strong>a cada 6 horas</strong> em lote e em sequência: primeiro o de <strong>Renovação</strong> de uma loja, quando conclui inicia o de <strong>Cobrança</strong>, e ao final segue consecutivamente pelas demais lojas. Você também pode disparar a sincronização manualmente no card de cada loja abaixo.
             </CardDescription>
           </CardHeader>
         </Card>

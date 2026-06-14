@@ -83,6 +83,42 @@ async function setManualBackfillOwner(supabase: any, integrationId: string | nul
   }
 }
 
+const AUTO_BACKFILL_ACTIVE_KEY = "ssotica_auto_backfill_active_id";
+
+async function getAutoBackfillActiveId(supabase: any): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("system_settings")
+    .select("setting_value")
+    .eq("setting_key", AUTO_BACKFILL_ACTIVE_KEY)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(`[ssotica-sync][auto-backfill] falha ao ler active auto backfill: ${error.message}`);
+    return null;
+  }
+
+  const value = typeof data?.setting_value === "string" ? data.setting_value.trim() : "";
+  return value || null;
+}
+
+async function setAutoBackfillActiveId(supabase: any, integrationId: string | null): Promise<void> {
+  const { error } = await supabase
+    .from("system_settings")
+    .upsert(
+      {
+        setting_key: AUTO_BACKFILL_ACTIVE_KEY,
+        setting_value: integrationId ?? "",
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "setting_key" },
+    );
+
+  if (error) {
+    console.warn(`[ssotica-sync][auto-backfill] falha ao salvar active auto backfill: ${error.message}`);
+  }
+}
+
+
 async function pauseOtherIntegrations(supabase: any, integrationId: string, reason: string): Promise<void> {
   const pauseFields = {
     sync_status: "idle",
@@ -2470,6 +2506,91 @@ async function runBackfillChunk(
       }
     }
 
+    if (finished && !wasPausedByUser) {
+      const autoActiveId = await getAutoBackfillActiveId(supabase);
+      if (autoActiveId === integ.id) {
+        if (scope === "renovacoes") {
+          console.log(`[ssotica-sync][auto-backfill] empresa=${integ.company_id} Backfill de Renovação concluído. Iniciando Backfill de Cobrança.`);
+          await supabase
+            .from("ssotica_integrations")
+            .update({
+              backfill_status: "scheduled",
+              backfill_next_run_at: finishedAt,
+              backfill_chunk_index: 0,
+              backfill_phase: "cr",
+              backfill_scope: "cobrancas",
+              sync_status: "idle",
+              updated_at: finishedAt,
+            })
+            .eq("id", integ.id);
+
+          try {
+            await enqueueSsoticaSyncDispatch(
+              supabase,
+              dispatchConfig,
+              { integration_id: integ.id, force_full: false, continue_backfill: true },
+              `iniciar auto backfill cobrancas para ${integ.company_id}`,
+            );
+          } catch (dispatchError) {
+            console.error(`[ssotica-sync][auto-backfill] empresa=${integ.company_id} falha ao disparar cobrancas:`, dispatchError);
+          }
+        } else if (scope === "cobrancas") {
+          console.log(`[ssotica-sync][auto-backfill] empresa=${integ.company_id} Ambos os Backfills concluídos. Buscando próxima empresa.`);
+          const { data: companies } = await supabase
+            .from("companies")
+            .select("id, name")
+            .order("name", { ascending: true });
+
+          const { data: integrations } = await supabase
+            .from("ssotica_integrations")
+            .select("*")
+            .eq("is_active", true);
+
+          const activeIntegs = (integrations || [])
+            .map((i: any) => {
+              const comp = (companies || []).find((c: any) => c.id === i.company_id);
+              return { ...i, company_name: comp?.name || "" };
+            })
+            .sort((a: any, b: any) => a.company_name.localeCompare(b.company_name));
+
+          const curIndex = activeIntegs.findIndex((i: any) => i.id === integ.id);
+          const nextInteg = curIndex !== -1 ? activeIntegs[curIndex + 1] : null;
+
+          if (nextInteg) {
+            console.log(`[ssotica-sync][auto-backfill] Iniciando Backfill de Renovação para a próxima empresa: ${nextInteg.company_name}`);
+            await setAutoBackfillActiveId(supabase, nextInteg.id);
+
+            await supabase
+              .from("ssotica_integrations")
+              .update({
+                backfill_status: "scheduled",
+                backfill_next_run_at: finishedAt,
+                backfill_chunk_index: 0,
+                backfill_phase: "vendas",
+                backfill_scope: "renovacoes",
+                sync_status: "idle",
+                updated_at: finishedAt,
+              })
+              .eq("id", nextInteg.id);
+
+            try {
+              await enqueueSsoticaSyncDispatch(
+                supabase,
+                dispatchConfig,
+                { integration_id: nextInteg.id, force_full: false, continue_backfill: true },
+                `iniciar auto backfill renovacoes para ${nextInteg.company_name}`,
+              );
+            } catch (dispatchError) {
+              console.error(`[ssotica-sync][auto-backfill] falha ao disparar próxima empresa ${nextInteg.company_name}:`, dispatchError);
+            }
+          } else {
+            console.log(`[ssotica-sync][auto-backfill] Ciclo automático de backfill finalizado com sucesso para todas as empresas.`);
+            await setAutoBackfillActiveId(supabase, null);
+          }
+        }
+      }
+    }
+
     // Finalização por escopo:
     //  - all: executa a limpeza final completa + reconciliação.
     //  - renovacoes: apenas reconciliação defensiva entre renovação e cobrança.
@@ -2731,17 +2852,46 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ========== MODO 1 (DESATIVADO): backfill_tick.
-    // Sincronização agora é 100% manual — uma loja por vez. O modo de fan-out
-    // automático foi removido para evitar que múltiplas lojas disparem em
-    // paralelo, sobrecarregando a SSótica e causando timeouts.
+    // ========== MODO 1: backfill_tick (reativado para cron automático) ==========
+    // Retoma automaticamente o backfill ativo do ciclo se ele estiver agendado
+    // e com o tempo de execução vencido.
     if (mode === "backfill_tick") {
-      return new Response(JSON.stringify({
-        ok: false,
-        error: "mode_disabled",
-        message: "O modo backfill_tick foi desativado. Sincronização é manual: dispare cada loja individualmente.",
-      }), { status: 410, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const autoBackfillActiveId = await getAutoBackfillActiveId(supabase);
+      if (!autoBackfillActiveId) {
+        return new Response(JSON.stringify({ ok: true, message: "Nenhum backfill automático ativo para retomar" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: integ, error } = await supabase
+        .from("ssotica_integrations")
+        .select("*")
+        .eq("id", autoBackfillActiveId)
+        .eq("is_active", true)
+        .eq("backfill_status", "scheduled")
+        .lte("backfill_next_run_at", new Date().toISOString())
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!integ) {
+        return new Response(JSON.stringify({ ok: true, message: "Nenhum lote agendado/vencido para a integração ativa" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Dispara a execução do próximo lote
+      await enqueueSsoticaSyncDispatch(
+        supabase,
+        dispatchConfig,
+        { integration_id: integ.id, force_full: false, continue_backfill: true },
+        `retomar backfill automático via tick`,
+      );
+
+      return new Response(JSON.stringify({ ok: true, message: `Disparado lote para retomar backfill automático da integração ${integ.id}` }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
+
 
     // ========== MODO 2: consolidar cobranças cross-store sem reimportar dados ==========
     if (mode === "consolidate_only") {
@@ -3084,15 +3234,86 @@ Deno.serve(async (req) => {
     // ========== MODO 4 (default): sync incremental ==========
     // Sincronização é 100% manual: integration_id é OBRIGATÓRIO. Fan-out automático
     // para todas as lojas foi removido — cada loja é disparada individualmente pela UI.
+    // AGORA: Se não houver integration_id, inicia o ciclo automático de backfill a cada 6 horas.
     if (!onlyIntegrationId) {
+      console.log("[ssotica-sync][auto-backfill] Iniciando ciclo automático de backfill a cada 6 horas");
+      const { data: companies } = await supabase
+        .from("companies")
+        .select("id, name")
+        .order("name", { ascending: true });
+
+      const { data: integrations } = await supabase
+        .from("ssotica_integrations")
+        .select("*")
+        .eq("is_active", true);
+
+      const activeIntegs = (integrations || [])
+        .map((i: any) => {
+          const comp = (companies || []).find((c: any) => c.id === i.company_id);
+          return { ...i, company_name: comp?.name || "" };
+        })
+        .sort((a: any, b: any) => a.company_name.localeCompare(b.company_name));
+
+      if (activeIntegs.length === 0) {
+        return new Response(JSON.stringify({ ok: true, message: "Nenhuma integração ativa para backfill" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Start with the first integration
+      const firstInteg = activeIntegs[0];
+      const nowIso = new Date().toISOString();
+
+      // Pause/idle all other integrations to prevent overlap
+      const activeIds = activeIntegs.map((i: any) => i.id);
+      await supabase
+        .from("ssotica_integrations")
+        .update({
+          backfill_status: "idle",
+          backfill_next_run_at: null,
+          sync_status: "idle",
+          updated_at: nowIso,
+        })
+        .in("id", activeIds)
+        .neq("id", firstInteg.id);
+
+      // Set the active auto backfill integration ID
+      await setAutoBackfillActiveId(supabase, firstInteg.id);
+
+      // Configure the first integration to start with Renewal (vendas) backfill
+      await supabase
+        .from("ssotica_integrations")
+        .update({
+          backfill_status: "scheduled",
+          backfill_next_run_at: nowIso,
+          backfill_chunk_index: 0,
+          backfill_phase: "vendas",
+          backfill_scope: "renovacoes",
+          sync_status: "idle",
+          updated_at: nowIso,
+        })
+        .eq("id", firstInteg.id);
+
+      // Trigger the execution
+      await enqueueSsoticaSyncDispatch(
+        supabase,
+        dispatchConfig,
+        { integration_id: firstInteg.id, force_full: false, continue_backfill: true },
+        `iniciar auto backfill ciclo para ${firstInteg.company_name}`,
+      );
+
       return new Response(JSON.stringify({
-        ok: false,
-        error: "integration_id_required",
-        message: "integration_id é obrigatório. Sincronização global automática foi desativada — dispare cada loja manualmente.",
-      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        ok: true,
+        message: `Ciclo automático de backfill iniciado. Loja inicial: ${firstInteg.company_name}`,
+        first_integration_id: firstInteg.id,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
+
     const manualOwnerIntegrationId = await getManualBackfillOwner(supabase);
+    const autoBackfillActiveId = await getAutoBackfillActiveId(supabase);
     const isManualSingle = !!onlyIntegrationId && manualRecent;
     const continueBackfill = body.continue_backfill === true;
     if (continueBackfill && onlyIntegrationId) {
@@ -3101,8 +3322,10 @@ Deno.serve(async (req) => {
     const isOwnerContinuation =
       (!!manualOwnerIntegrationId && manualOwnerIntegrationId === onlyIntegrationId) ||
       continueBackfill;
+    const isAutoBackfillContinuation =
+      !!autoBackfillActiveId && autoBackfillActiveId === onlyIntegrationId;
 
-    if (!isManualSingle && !isOwnerContinuation) {
+    if (!isManualSingle && !isOwnerContinuation && !isAutoBackfillContinuation) {
       return automaticSyncDisabledResponse(manualOwnerIntegrationId);
     }
 
