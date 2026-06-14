@@ -3,6 +3,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { assertCronServiceRoleOrStaff, internalCorsHeaders } from "../_shared/internalAuth.ts";
 import {
+  loadSsoticaAutoSyncConfig,
+  setSsoticaAutoSyncLastTrigger,
+  shouldStartScheduledCycle,
+} from "../_shared/ssoticaAutoSync.ts";
+import {
   getClienteBucketKey,
   getClienteCpfDigits,
   isParcelaQuitada,
@@ -323,6 +328,75 @@ async function enqueueSsoticaSyncDispatch(
   });
   if (dispatchErr) throw dispatchErr;
   return "rpc";
+}
+
+async function startAutoBackfillCycle(
+  supabase: any,
+  dispatchConfig: DispatchConfig,
+): Promise<{ ok: boolean; message: string; first_integration_id?: string }> {
+  const { data: companies } = await supabase
+    .from("companies")
+    .select("id, name")
+    .order("name", { ascending: true });
+
+  const { data: integrations } = await supabase
+    .from("ssotica_integrations")
+    .select("*")
+    .eq("is_active", true);
+
+  const activeIntegs = (integrations || [])
+    .map((i: any) => {
+      const comp = (companies || []).find((c: any) => c.id === i.company_id);
+      return { ...i, company_name: comp?.name || "" };
+    })
+    .sort((a: any, b: any) => a.company_name.localeCompare(b.company_name));
+
+  if (activeIntegs.length === 0) {
+    return { ok: true, message: "Nenhuma integração ativa para backfill" };
+  }
+
+  const firstInteg = activeIntegs[0];
+  const nowIso = new Date().toISOString();
+  const activeIds = activeIntegs.map((i: any) => i.id);
+
+  await supabase
+    .from("ssotica_integrations")
+    .update({
+      backfill_status: "idle",
+      backfill_next_run_at: null,
+      sync_status: "idle",
+      updated_at: nowIso,
+    })
+    .in("id", activeIds)
+    .neq("id", firstInteg.id);
+
+  await setAutoBackfillActiveId(supabase, firstInteg.id);
+
+  await supabase
+    .from("ssotica_integrations")
+    .update({
+      backfill_status: "scheduled",
+      backfill_next_run_at: nowIso,
+      backfill_chunk_index: 0,
+      backfill_phase: "vendas",
+      backfill_scope: "renovacoes",
+      sync_status: "idle",
+      updated_at: nowIso,
+    })
+    .eq("id", firstInteg.id);
+
+  await enqueueSsoticaSyncDispatch(
+    supabase,
+    dispatchConfig,
+    { integration_id: firstInteg.id, force_full: false, continue_backfill: true },
+    `iniciar auto backfill ciclo para ${firstInteg.company_name}`,
+  );
+
+  return {
+    ok: true,
+    message: `Ciclo automático de backfill iniciado. Loja inicial: ${firstInteg.company_name}`,
+    first_integration_id: firstInteg.id,
+  };
 }
 
 // Quebra um intervalo em janelas de até 30 dias (limite SSótica)
@@ -2508,7 +2582,8 @@ async function runBackfillChunk(
 
     if (finished && !wasPausedByUser) {
       const autoActiveId = await getAutoBackfillActiveId(supabase);
-      if (autoActiveId === integ.id) {
+      const autoSyncConfig = await loadSsoticaAutoSyncConfig(supabase);
+      if (autoActiveId === integ.id && autoSyncConfig.enabled) {
         if (scope === "renovacoes") {
           console.log(`[ssotica-sync][auto-backfill] empresa=${integ.company_id} Backfill de Renovação concluído. Iniciando Backfill de Cobrança.`);
           await supabase
@@ -2852,42 +2927,87 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ========== MODO 1: backfill_tick (reativado para cron automático) ==========
-    // Retoma automaticamente o backfill ativo do ciclo se ele estiver agendado
-    // e com o tempo de execução vencido.
+    // ========== MODO 1: backfill_tick (cron automático) ==========
+    // Retoma backfill em andamento ou inicia novo ciclo nos horários configurados.
     if (mode === "backfill_tick") {
+      const autoSyncConfig = await loadSsoticaAutoSyncConfig(supabase);
       const autoBackfillActiveId = await getAutoBackfillActiveId(supabase);
-      if (!autoBackfillActiveId) {
-        return new Response(JSON.stringify({ ok: true, message: "Nenhum backfill automático ativo para retomar" }), {
+
+      if (autoBackfillActiveId && autoSyncConfig.enabled) {
+        const { data: integ, error } = await supabase
+          .from("ssotica_integrations")
+          .select("*")
+          .eq("id", autoBackfillActiveId)
+          .eq("is_active", true)
+          .eq("backfill_status", "scheduled")
+          .lte("backfill_next_run_at", new Date().toISOString())
+          .maybeSingle();
+
+        if (error) throw error;
+        if (integ) {
+          await enqueueSsoticaSyncDispatch(
+            supabase,
+            dispatchConfig,
+            { integration_id: integ.id, force_full: false, continue_backfill: true },
+            `retomar backfill automático via tick`,
+          );
+
+          return new Response(JSON.stringify({
+            ok: true,
+            message: `Disparado lote para retomar backfill automático da integração ${integ.id}`,
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
+      if (!autoSyncConfig.enabled) {
+        return new Response(JSON.stringify({
+          ok: true,
+          message: "Sincronização automática desativada",
+        }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      const { data: integ, error } = await supabase
-        .from("ssotica_integrations")
-        .select("*")
-        .eq("id", autoBackfillActiveId)
-        .eq("is_active", true)
-        .eq("backfill_status", "scheduled")
-        .lte("backfill_next_run_at", new Date().toISOString())
-        .maybeSingle();
-
-      if (error) throw error;
-      if (!integ) {
-        return new Response(JSON.stringify({ ok: true, message: "Nenhum lote agendado/vencido para a integração ativa" }), {
+      const schedule = shouldStartScheduledCycle(autoSyncConfig);
+      if (schedule.start && schedule.triggerKey) {
+        await setSsoticaAutoSyncLastTrigger(supabase, schedule.triggerKey);
+        const result = await startAutoBackfillCycle(supabase, dispatchConfig);
+        return new Response(JSON.stringify(result), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      // Dispara a execução do próximo lote
-      await enqueueSsoticaSyncDispatch(
-        supabase,
-        dispatchConfig,
-        { integration_id: integ.id, force_full: false, continue_backfill: true },
-        `retomar backfill automático via tick`,
-      );
+      return new Response(JSON.stringify({
+        ok: true,
+        message: autoBackfillActiveId
+          ? "Nenhum lote agendado/vencido para a integração ativa"
+          : "Nenhum horário agendado para este minuto",
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-      return new Response(JSON.stringify({ ok: true, message: `Disparado lote para retomar backfill automático da integração ${integ.id}` }), {
+    // ========== MODO 1b: iniciar ciclo automático manualmente (UI) ==========
+    if (mode === "start_auto_cycle") {
+      const autoSyncConfig = await loadSsoticaAutoSyncConfig(supabase);
+      if (!autoSyncConfig.enabled) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: "auto_sync_disabled",
+          message: "A sincronização automática está desativada. Ative nas configurações da página de integrações.",
+        }), {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const busy = await getOtherBusyIntegration(supabase, "");
+      if (busy) return busyResponse(busy);
+
+      const result = await startAutoBackfillCycle(supabase, dispatchConfig);
+      return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -3232,98 +3352,31 @@ Deno.serve(async (req) => {
     }
 
     // ========== MODO 4 (default): sync incremental ==========
-    // Sincronização é 100% manual: integration_id é OBRIGATÓRIO. Fan-out automático
-    // para todas as lojas foi removido — cada loja é disparada individualmente pela UI.
-    // AGORA: Se não houver integration_id, inicia o ciclo automático de backfill a cada 6 horas.
+    // Sincronização manual: integration_id é OBRIGATÓRIO.
     if (!onlyIntegrationId) {
-      console.log("[ssotica-sync][auto-backfill] Iniciando ciclo automático de backfill a cada 6 horas");
-      const { data: companies } = await supabase
-        .from("companies")
-        .select("id, name")
-        .order("name", { ascending: true });
-
-      const { data: integrations } = await supabase
-        .from("ssotica_integrations")
-        .select("*")
-        .eq("is_active", true);
-
-      const activeIntegs = (integrations || [])
-        .map((i: any) => {
-          const comp = (companies || []).find((c: any) => c.id === i.company_id);
-          return { ...i, company_name: comp?.name || "" };
-        })
-        .sort((a: any, b: any) => a.company_name.localeCompare(b.company_name));
-
-      if (activeIntegs.length === 0) {
-        return new Response(JSON.stringify({ ok: true, message: "Nenhuma integração ativa para backfill" }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      // Start with the first integration
-      const firstInteg = activeIntegs[0];
-      const nowIso = new Date().toISOString();
-
-      // Pause/idle all other integrations to prevent overlap
-      const activeIds = activeIntegs.map((i: any) => i.id);
-      await supabase
-        .from("ssotica_integrations")
-        .update({
-          backfill_status: "idle",
-          backfill_next_run_at: null,
-          sync_status: "idle",
-          updated_at: nowIso,
-        })
-        .in("id", activeIds)
-        .neq("id", firstInteg.id);
-
-      // Set the active auto backfill integration ID
-      await setAutoBackfillActiveId(supabase, firstInteg.id);
-
-      // Configure the first integration to start with Renewal (vendas) backfill
-      await supabase
-        .from("ssotica_integrations")
-        .update({
-          backfill_status: "scheduled",
-          backfill_next_run_at: nowIso,
-          backfill_chunk_index: 0,
-          backfill_phase: "vendas",
-          backfill_scope: "renovacoes",
-          sync_status: "idle",
-          updated_at: nowIso,
-        })
-        .eq("id", firstInteg.id);
-
-      // Trigger the execution
-      await enqueueSsoticaSyncDispatch(
-        supabase,
-        dispatchConfig,
-        { integration_id: firstInteg.id, force_full: false, continue_backfill: true },
-        `iniciar auto backfill ciclo para ${firstInteg.company_name}`,
-      );
-
       return new Response(JSON.stringify({
-        ok: true,
-        message: `Ciclo automático de backfill iniciado. Loja inicial: ${firstInteg.company_name}`,
-        first_integration_id: firstInteg.id,
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+        ok: false,
+        error: "integration_id_required",
+        message: "integration_id é obrigatório. Use o botão Sincronizar de cada loja ou o modo start_auto_cycle.",
+      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
 
     const manualOwnerIntegrationId = await getManualBackfillOwner(supabase);
     const autoBackfillActiveId = await getAutoBackfillActiveId(supabase);
+    const autoSyncConfig = await loadSsoticaAutoSyncConfig(supabase);
     const isManualSingle = !!onlyIntegrationId && manualRecent;
     const continueBackfill = body.continue_backfill === true;
-    if (continueBackfill && onlyIntegrationId) {
+    const isAutoBackfillContinuation =
+      autoSyncConfig.enabled &&
+      !!autoBackfillActiveId &&
+      autoBackfillActiveId === onlyIntegrationId;
+    if (continueBackfill && onlyIntegrationId && !isAutoBackfillContinuation) {
       await setManualBackfillOwner(supabase, onlyIntegrationId);
     }
     const isOwnerContinuation =
       (!!manualOwnerIntegrationId && manualOwnerIntegrationId === onlyIntegrationId) ||
-      continueBackfill;
-    const isAutoBackfillContinuation =
-      !!autoBackfillActiveId && autoBackfillActiveId === onlyIntegrationId;
+      (continueBackfill && !isAutoBackfillContinuation);
 
     if (!isManualSingle && !isOwnerContinuation && !isAutoBackfillContinuation) {
       return automaticSyncDisabledResponse(manualOwnerIntegrationId);

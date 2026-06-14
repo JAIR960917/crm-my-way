@@ -47,6 +47,7 @@ import {
   StopCircle,
 } from "lucide-react";
 import { UserMappingDialog } from "@/components/ssotica/UserMappingDialog";
+import SSoticaAutoSyncConfigCard from "@/components/ssotica/SSoticaAutoSyncConfigCard";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -250,6 +251,14 @@ export default function SSoticaIntegrationsPage() {
         }, { count: "exact" })
         .or("backfill_status.in.(running,scheduled),sync_status.eq.running");
       if (error) throw error;
+      await supabase.from("system_settings").upsert(
+        {
+          setting_key: "ssotica_auto_backfill_active_id",
+          setting_value: "",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "setting_key" },
+      );
       toast({
         title: "Backfills interrompidos",
         description: `${count ?? 0} loja(s) tiveram o backfill parado. Agora dispare manualmente uma de cada vez.`,
@@ -654,7 +663,7 @@ export default function SSoticaIntegrationsPage() {
               <Plug className="h-6 w-6" /> Integrações SSótica
             </h1>
             <p className="text-muted-foreground text-sm">
-              Configure o token de acesso de cada loja. Os backfills de Renovação e Cobrança rodam automaticamente a cada 6 horas em sequência loja por loja.
+              Configure o token de acesso de cada loja e os horários da sincronização automática.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -674,17 +683,7 @@ export default function SSoticaIntegrationsPage() {
           </div>
         </div>
 
-        {/* Aviso: sincronização automática de backfill ativa */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Clock className="h-4 w-4" /> Sincronização e Backfill Automáticos
-            </CardTitle>
-            <CardDescription>
-              O backfill de 96 meses é executado automaticamente <strong>a cada 6 horas</strong> em lote e em sequência: primeiro o de <strong>Renovação</strong> de uma loja, quando conclui inicia o de <strong>Cobrança</strong>, e ao final segue consecutivamente pelas demais lojas. Você também pode disparar a sincronização manualmente no card de cada loja abaixo.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <SSoticaAutoSyncConfigCard />
 
         {loading ? (
           <div className="text-center py-12 text-muted-foreground">Carregando...</div>
