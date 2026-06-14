@@ -10,6 +10,7 @@ import {
   evaluateCampanhaCopaPeriodo,
   loadCampanhaCopaPeriodoConfig,
 } from "../_shared/campanhaCopaPeriodo.ts";
+import { loadCampanhaCopaSuccessConfig } from "../_shared/campanhaCopaSuccess.ts";
 
 const corsHeaders = internalCorsHeaders;
 
@@ -51,6 +52,7 @@ async function loadPublicConfig(supabase: ReturnType<typeof createClient>) {
   const jogo = await loadCampanhaCopaJogoConfig(supabase);
   const periodoCfg = await loadCampanhaCopaPeriodoConfig(supabase);
   const periodo = evaluateCampanhaCopaPeriodo(periodoCfg.inicio, periodoCfg.fim);
+  const successCfg = await loadCampanhaCopaSuccessConfig(supabase);
 
   const { data } = await supabase
     .from("system_settings")
@@ -82,6 +84,11 @@ async function loadPublicConfig(supabase: ReturnType<typeof createClient>) {
     team_home_flag: jogo.team_home_flag,
     team_away_flag: jogo.team_away_flag,
     match_meta: jogo.match_meta,
+    success_image_url: successCfg.image_url,
+    success_title: successCfg.title,
+    success_subtitle: successCfg.subtitle,
+    success_instagram_url: successCfg.instagram_url,
+    success_button_label: successCfg.button_label,
   };
 }
 

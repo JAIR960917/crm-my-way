@@ -11,6 +11,7 @@ import CampanhaCopaSubmissionDialog, {
 import CampanhaCopaJogoConfigCard from "@/components/campanha-copa/CampanhaCopaJogoConfigCard";
 import CampanhaCopaPixelConfigCard from "@/components/campanha-copa/CampanhaCopaPixelConfigCard";
 import CampanhaCopaFormularioConfigCard from "@/components/campanha-copa/CampanhaCopaFormularioConfigCard";
+import CampanhaCopaSuccessConfigCard from "@/components/campanha-copa/CampanhaCopaSuccessConfigCard";
 import CampanhaCopaCidadeLojaConfigCard from "@/components/campanha-copa/CampanhaCopaCidadeLojaConfigCard";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -23,6 +24,7 @@ import {
   CAMPANHA_COPA_PERIODO_FIM_KEY,
   CAMPANHA_COPA_PERIODO_INICIO_KEY,
 } from "@/lib/campanha-copa-periodo";
+import { CAMPANHA_COPA_SUCCESS_SETTING_KEY } from "@/lib/campanha-copa-success";
 import {
   distributeUsersEqually,
   matchCityToRoute,
@@ -94,6 +96,7 @@ export default function CampanhasCopaPage() {
   const [periodoInicio, setPeriodoInicio] = useState("");
   const [periodoFim, setPeriodoFim] = useState("");
   const [bannerUrl, setBannerUrl] = useState("");
+  const [successConfigRaw, setSuccessConfigRaw] = useState("");
 
   const profileName = useCallback(
     (id: string | null) => {
@@ -144,6 +147,7 @@ export default function CampanhasCopaPage() {
         periodoInicioRes,
         periodoFimRes,
         bannerRes,
+        successConfigRes,
       ] = await Promise.all([
           supabase
             .from("campanha_copa_submissions")
@@ -200,6 +204,13 @@ export default function CampanhasCopaPage() {
                 .eq("setting_key", CAMPANHA_COPA_BANNER_URL_KEY)
                 .maybeSingle()
             : Promise.resolve({ data: null, error: null }),
+          isAdmin
+            ? supabase
+                .from("system_settings")
+                .select("setting_value")
+                .eq("setting_key", CAMPANHA_COPA_SUCCESS_SETTING_KEY)
+                .maybeSingle()
+            : Promise.resolve({ data: null, error: null }),
         ]);
 
       if (subRes.error) throw subRes.error;
@@ -220,6 +231,9 @@ export default function CampanhasCopaPage() {
       }
       if (bannerRes.data?.setting_value != null) {
         setBannerUrl(bannerRes.data.setting_value);
+      }
+      if (successConfigRes.data?.setting_value != null) {
+        setSuccessConfigRaw(successConfigRes.data.setting_value);
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao carregar inscrições");
@@ -501,6 +515,13 @@ export default function CampanhasCopaPage() {
             initialPeriodoInicio={periodoInicio}
             initialPeriodoFim={periodoFim}
             initialBannerUrl={bannerUrl}
+            onSaved={() => void load()}
+          />
+        )}
+
+        {isAdmin && (
+          <CampanhaCopaSuccessConfigCard
+            initialRaw={successConfigRaw}
             onSaved={() => void load()}
           />
         )}

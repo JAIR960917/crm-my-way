@@ -131,14 +131,39 @@
     </form>
 
     <div id="success-screen" class="success-screen" hidden>
-      <div class="success-icon">✓</div>
-      <h2>Palpite registrado com sucesso!</h2>
-      <p>Chegou a hora de torcer e provar que você é bom de palpite!</p>
+      <div class="success-header">
+        <div class="success-icon">✓</div>
+        <h2 class="success-title">Palpite registrado com sucesso!</h2>
+        <p class="success-lead">Chegou a hora de torcer e provar que você é bom de palpite!</p>
+      </div>
 
-      <img src="/campanha-copa/imagem_obrigado.png" alt="Copa 2026" />
-      <h2>Participe do canal do instagram Joonker na Copa.</h2>
-      <h3>Lá você fica por dentro de todos os nossos bolões e promoções nesse período da copa.</h3>
-      <a id="btn-instagram" class="btn-primary" href="https://www.instagram.com/channel/AbZblAkgWccnnG9D/" target="_blank" rel="noopener noreferrer">Participe do canal</a>
+      <img id="success-image" class="success-image" src="" alt="Campanha Copa" hidden />
+
+      <div id="success-promo" class="success-promo">
+        <div class="success-promo-badge" aria-hidden="true">
+          <svg class="success-promo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="2" width="20" height="20" rx="6" stroke="currentColor" stroke-width="1.5"/>
+            <circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+            <circle cx="17.5" cy="6.5" r="1.25" fill="currentColor"/>
+          </svg>
+          Instagram
+        </div>
+        <h3 id="success-promo-title" class="success-promo-title">
+          Participe do canal do instagram Joonker na Copa.
+        </h3>
+        <p id="success-promo-subtitle" class="success-promo-subtitle">
+          Lá você fica por dentro de todos os nossos bolões e promoções nesse período da copa.
+        </p>
+        <a
+          id="btn-instagram"
+          class="success-promo-btn"
+          href="https://www.instagram.com/channel/AbZblAkgWccnnG9D/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Participe do canal
+        </a>
+      </div>
     </div>
 
     <footer class="footer">

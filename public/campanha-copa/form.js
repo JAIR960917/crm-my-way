@@ -201,6 +201,50 @@
         heroLogo.hidden = false;
       }
     }
+
+    applySuccessConfig(data, supabaseUrl);
+  }
+
+  function applySuccessConfig(data, supabaseUrl) {
+    var imageUrl = resolveLogoUrl(data.success_image_url || "", supabaseUrl);
+    var title = data.success_title || "";
+    var subtitle = data.success_subtitle || "";
+    var instagramUrl = (data.success_instagram_url || "").trim();
+    var buttonLabel = data.success_button_label || "Participe do canal";
+
+    var successImage = document.getElementById("success-image");
+    if (successImage) {
+      if (imageUrl) {
+        successImage.src = imageUrl;
+        successImage.alt = "Campanha Copa";
+        successImage.hidden = false;
+      } else {
+        successImage.hidden = true;
+        successImage.removeAttribute("src");
+      }
+    }
+
+    var promoTitle = document.getElementById("success-promo-title");
+    var promoSubtitle = document.getElementById("success-promo-subtitle");
+    var btnInstagram = document.getElementById("btn-instagram");
+    var promoBlock = document.getElementById("success-promo");
+
+    if (promoTitle) promoTitle.textContent = title;
+    if (promoSubtitle) promoSubtitle.textContent = subtitle;
+
+    if (btnInstagram) {
+      btnInstagram.textContent = buttonLabel;
+      if (instagramUrl) {
+        btnInstagram.href = instagramUrl;
+        btnInstagram.hidden = false;
+      } else {
+        btnInstagram.hidden = true;
+      }
+    }
+
+    if (promoBlock) {
+      promoBlock.hidden = !(title || subtitle || instagramUrl);
+    }
   }
 
   async function loadPublicConfig() {
