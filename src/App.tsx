@@ -56,6 +56,7 @@ import CobrancasPage from "./pages/CobrancasPage";
 import CobrancaFlowPage from "./pages/CobrancaFlowPage";
 import SSoticaIntegrationsPage from "./pages/SSoticaIntegrationsPage";
 import SSoticaStatusPage from "./pages/SSoticaStatusPage";
+import EstoquePage from "./pages/EstoquePage";
 import TransitionLogsPage from "./pages/TransitionLogsPage";
 import DashboardPage from "./pages/DashboardPage";
 import SalesReportPage from "./pages/SalesReportPage";
@@ -168,6 +169,7 @@ const AppRoutes = () => {
       <Route path="/tarefas-crediario" element={<RoleGate><CrediarioTarefasPage /></RoleGate>} />
       <Route path="/integracoes-ssotica" element={<RoleGate><SSoticaIntegrationsPage /></RoleGate>} />
       <Route path="/status-ssotica" element={<RoleGate><SSoticaStatusPage /></RoleGate>} />
+      <Route path="/estoque" element={<RoleGate><EstoquePage /></RoleGate>} />
       <Route path="/logs-movimentacao" element={<RoleGate><TransitionLogsPage /></RoleGate>} />
       <Route path="/dashboard" element={<RoleGate><DashboardPage /></RoleGate>} />
       <Route path="/relatorio-vendas" element={<RoleGate><SalesReportPage /></RoleGate>} />

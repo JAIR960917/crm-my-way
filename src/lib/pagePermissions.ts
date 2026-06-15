@@ -40,6 +40,7 @@ export const APP_PAGES: AppPage[] = [
   { key: "campanha_copa_relatorio", label: "Relatório Campanha Copa", path: "/campanha-copa-relatorio" },
   { key: "integracoes_ssotica",  label: "Integrações SSótica",    path: "/integracoes-ssotica" },
   { key: "status_ssotica",       label: "Status SSótica",         path: "/status-ssotica" },
+  { key: "estoque",              label: "Estoque",                path: "/estoque" },
   { key: "logs_movimentacao",    label: "Logs Movimentação",      path: "/logs-movimentacao" },
   { key: "configuracoes",        label: "Configurações",          path: "/configuracoes" },
 ];
