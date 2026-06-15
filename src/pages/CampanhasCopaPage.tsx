@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ExternalLink, Pencil, RefreshCw, Search, Share2, Trash2, Trophy, BarChart3 } from "lucide-react";
+import { ExternalLink, Pencil, RefreshCw, Search, Send, Share2, Trash2, Trophy, BarChart3, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import AppLayout from "@/components/AppLayout";
 import CampanhaCopaSubmissionDialog, {
@@ -85,6 +85,8 @@ export default function CampanhasCopaPage() {
   const [cityFilter, setCityFilter] = useState(ALL);
   const [reassigning, setReassigning] = useState<string | null>(null);
   const [distributing, setDistributing] = useState(false);
+  const [sendingIds, setSendingIds] = useState<Set<string>>(new Set());
+  const [bulkSending, setBulkSending] = useState(false);
   const [detailRow, setDetailRow] = useState<CampanhaCopaSubmission | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
@@ -277,6 +279,11 @@ export default function CampanhasCopaPage() {
     [filtered],
   );
 
+  const pendingLeadsInFilter = useMemo(
+    () => filtered.filter((r) => !r.lead_id),
+    [filtered],
+  );
+
   const openDetail = (row: CampanhaCopaSubmission) => {
     setDetailRow(row);
     setDetailOpen(true);
@@ -442,6 +449,80 @@ export default function CampanhasCopaPage() {
     }
   };
 
+  const sendToLeads = async (ids: string[]) => {
+    const targets = ids.filter((id) => !sendingIds.has(id));
+    if (targets.length === 0) return;
+
+    setSendingIds((prev) => new Set([...prev, ...targets]));
+    try {
+      const { data, error } = await supabase.functions.invoke("campanha-copa-send-to-leads", {
+        body: { submissionIds: targets },
+      });
+      if (error) throw error;
+
+      const results = (data?.results ?? []) as {
+        submissionId: string;
+        status: "sent" | "already_sent" | "error";
+        leadId?: string;
+        error?: string;
+      }[];
+      const sent = results.filter((r) => r.status === "sent");
+      const errors = results.filter((r) => r.status === "error");
+
+      if (sent.length > 0) {
+        const leadBySubmission = new Map(sent.map((r) => [r.submissionId, r.leadId ?? null]));
+        setRows((prev) =>
+          prev.map((r) =>
+            leadBySubmission.has(r.id) ? { ...r, lead_id: leadBySubmission.get(r.id) ?? r.lead_id } : r,
+          ),
+        );
+
+        await supabase.from("campanha_copa_history" as never).insert(
+          sent.map((r) => ({
+            submission_id: r.submissionId,
+            user_id: user?.id ?? null,
+            action: "sent_to_leads",
+            summary: `${currentUserName} enviou a inscrição para a coluna Campanha Copa em Leads.`,
+          })) as never[],
+        );
+
+        if (detailRow && leadBySubmission.has(detailRow.id)) {
+          setDetailRow({ ...detailRow, lead_id: leadBySubmission.get(detailRow.id) ?? detailRow.lead_id });
+          setHistoryRefreshKey((k) => k + 1);
+        }
+
+        toast.success(`${sent.length} inscrição(ões) enviada(s) para Leads.`);
+      }
+      if (errors.length > 0) {
+        toast.error(`Falha ao enviar ${errors.length} inscrição(ões) para Leads.`);
+      }
+      if (sent.length === 0 && errors.length === 0) {
+        toast.info("Inscrição(ões) já estavam em Leads.");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao enviar para Leads");
+    } finally {
+      setSendingIds((prev) => {
+        const next = new Set(prev);
+        targets.forEach((id) => next.delete(id));
+        return next;
+      });
+    }
+  };
+
+  const sendAllPendingToLeads = async () => {
+    if (pendingLeadsInFilter.length === 0) {
+      toast.info("Não há inscrições pendentes de envio para Leads.");
+      return;
+    }
+    setBulkSending(true);
+    try {
+      await sendToLeads(pendingLeadsInFilter.map((r) => r.id));
+    } finally {
+      setBulkSending(false);
+    }
+  };
+
   const formUrl = `${window.location.origin}/campanha-copa`;
 
   return (
@@ -578,12 +659,29 @@ export default function CampanhasCopaPage() {
                     ? "Distribuindo..."
                     : `Distribuir ${unassignedInFilter.length} sem responsável`}
                 </Button>
+                {(isAdmin || isGerente) && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    disabled={bulkSending || pendingLeadsInFilter.length === 0}
+                    onClick={() => void sendAllPendingToLeads()}
+                    className="w-full sm:w-auto"
+                  >
+                    <Send className="h-4 w-4 mr-1" />
+                    {bulkSending
+                      ? "Enviando..."
+                      : `Enviar ${pendingLeadsInFilter.length} para Leads`}
+                  </Button>
+                )}
               </div>
               {cityFilter !== ALL && (
                 <CardDescription>
                   {filtered.length} inscrição(ões) nesta cidade
                   {unassignedInFilter.length > 0
                     ? ` · ${unassignedInFilter.length} aguardando distribuição`
+                    : ""}
+                  {pendingLeadsInFilter.length > 0
+                    ? ` · ${pendingLeadsInFilter.length} pendente(s) de envio para Leads`
                     : ""}
                 </CardDescription>
               )}
@@ -606,18 +704,19 @@ export default function CampanhasCopaPage() {
                     <TableHead>Último exame</TableHead>
                     <TableHead>Responsável</TableHead>
                     <TableHead>Redirecionar</TableHead>
+                    {(isAdmin || isGerente) && <TableHead>Leads</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={13} className="text-center py-8 text-muted-foreground">
                         Carregando...
                       </TableCell>
                     </TableRow>
                   ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={13} className="text-center py-8 text-muted-foreground">
                         Nenhuma inscrição encontrada.
                       </TableCell>
                     </TableRow>
@@ -692,6 +791,27 @@ export default function CampanhasCopaPage() {
                               </SelectContent>
                             </Select>
                           </TableCell>
+                          {(isAdmin || isGerente) && (
+                            <TableCell>
+                              {r.lead_id ? (
+                                <Badge variant="outline" className="text-emerald-600 border-emerald-600/40">
+                                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                                  Enviado
+                                </Badge>
+                              ) : (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 text-xs"
+                                  disabled={sendingIds.has(r.id)}
+                                  onClick={() => void sendToLeads([r.id])}
+                                >
+                                  <Send className="h-3 w-3 mr-1" />
+                                  {sendingIds.has(r.id) ? "Enviando..." : "Enviar p/ Leads"}
+                                </Button>
+                              )}
+                            </TableCell>
+                          )}
                         </TableRow>
                       );
                     })

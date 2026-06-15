@@ -3,10 +3,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { internalCorsHeaders } from "../_shared/internalAuth.ts";
 import { loadCampanhaCopaJogoConfig } from "../_shared/campanhaCopaJogo.ts";
 import {
-  applyUltimoExameVistaToLeadData,
-  loadLeadLastVisitFieldId,
-} from "../_shared/campanhaCopaExameVista.ts";
-import {
   evaluateCampanhaCopaPeriodo,
   loadCampanhaCopaPeriodoConfig,
 } from "../_shared/campanhaCopaPeriodo.ts";
@@ -203,52 +199,13 @@ serve(async (req) => {
     const palpiteTexto = `${palpiteHome} x ${palpiteAway}`;
     const usaOculosNorm = usaOculos.toLowerCase().startsWith("s") ? "sim" : "nao";
 
-    const lastVisitFieldId = await loadLeadLastVisitFieldId(supabase);
-
-    const leadData: Record<string, unknown> = {
-      origem_campanha: "copa",
-      nome_lead: nome,
-      cpf,
-      telefone,
-      idade,
-      cidade,
-      usa_oculos: usaOculosNorm,
-      sintomas,
-      doencas,
-      palpite_home: palpiteHome,
-      palpite_away: palpiteAway,
-      palpite_brasil: palpiteHome,
-      palpite_marrocos: palpiteAway,
-      palpite: palpiteTexto,
-      jogo: jogoKey,
-      jogo_label: jogoCfg.jogo_label,
-      team_home_name: jogoCfg.team_home_name,
-      team_away_name: jogoCfg.team_away_name,
-      consentimento_marketing: true,
-    };
-
-    applyUltimoExameVistaToLeadData(leadData, ultimoExame, lastVisitFieldId);
-
-    const { data: lead, error: leadError } = await supabase
-      .from("crm_leads")
-      .insert({
-        data: leadData,
-        status: "campanha_copa",
-        assigned_to: null,
-        created_by: null,
-      })
-      .select("id")
-      .single();
-
-    if (leadError) {
-      console.error("[submit-campanha-copa] lead insert:", leadError);
-      return jsonResponse({ error: "Não foi possível registrar sua inscrição. Tente novamente." }, 500);
-    }
-
+    // O lead só é criado na coluna "Campanha Copa" do CRM quando alguém da
+    // equipe acionar o envio manual na tela de Campanhas Copa
+    // (função campanha-copa-send-to-leads) — não automaticamente aqui.
     const { data: submission, error: subError } = await supabase
       .from("campanha_copa_submissions")
       .insert({
-        lead_id: lead.id,
+        lead_id: null,
         nome,
         cpf,
         idade,
@@ -271,7 +228,6 @@ serve(async (req) => {
 
     if (subError) {
       if (subError.code === "23505") {
-        await supabase.from("crm_leads").delete().eq("id", lead.id);
         return jsonResponse({ error: "O CPF já registrou um Palpite." }, 409);
       }
       console.error("[submit-campanha-copa] submission insert:", subError);
