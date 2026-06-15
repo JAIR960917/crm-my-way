@@ -289,7 +289,7 @@ export default function CobrancaEditSheet(props: Props) {
         if (!token) return null;
 
         const { data: live, error: liveErr } = await supabase.functions.invoke("ssotica-cliente-debitos", {
-          body: { ssoticaClienteId, ssoticaCompanyId, cpf: cpfDigits, monthsBack: 24 },
+          body: { ssoticaClienteId, ssoticaCompanyId, cpf: cpfDigits, monthsBack: 96 },
           headers: { Authorization: `Bearer ${token}` },
         });
         if (liveErr || !Array.isArray(live?.parcelas)) return null;
@@ -309,15 +309,41 @@ export default function CobrancaEditSheet(props: Props) {
         .eq("id", cobrancaId)
         .maybeSingle();
       const prevData = ((cur as any)?.data ?? formData) as Record<string, any>;
-      const totalAtraso = Number(live.total_atraso ?? 0);
+
+      // Preserva parcelas conhecidas cujo vencimento (ou empresa) está fora do que a
+      // consulta ao vivo cobriu agora — a ausência delas no resultado não prova que
+      // foram pagas, só que não foram revisadas nesta janela. Isso evita que dívidas
+      // antigas (ex.: > 8 anos) sumam da tela quando a SSótica não as retorna.
+      const monthsBackUsed = Number(live.months_back ?? 96);
+      const windowStartDate = new Date();
+      windowStartDate.setUTCMonth(windowStartDate.getUTCMonth() - monthsBackUsed);
+      const windowStart = windowStartDate.toISOString().slice(0, 10);
+      const currentCompany = String(ssoticaCompanyId);
+      const parcelaKey = (p: any): string =>
+        p?.parcela_id != null
+          ? `pid:${p.parcela_id}`
+          : `tit:${p?.titulo_id ?? ""}-num:${p?.numero_parcela ?? ""}-venc:${p?.vencimento ?? ""}`;
+      const liveKeys = new Set((live.parcelas as any[]).map(parcelaKey));
+
+      const prevParcelas = Array.isArray(prevData.parcelas_atrasadas) ? prevData.parcelas_atrasadas : [];
+      const preservedParcelas = prevParcelas.filter((p: any) => {
+        if (liveKeys.has(parcelaKey(p))) return false;
+        const parcelaCompany = p?.ssotica_company_id != null ? String(p.ssotica_company_id) : null;
+        if (parcelaCompany && parcelaCompany !== currentCompany) return true;
+        const venc = String(p?.vencimento ?? "").slice(0, 10);
+        return !venc || venc < windowStart;
+      });
+
+      const mergedParcelas = [...preservedParcelas, ...live.parcelas];
+      const totalAtraso = mergedParcelas.reduce((s: number, p: any) => s + Number(p?.valor ?? 0), 0);
 
       await supabase
         .from("crm_cobrancas")
         .update({
           data: {
             ...prevData,
-            parcelas_atrasadas: live.parcelas,
-            qtd_parcelas_atrasadas: live.parcelas.length,
+            parcelas_atrasadas: mergedParcelas,
+            qtd_parcelas_atrasadas: mergedParcelas.length,
             total_atraso: totalAtraso,
           },
           valor: totalAtraso,
@@ -329,7 +355,7 @@ export default function CobrancaEditSheet(props: Props) {
       if (totalAtraso > 0) setFormValor(String(totalAtraso.toFixed(2)));
 
       const liveDedup = new Map<string, ParcelaInfo>();
-      for (const p of mapRawParcelasToInfo(live.parcelas, {
+      for (const p of mapRawParcelasToInfo(mergedParcelas, {
         cobrancaId,
         currentParcelaId: (cur as any)?.ssotica_parcela_id,
         cardCompanyId: String(ssoticaCompanyId),
