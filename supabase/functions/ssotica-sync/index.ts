@@ -741,6 +741,26 @@ async function syncContasReceber(
   const overallEnd = windowOverride?.end ?? manualRecentWindow?.end ?? fullSweepWindow?.end ?? incrementalWindow!.end;
   const isBackfillChunk = !!windowOverride;
 
+  // Reconciliação contínua da janela "ativa" do funil (colunas não travadas:
+  // "1 dia antes do vencimento" até "30 dias", dias_atraso de -1 a 30).
+  // Nos slots incrementais != 0, overallStart/overallEnd cobrem apenas uma
+  // fatia histórica antiga e NÃO incluem o presente — então uma parcela que
+  // foi quitada recentemente não é revisitada, fica "preservada" como ativa
+  // e, se for a de vencimento mais antigo, manda o lead para a coluna errada
+  // (ex.: "5 dias após o vencimento") mesmo já paga, ignorando outra parcela
+  // realmente ativa (ex.: "1 dia antes do vencimento"). Para evitar essa
+  // defasagem de até ~2 dias entre execuções do slot 0, sempre revisamos
+  // também esta janela próxima ao "hoje" nos slots != 0. Não aplicamos isso a
+  // chunks de backfill/fullSweep/manualRecent: já cobrem (ou intencionalmente
+  // não cobrem) o presente, e repetir essa janela em cada chunk de backfill
+  // multiplicaria as chamadas à API SSótica sem necessidade.
+  const nearTermStart = addDays(today, -35);
+  const nearTermEnd = addDays(today, COBRANCAS_FUTURE_DAYS);
+  const nearTermWindow = (incrementalWindow && incrementalWindow.slot !== 0
+      && (overallEnd < nearTermStart || overallStart > nearTermEnd))
+    ? { start: nearTermStart, end: nearTermEnd }
+    : null;
+
   let processed = 0, created = 0, updated = 0, removed = 0;
   // Contadores de diagnóstico (logados ao final para depurar filtros)
   const skipped = {
@@ -877,8 +897,11 @@ async function syncContasReceber(
   const clientesComSituacaoExcluida = new Set<string>();
 
   // Janela única (definida por overallStart/overallEnd) dividida em sub-janelas de 30 dias
-  // por causa do limite da API SSótica.
-  const windows = buildWindows(overallStart, overallEnd);
+  // por causa do limite da API SSótica. Quando há nearTermWindow (slots != 0),
+  // ele é processado também, além da fatia histórica do slot.
+  const windows = nearTermWindow
+    ? [...buildWindows(overallStart, overallEnd), ...buildWindows(nearTermWindow.start, nearTermWindow.end)]
+    : buildWindows(overallStart, overallEnd);
   for (const w of windows) {
     let page = 1;
     while (true) {
@@ -1068,7 +1091,7 @@ async function syncContasReceber(
       `[ssotica-sync][cobrancas] empresa=${integ.company_id} clientes_ignorados_situacao=${clientesComSituacaoExcluida.size} backfill_chunk=${isBackfillChunk}`,
     );
   }
-  console.log(`[ssotica-sync][cobrancas] empresa=${integ.company_id} janela=${ymd(overallStart)}→${ymd(overallEnd)} processed=${processed} clientes_em_atraso=${parcelasPorCliente.size} backfill_chunk=${isBackfillChunk}${manualRecentWindow ? " manual_recent=true" : incrementalWindow ? ` slot=${incrementalWindow.slot + 1}/${INCREMENTAL_COBRANCAS_SLICES}` : ""}`);
+  console.log(`[ssotica-sync][cobrancas] empresa=${integ.company_id} janela=${ymd(overallStart)}→${ymd(overallEnd)}${nearTermWindow ? ` near_term=${ymd(nearTermWindow.start)}→${ymd(nearTermWindow.end)}` : ""} processed=${processed} clientes_em_atraso=${parcelasPorCliente.size} backfill_chunk=${isBackfillChunk}${manualRecentWindow ? " manual_recent=true" : incrementalWindow ? ` slot=${incrementalWindow.slot + 1}/${INCREMENTAL_COBRANCAS_SLICES}` : ""}`);
 
   // Remove cards já existentes de clientes com situação excluída (ex.: backfill).
   for (const bucketKey of clientesComSituacaoExcluida) {
@@ -1099,16 +1122,19 @@ async function syncContasReceber(
     }
   }
 
-  // Janela atual em formato YYYY-MM-DD para decidir quais parcelas existentes
-  // foram efetivamente revisadas neste slot (e portanto podem ser substituídas).
-  // Parcelas FORA dessa janela não foram consultadas agora — devem ser preservadas
-  // do que já estava no banco para evitar perder dados entre slots incrementais.
-  const windowStartStr = ymd(overallStart);
-  const windowEndStr = ymd(overallEnd);
+  // Janelas efetivamente revisadas neste slot (e portanto cujas parcelas podem
+  // ser removidas se não voltarem). Parcelas FORA de todas essas janelas não
+  // foram consultadas agora — devem ser preservadas do que já estava no banco
+  // para evitar perder dados entre slots incrementais. Inclui nearTermWindow
+  // (slots != 0) para que a janela "ativa" do funil seja sempre revisada.
+  const reviewedRanges = [
+    { start: ymd(overallStart), end: ymd(overallEnd) },
+    ...(nearTermWindow ? [{ start: ymd(nearTermWindow.start), end: ymd(nearTermWindow.end) }] : []),
+  ];
   const isParcelaInWindow = (venc: string | null | undefined): boolean => {
     if (!venc) return false;
     const v = String(venc).slice(0, 10);
-    return v >= windowStartStr && v <= windowEndStr;
+    return reviewedRanges.some((r) => v >= r.start && v <= r.end);
   };
   const parcelaKey = (p: any): string =>
     p?.parcela_id != null
