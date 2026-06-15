@@ -1202,6 +1202,15 @@ async function syncContasReceber(
     const novasKeys = new Set(parcelas.map(parcelaKey));
     const existingParcelas = ((existingCobranca?.data as any)?.parcelas_atrasadas ?? []) as any[];
     const currentCompany = String(integ.company_id);
+    const existingSituacaoEspecial = (existingCobranca?.data as any)?.situacao_especial ?? null;
+    // Clientes com dívida Ajuizado(A)/Negativado Serasa: ao enviar o título para
+    // jurídico/Serasa, a SSótica costuma marcar cancelado_em/baixado_em/estornado_em
+    // nas DEMAIS parcelas do mesmo título (cuja própria situação não é "Ajuizado"/
+    // "Negativado Serasa"), o que as classifica como inativas nesta execução mesmo
+    // que a dívida continue ativa. Para esses clientes não removemos parcelas
+    // preservadas por essa evidência — só a entrada de parcelas novas as substitui.
+    const isClienteEspecial = hasNegativadoSerasa || hasAjuizado
+      || existingSituacaoEspecial === "ajuizado" || existingSituacaoEspecial === "negativado_serasa";
     const preservadas = existingParcelas.filter((p) => {
       const k = parcelaKey(p);
       // Se já vem nas novas, ignora (será substituída pela versão fresca).
@@ -1213,6 +1222,7 @@ async function syncContasReceber(
       if (parcelaCompany && parcelaCompany !== currentCompany) return true;
       // Fora da janela atual → preserva (não temos evidência atualizada).
       if (!isParcelaInWindow(p?.vencimento)) return true;
+      if (isClienteEspecial) return true;
       // Dentro da janela: só removemos com evidência direta de quitação.
       // Ausência na fatia atual não prova pagamento (paginação, filtros, etc.).
       const pid = p?.parcela_id != null ? Number(p.parcela_id) : null;
