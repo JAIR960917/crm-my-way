@@ -71,6 +71,9 @@ CREATE POLICY "Staff read whatsapp_conversations"
   );
 
 -- Lista de conversas do inbox com status + nome do responsável.
+-- Precisa de DROP antes: o retorno (colunas OUT) mudou em relação à versão anterior.
+DROP FUNCTION IF EXISTS public.list_whatsapp_inbox_conversations(int);
+
 CREATE OR REPLACE FUNCTION public.list_whatsapp_inbox_conversations(p_limit int DEFAULT 200)
 RETURNS TABLE (
   id uuid,
