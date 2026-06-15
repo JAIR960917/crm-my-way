@@ -21,6 +21,7 @@ import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import OfflineBanner from "@/components/OfflineBanner";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { SystemSettingsProvider, useSystemSettings } from "@/contexts/SystemSettingsContext";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
@@ -192,6 +193,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />        {/* Toasts antigos (shadcn) */}
       <Sonner />         {/* Toasts novos (sonner) — usados em todo o app */}
+      <OfflineBanner />  {/* Aviso fixo quando o app está offline */}
       <BrowserRouter>
         <AuthProvider>
           <PushNotificationsBootstrap />

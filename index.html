@@ -40,7 +40,9 @@
     <script>
       window.addEventListener('error', function (e) {
         if (!e || !e.message) return;
-        if (!/removeChild|insertBefore|not a child|ChunkLoadError|dynamically imported module|Loading chunk/i.test(e.message)) return;
+        var isDomError = /removeChild|insertBefore|not a child/i.test(e.message);
+        var isNetworkError = /ChunkLoadError|dynamically imported module|Loading chunk|Failed to fetch/i.test(e.message);
+        if (!isDomError && !(isNetworkError && navigator.onLine)) return;
         try {
           if (sessionStorage.getItem('crm_auto_recover_v6')) return;
           sessionStorage.setItem('crm_auto_recover_v6', '1');
