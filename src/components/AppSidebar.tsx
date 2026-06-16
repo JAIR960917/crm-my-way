@@ -47,7 +47,6 @@ const mainNavItems: NavItem[] = [
   { path: "/meu-dashboard",        label: "Meu Dashboard",          icon: LayoutDashboard },
   { path: "/meu-dashboard-cobranca", label: "Dashboard Cobrança",   icon: LayoutDashboard },
   { path: "/relatorio-vendas",     label: "Relatório de Vendas",    icon: FileBarChart },
-  { path: "/analytics-site",       label: "Analytics do Site",      icon: Globe },
   { path: "/",                     label: "Leads",                  icon: LayoutDashboard },
   { path: "/campanhas-copa",       label: "Campanhas Copa",         icon: Trophy },
   { path: "/campanha-copa-relatorio", label: "Relatório Campanha Copa", icon: BarChart3 },
@@ -93,6 +92,19 @@ function isEstoqueFiscalPath(path: string) {
   return ESTOQUE_FISCAL_PATHS.has(path);
 }
 
+/** Submenu Site Oficial (analytics, formulário e leads do site institucional). */
+const siteOficialNavItems: NavItem[] = [
+  { path: "/analytics-site",    label: "Analytics do Site",  icon: BarChart3 },
+  { path: "/site-formulario",   label: "Formulário",         icon: FileText  },
+  { path: "/site-leads",        label: "Leads do Site",      icon: UserCheck },
+];
+
+const SITE_OFICIAL_PATHS = new Set(siteOficialNavItems.map((i) => i.path));
+
+function isSiteOficialPath(path: string) {
+  return SITE_OFICIAL_PATHS.has(path);
+}
+
 /** Submenu Financeiro (dados financeiros via SSótica). */
 const financeiroNavItems: NavItem[] = [
   { path: "/financeiro/contas-receber",    label: "Contas a Receber",    icon: TrendingUp },
@@ -119,6 +131,7 @@ export default function AppSidebar({ onNavigate }: Props) {
   const [configOpen, setConfigOpen] = useState(false);
   const [estoqueFiscalOpen, setEstoqueFiscalOpen] = useState(false);
   const [financeiroOpen, setFinanceiroOpen] = useState(false);
+  const [siteOficialOpen, setSiteOficialOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { canInstall, install, isStandalone } = usePwaInstall();
@@ -141,10 +154,14 @@ export default function AppSidebar({ onNavigate }: Props) {
   const visibleFinanceiroItems = financeiroNavItems.filter(canSee);
   const financeiroSectionActive = visibleFinanceiroItems.some((i) => location.pathname === i.path);
 
+  const visibleSiteOficialItems = siteOficialNavItems.filter(canSee);
+  const siteOficialSectionActive = visibleSiteOficialItems.some((i) => location.pathname === i.path);
+
   useEffect(() => {
     if (isConfigPath(location.pathname)) setConfigOpen(true);
     if (isEstoqueFiscalPath(location.pathname)) setEstoqueFiscalOpen(true);
     if (isFinanceiroPath(location.pathname)) setFinanceiroOpen(true);
+    if (isSiteOficialPath(location.pathname)) setSiteOficialOpen(true);
   }, [location.pathname]);
 
   /** Navega para a rota e (no mobile) fecha o drawer. */
@@ -231,6 +248,45 @@ export default function AppSidebar({ onNavigate }: Props) {
             {item.label}
           </button>
         ))}
+
+        {visibleSiteOficialItems.length > 0 && (
+          <Collapsible open={siteOficialOpen} onOpenChange={setSiteOficialOpen} className="pt-1">
+            <CollapsibleTrigger
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                siteOficialSectionActive && !siteOficialOpen
+                  ? "bg-sidebar-accent/70 text-sidebar-accent-foreground"
+                  : "hover:bg-sidebar-accent/50"
+              )}
+            >
+              <Globe className="h-4 w-4 shrink-0" />
+              <span className="flex-1 text-left">Site Oficial</span>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 opacity-70 transition-transform duration-200",
+                  siteOficialOpen && "rotate-180"
+                )}
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-0.5 pt-0.5 pl-2">
+              {visibleSiteOficialItems.map((item) => (
+                <button
+                  key={item.path}
+                  onClick={() => handleNav(item.path)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-lg py-2 pl-5 pr-3 text-sm font-medium transition-colors",
+                    location.pathname === item.path
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-sidebar-foreground/90 hover:bg-sidebar-accent/50"
+                  )}
+                >
+                  <item.icon className="h-4 w-4 shrink-0 opacity-90" />
+                  {item.label}
+                </button>
+              ))}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
 
         {visibleConfigItems.length > 0 && (
           <Collapsible open={configOpen} onOpenChange={setConfigOpen} className="pt-1">
