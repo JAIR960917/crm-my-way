@@ -228,37 +228,8 @@ serve(async (req) => {
         });
       }
 
-      const waMessageId = msg.wa_message_id as string | null;
-      if (waMessageId) {
-        const access = await assertConversationAccess(String(msg.conversation_id));
-        if (!access.conv) {
-          return new Response(JSON.stringify({ error: access.error }), {
-            status: access.status,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-
-        if (access.conv.instance_id) {
-          const target = await resolveSendTargetByInstanceId(admin as any, String(access.conv.instance_id));
-          if (target?.provider === "meta" && target.phoneNumberId) {
-            const deleteUrl = `https://graph.facebook.com/${GRAPH_API_VERSION}/${target.phoneNumberId}/messages/${waMessageId}`;
-            const metaRes = await fetch(deleteUrl, {
-              method: "DELETE",
-              headers: { Authorization: `Bearer ${accessToken}` },
-            });
-            const metaJson = await metaRes.json().catch(() => ({}));
-            if (!metaRes.ok) {
-              const err = (metaJson as { error?: { message?: string } })?.error?.message ||
-                `Falha ao apagar no WhatsApp (HTTP ${metaRes.status})`;
-              return new Response(JSON.stringify({ error: translateWhatsAppError(err) }), {
-                status: 400,
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-              });
-            }
-          }
-        }
-      }
-
+      // A Meta Cloud API não expõe endpoint de exclusão de mensagens enviadas —
+      // a remoção é feita apenas no histórico do CRM.
       const { error: delErr } = await admin
         .from("whatsapp_messages")
         .delete()

@@ -736,7 +736,7 @@ export default function WhatsAppInbox() {
       const errMsg = (data as { error?: string } | null)?.error || error?.message;
       if (errMsg) throw new Error(errMsg);
       setMessages((prev) => prev.filter((m) => m.id !== deletingMsgId));
-      toast.success("Mensagem excluída do WhatsApp e do CRM.");
+      toast.success("Mensagem removida do histórico do CRM.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao excluir mensagem");
     } finally {
@@ -1864,8 +1864,8 @@ export default function WhatsAppInbox() {
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir mensagem</AlertDialogTitle>
             <AlertDialogDescription>
-              A mensagem será apagada para o cliente no WhatsApp e removida do histórico do CRM.
-              Esta ação não pode ser desfeita.
+              A mensagem será removida do histórico do CRM. A API da Meta não permite apagar
+              mensagens já entregues no WhatsApp do cliente. Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
