@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Settings, Save } from "lucide-react";
+import { Settings, Save, Upload, Loader2 } from "lucide-react";
 
 type Cfg = Record<string, string>;
 type Service = { icon: string; title: string; text: string };
@@ -50,12 +50,33 @@ export default function SiteConfigPage() {
   const [cfg, setCfg] = useState<Cfg>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   // JSON arrays
   const [services, setServices] = useState<Service[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
 
   const set = (k: string, v: string) => setCfg(p => ({ ...p, [k]: v }));
+
+  const uploadLogo = async (file: File) => {
+    setUploadingLogo(true);
+    try {
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const path = `logo-${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('site-assets')
+        .upload(path, file, { upsert: true, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data } = supabase.storage.from('site-assets').getPublicUrl(path);
+      set('logo_url', data.publicUrl);
+      toast.success('Logo enviada com sucesso');
+    } catch (e: any) {
+      toast.error('Erro ao enviar: ' + (e.message || 'verifique o bucket site-assets no Supabase'));
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -154,10 +175,36 @@ export default function SiteConfigPage() {
                     className="w-36 font-mono" placeholder="#0d0d0d" />
                 </div>
               </div>
-              <Field label="URL da logo (deixe vazio para usar a inicial)" k="logo_url" cfg={cfg} set={set} placeholder="https://..." />
-              {cfg["logo_url"] && (
-                <img src={cfg["logo_url"]} alt="Logo preview" className="h-16 object-contain rounded border p-1" />
-              )}
+              <div className="space-y-2">
+                <Label>Logo da marca</Label>
+                <div className="flex items-center gap-3">
+                  <Button type="button" variant="outline" size="sm"
+                    onClick={() => logoInputRef.current?.click()}
+                    disabled={uploadingLogo}
+                    className="gap-2">
+                    {uploadingLogo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    {uploadingLogo ? "Enviando..." : "Enviar imagem"}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">PNG, JPG, SVG — recomendado 200×200px</span>
+                </div>
+                <input ref={logoInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f); e.target.value = ''; }} />
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Ou cole a URL diretamente</Label>
+                  <Input placeholder="https://..." value={cfg["logo_url"] ?? ""} onChange={e => set("logo_url", e.target.value)} />
+                </div>
+                {cfg["logo_url"] && (
+                  <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
+                    <img src={cfg["logo_url"]} alt="Logo preview" className="h-14 w-14 object-contain rounded" />
+                    <div className="text-xs text-muted-foreground">
+                      <p className="font-medium text-foreground">Preview da logo</p>
+                      <p className="mt-0.5 break-all line-clamp-2">{cfg["logo_url"]}</p>
+                    </div>
+                    <Button variant="ghost" size="sm" className="ml-auto text-destructive hover:text-destructive"
+                      onClick={() => set("logo_url", "")}>Remover</Button>
+                  </div>
+                )}
+              </div>
               <Button onClick={() => saveSection(["company_name","whatsapp","color_primary","color_dark","logo_url"])} disabled={saving}>
                 <Save className="h-4 w-4 mr-1" />{saving ? "Salvando..." : "Salvar identidade"}
               </Button>
