@@ -49,33 +49,47 @@ serve(async (req) => {
 
   // pageview analytics
   if (action === "pageview") {
-    const { page, session_id, referrer, user_agent } = body as Record<string, string>;
+    const { page, session_id } = body as Record<string, string>;
     const { error: pvErr } = await supabase.from("site_page_views").insert({
-      page: page || "/", session_id: session_id || null,
-      referrer: referrer || null, user_agent: user_agent || null,
+      page: (page || "/").slice(0, 512),
+      session_id: session_id ? String(session_id).slice(0, 128) : null,
+      referrer: null,
+      user_agent: null,
     });
     if (pvErr) console.error("[submit-site-form] pageview insert error:", pvErr.message);
-    return json({ ok: !pvErr, error: pvErr?.message });
+    return json({ ok: !pvErr });
   }
 
   // click analytics
   if (action === "click") {
     const { button_id, button_label, page, session_id } = body as Record<string, string>;
     const { error: clErr } = await supabase.from("site_button_clicks").insert({
-      button_id: button_id || null, button_label: button_label || null,
-      page: page || "/", session_id: session_id || null,
+      button_id: button_id ? String(button_id).slice(0, 128) : null,
+      button_label: button_label ? String(button_label).slice(0, 256) : null,
+      page: (page || "/").slice(0, 512),
+      session_id: session_id ? String(session_id).slice(0, 128) : null,
     });
     if (clErr) console.error("[submit-site-form] click insert error:", clErr.message);
-    return json({ ok: !clErr, error: clErr?.message });
+    return json({ ok: !clErr });
   }
 
   // submit form (lead)
-  const nome = String(body.nome || "").trim();
-  const email = String(body.email || "").trim();
-  const telefone = String(body.telefone || "").trim();
+  const nome = String(body.nome || "").trim().slice(0, 256);
+  const email = String(body.email || "").trim().slice(0, 256);
+  const telefone = String(body.telefone || "").trim().slice(0, 32);
   const data = body.data as Record<string, string> | undefined;
 
   if (!nome) return json({ error: "Informe seu nome." }, 400);
+
+  // Rate limit: máx. 30 submissões nos últimos 10 minutos
+  const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const { count: recentCount } = await supabase
+    .from("site_form_submissions")
+    .select("id", { count: "exact", head: true })
+    .gte("created_at", tenMinAgo);
+  if ((recentCount ?? 0) >= 30) {
+    return json({ error: "Muitas solicitações recentes. Tente novamente em alguns minutos." }, 429);
+  }
 
   // Verifica duplicata por e-mail ou telefone
   if (email || telefone) {

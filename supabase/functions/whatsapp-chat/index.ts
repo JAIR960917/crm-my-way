@@ -164,6 +164,29 @@ serve(async (req) => {
         });
       }
 
+      // Valida que o domínio da URL pertence à Meta/WhatsApp antes de enviar o token.
+      const ALLOWED_MEDIA_DOMAINS = [
+        "cdn.fbsbx.com", "lookaside.fbsbx.com",
+        "mmg.whatsapp.net", "scontent.whatsapp.net",
+        "media.fbsbx.com", "graph.facebook.com",
+      ];
+      try {
+        const parsedUrl = new URL(mediaUrl);
+        const allowed = ALLOWED_MEDIA_DOMAINS.some((d) => parsedUrl.hostname === d || parsedUrl.hostname.endsWith("." + d));
+        if (!allowed) {
+          console.error("[whatsapp-chat] URL de mídia fora dos domínios permitidos:", parsedUrl.hostname);
+          return new Response(JSON.stringify({ error: "URL de mídia inválida." }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      } catch {
+        return new Response(JSON.stringify({ error: "URL de mídia inválida." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // Download do media URL exige o mesmo token Bearer.
       const fileRes = await fetch(mediaUrl, {
         headers: { Authorization: `Bearer ${accessToken}` },

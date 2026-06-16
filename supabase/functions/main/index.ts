@@ -93,7 +93,7 @@ Deno.serve(async (req: Request) => {
       }
     } catch (e) {
       console.error(e);
-      return new Response(JSON.stringify({ msg: String(e) }), {
+      return new Response(JSON.stringify({ msg: 'Invalid JWT' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -135,7 +135,8 @@ Deno.serve(async (req: Request) => {
     });
     return await worker.fetch(req);
   } catch (e) {
-    return new Response(JSON.stringify({ msg: String(e) }), {
+    console.error(e);
+    return new Response(JSON.stringify({ msg: 'Internal server error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });

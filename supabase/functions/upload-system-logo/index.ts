@@ -69,9 +69,12 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const fileName = typeof body?.fileName === "string" ? body.fileName : "";
+    const rawFileName = typeof body?.fileName === "string" ? body.fileName : "";
     const contentType = typeof body?.contentType === "string" ? body.contentType : "image/png";
     const dataB64 = typeof body?.data === "string" ? body.data : "";
+
+    // Sanitiza: apenas alfanuméricos, ponto, hífen e underscore; sem path traversal
+    const fileName = rawFileName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 128);
 
     if (!fileName || !dataB64) {
       return new Response(JSON.stringify({ error: "Arquivo inválido" }), {
@@ -104,8 +107,8 @@ serve(async (req) => {
       });
 
     if (uploadError) {
-      console.error("[upload-system-logo]", uploadError);
-      return new Response(JSON.stringify({ error: uploadError.message }), {
+      console.error("[upload-system-logo] upload:", uploadError);
+      return new Response(JSON.stringify({ error: "Erro ao fazer upload da imagem." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -120,7 +123,8 @@ serve(async (req) => {
       .eq("setting_key", "logo_url");
 
     if (settingsError) {
-      return new Response(JSON.stringify({ error: settingsError.message }), {
+      console.error("[upload-system-logo] settings update:", settingsError);
+      return new Response(JSON.stringify({ error: "Erro ao salvar configuração de logo." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -131,7 +135,7 @@ serve(async (req) => {
     });
   } catch (e) {
     console.error("[upload-system-logo]", e);
-    return new Response(JSON.stringify({ error: String(e) }), {
+    return new Response(JSON.stringify({ error: "Erro interno ao processar upload." }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

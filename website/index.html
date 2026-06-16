@@ -1566,7 +1566,7 @@
         body: JSON.stringify({ action, session_id: SESSION, page: location.pathname, ...extra }),
       }).catch(() => { });
     }
-    track('pageview', { referrer: document.referrer || null, user_agent: navigator.userAgent });
+    track('pageview', {});
 
     /* ---- Config dinâmica do site (CMS) ---- */
     function shadeColor(hex, amt) {
