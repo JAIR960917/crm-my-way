@@ -1521,6 +1521,14 @@
           el.style.fontSize = '0';
           el.innerHTML = `<img src="${cfg.logo_url}" style="width:40px;height:40px;object-fit:contain;border-radius:8px;display:block" alt="logo">`;
         });
+        // Atualiza o favicon da aba do browser
+        let favicon = document.querySelector("link[rel~='icon']");
+        if (!favicon) {
+          favicon = document.createElement('link');
+          favicon.rel = 'icon';
+          document.head.appendChild(favicon);
+        }
+        favicon.href = cfg.logo_url;
       }
       if (cfg.hero_card_items) {
         try {
