@@ -72,7 +72,8 @@ serve(async (req) => {
     const GRAPH_API_VERSION = "v21.0";
 
     if (
-      action !== "send-text" && action !== "send-template" && action !== "send-media" && action !== "get-media"
+      action !== "send-text" && action !== "send-template" && action !== "send-media" &&
+      action !== "get-media" && action !== "delete-message"
     ) {
       return new Response(JSON.stringify({ error: `Ação desconhecida: ${action}` }), {
         status: 400,
@@ -189,6 +190,84 @@ serve(async (req) => {
         mime_type: mime,
         media_type: msg.media_type,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "delete-message") {
+      const { message_id } = body as { message_id?: string };
+      if (!message_id?.trim()) {
+        return new Response(JSON.stringify({ error: "message_id é obrigatório" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: msg, error: msgErr } = await admin
+        .from("whatsapp_messages")
+        .select("id, conversation_id, direction, sent_by, wa_message_id")
+        .eq("id", message_id.trim())
+        .maybeSingle();
+      if (msgErr) throw msgErr;
+      if (!msg) {
+        return new Response(JSON.stringify({ error: "Mensagem não encontrada" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (msg.direction !== "out") {
+        return new Response(JSON.stringify({ error: "Só é possível excluir mensagens enviadas" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const canDelete = isPrivileged || msg.sent_by === user.id;
+      if (!canDelete) {
+        return new Response(JSON.stringify({ error: "Você só pode excluir suas próprias mensagens" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const waMessageId = msg.wa_message_id as string | null;
+      if (waMessageId) {
+        const access = await assertConversationAccess(String(msg.conversation_id));
+        if (!access.conv) {
+          return new Response(JSON.stringify({ error: access.error }), {
+            status: access.status,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        if (access.conv.instance_id) {
+          const target = await resolveSendTargetByInstanceId(admin as any, String(access.conv.instance_id));
+          if (target?.provider === "meta" && target.phoneNumberId) {
+            const deleteUrl = `https://graph.facebook.com/${GRAPH_API_VERSION}/${target.phoneNumberId}/messages/${waMessageId}`;
+            const metaRes = await fetch(deleteUrl, {
+              method: "DELETE",
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            const metaJson = await metaRes.json().catch(() => ({}));
+            if (!metaRes.ok) {
+              const err = (metaJson as { error?: { message?: string } })?.error?.message ||
+                `Falha ao apagar no WhatsApp (HTTP ${metaRes.status})`;
+              return new Response(JSON.stringify({ error: translateWhatsAppError(err) }), {
+                status: 400,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              });
+            }
+          }
+        }
+      }
+
+      const { error: delErr } = await admin
+        .from("whatsapp_messages")
+        .delete()
+        .eq("id", message_id.trim());
+      if (delErr) throw delErr;
+
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const { conversation_id } = body as { conversation_id?: string };

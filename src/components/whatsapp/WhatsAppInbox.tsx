@@ -730,13 +730,13 @@ export default function WhatsAppInbox() {
     if (!deletingMsgId) return;
     setDeleteLoading(true);
     try {
-      const { error } = await supabase
-        .from("whatsapp_messages")
-        .delete()
-        .eq("id", deletingMsgId);
-      if (error) throw error;
+      const { data, error } = await supabase.functions.invoke("whatsapp-chat", {
+        body: { action: "delete-message", message_id: deletingMsgId },
+      });
+      const errMsg = (data as { error?: string } | null)?.error || error?.message;
+      if (errMsg) throw new Error(errMsg);
       setMessages((prev) => prev.filter((m) => m.id !== deletingMsgId));
-      toast.success("Mensagem excluída.");
+      toast.success("Mensagem excluída do WhatsApp e do CRM.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao excluir mensagem");
     } finally {
@@ -1864,8 +1864,8 @@ export default function WhatsAppInbox() {
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir mensagem</AlertDialogTitle>
             <AlertDialogDescription>
-              A mensagem será removida do histórico do CRM. Ela <strong>não</strong> será apagada do
-              WhatsApp do cliente.
+              A mensagem será apagada para o cliente no WhatsApp e removida do histórico do CRM.
+              Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
