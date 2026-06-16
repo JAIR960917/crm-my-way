@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Settings, Save, Upload, Loader2 } from "lucide-react";
+import { Settings, Save, Upload, Loader2, Trash2 } from "lucide-react";
 
 type Cfg = Record<string, string>;
 type Service = { icon: string; title: string; text: string };
@@ -291,7 +291,13 @@ export default function SiteConfigPage() {
               <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide pt-2">Itens de serviço</p>
               {services.map((s, i) => (
                 <div key={i} className="border rounded-md p-3 space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">Serviço {i + 1}</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-muted-foreground">Serviço {i + 1}</p>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive"
+                      onClick={() => setServices(p => p.filter((_, idx) => idx !== i))}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                   <div className="grid grid-cols-4 gap-2">
                     <div className="space-y-1.5">
                       <Label>Ícone (emoji)</Label>
@@ -313,11 +319,6 @@ export default function SiteConfigPage() {
                 <Button variant="outline" onClick={() => setServices(p => [...p, { icon: "⭐", title: "Novo serviço", text: "" }])}>
                   + Adicionar serviço
                 </Button>
-                {services.length > 1 && (
-                  <Button variant="outline" onClick={() => setServices(p => p.slice(0, -1))}>
-                    − Remover último
-                  </Button>
-                )}
               </div>
               <Button onClick={saveServices} disabled={saving}>
                 <Save className="h-4 w-4 mr-1" />{saving ? "Salvando..." : "Salvar serviços"}
@@ -334,7 +335,13 @@ export default function SiteConfigPage() {
               <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide pt-2">Depoimentos</p>
               {testimonials.map((t, i) => (
                 <div key={i} className="border rounded-md p-3 space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">Depoimento {i + 1}</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-muted-foreground">Depoimento {i + 1}</p>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive"
+                      onClick={() => setTestimonials(p => p.filter((_, idx) => idx !== i))}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                   <div className="space-y-1.5">
                     <Label>Texto do depoimento</Label>
                     <textarea className="w-full min-h-[80px] rounded-md border border-input px-3 py-2 text-sm bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
@@ -356,11 +363,6 @@ export default function SiteConfigPage() {
                 <Button variant="outline" onClick={() => setTestimonials(p => [...p, { quote: "", author: "", location: "" }])}>
                   + Adicionar depoimento
                 </Button>
-                {testimonials.length > 1 && (
-                  <Button variant="outline" onClick={() => setTestimonials(p => p.slice(0, -1))}>
-                    − Remover último
-                  </Button>
-                )}
               </div>
               <Button onClick={saveTestimonials} disabled={saving}>
                 <Save className="h-4 w-4 mr-1" />{saving ? "Salvando..." : "Salvar depoimentos"}
