@@ -65,6 +65,7 @@ import SalesReportPage from "./pages/SalesReportPage";
 import MeuDashboardPage from "./pages/MeuDashboardPage";
 import CobrancaDashboardPage from "./pages/CobrancaDashboardPage";
 import CrediarioTarefasPage from "./pages/CrediarioTarefasPage";
+import SiteAnalyticsPage from "./pages/SiteAnalyticsPage";
 import MaintenancePage from "./pages/MaintenancePage";
 import NotFound from "./pages/NotFound";
 
@@ -179,6 +180,7 @@ const AppRoutes = () => {
       <Route path="/relatorio-vendas" element={<RoleGate><SalesReportPage /></RoleGate>} />
       <Route path="/meu-dashboard" element={<RoleGate><MeuDashboardPage /></RoleGate>} />
       <Route path="/meu-dashboard-cobranca" element={<RoleGate><CobrancaDashboardPage /></RoleGate>} />
+      <Route path="/analytics-site" element={<RoleGate><SiteAnalyticsPage /></RoleGate>} />
 
       {/* /instalar é semipública (orienta a instalar PWA) */}
       <Route path="/instalar" element={<InstallPage />} />

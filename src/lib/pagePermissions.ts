@@ -44,6 +44,7 @@ export const APP_PAGES: AppPage[] = [
   { key: "logs_movimentacao",    label: "Logs Movimentação",      path: "/logs-movimentacao" },
   { key: "fin_contas_receber",   label: "Contas a Receber",       path: "/financeiro/contas-receber" },
   { key: "fin_contas_pagar",     label: "Contas a Pagar",         path: "/financeiro/contas-pagar" },
+  { key: "site_analytics",       label: "Analytics do Site",      path: "/analytics-site" },
   { key: "configuracoes",        label: "Configurações",          path: "/configuracoes" },
 ];
 

@@ -24,7 +24,7 @@ import {
   CalendarCheck, UserCheck, Upload, Receipt, Plug, CalendarHeart,
   History, BarChart3, FileBarChart, RefreshCw, Workflow, Activity,
   ChevronDown, SlidersHorizontal, CalendarClock,
-  Trophy, Boxes, Package, Banknote, TrendingUp, TrendingDown,
+  Trophy, Boxes, Package, Banknote, TrendingUp, TrendingDown, Globe,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -47,6 +47,7 @@ const mainNavItems: NavItem[] = [
   { path: "/meu-dashboard",        label: "Meu Dashboard",          icon: LayoutDashboard },
   { path: "/meu-dashboard-cobranca", label: "Dashboard Cobrança",   icon: LayoutDashboard },
   { path: "/relatorio-vendas",     label: "Relatório de Vendas",    icon: FileBarChart },
+  { path: "/analytics-site",       label: "Analytics do Site",      icon: Globe },
   { path: "/",                     label: "Leads",                  icon: LayoutDashboard },
   { path: "/campanhas-copa",       label: "Campanhas Copa",         icon: Trophy },
   { path: "/campanha-copa-relatorio", label: "Relatório Campanha Copa", icon: BarChart3 },
