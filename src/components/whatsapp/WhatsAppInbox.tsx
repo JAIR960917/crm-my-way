@@ -232,6 +232,7 @@ export default function WhatsAppInbox() {
   const { user, isAdmin, isGerente, isFinanceiro, canAccessPath } = useAuth();
   const [searchParams] = useSearchParams();
   const selectedIdRef = useRef<string | null>(null);
+  const pinnedToBottomRef = useRef<boolean>(true);
   const conversationsRef = useRef<ConversationRow[]>([]);
   const messagesAreaRef = useRef<HTMLDivElement | null>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
@@ -823,6 +824,10 @@ export default function WhatsAppInbox() {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
 
+  useEffect(() => {
+    pinnedToBottomRef.current = pinnedToBottom;
+  }, [pinnedToBottom]);
+
   const handleEnableNotifications = useCallback(async () => {
     const ok = await requestWhatsAppNotificationPermission();
     setNotifyPermission(getNotificationPermission());
@@ -899,7 +904,7 @@ export default function WhatsAppInbox() {
             void markAsRead(row.conversation_id);
             // Se o usuário estiver no fim, acompanha a mensagem nova.
             // Se ele tiver subido para ler histórico, não puxa.
-            if (pinnedToBottom) queueMicrotask(() => scrollToBottom("smooth"));
+            if (pinnedToBottomRef.current) queueMicrotask(() => scrollToBottom("smooth"));
             return;
           }
 
@@ -946,7 +951,7 @@ export default function WhatsAppInbox() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [applyConversationPatch, loadConversations, localUnreadBoost, markAsRead]);
+  }, [applyConversationPatch, loadConversations, markAsRead]);
 
   // Reconciliação periódica: RLS não envia DELETE quando uma conversa some por ter sido
   // aceita/transferida por outro atendente, então recarregamos a lista para refletir isso.
