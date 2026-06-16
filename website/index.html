@@ -115,6 +115,7 @@
       font-weight: 900;
       font-size: 1.15rem;
       flex-shrink: 0;
+      overflow: hidden;
     }
 
     .nav-links {
@@ -1516,7 +1517,9 @@
       if (cfg.company_name) document.title = cfg.company_name + ' — Rede de Óticas';
       if (cfg.logo_url) {
         document.querySelectorAll('.nav-logo').forEach(el => {
-          el.innerHTML = `<img src="${cfg.logo_url}" style="width:100%;height:100%;object-fit:contain;border-radius:8px" alt="logo">`;
+          el.style.background = 'none';
+          el.style.fontSize = '0';
+          el.innerHTML = `<img src="${cfg.logo_url}" style="width:40px;height:40px;object-fit:contain;border-radius:8px;display:block" alt="logo">`;
         });
       }
       if (cfg.hero_card_items) {
