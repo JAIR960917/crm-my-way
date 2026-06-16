@@ -27,8 +27,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Eye, Search, Users, UserCheck, Phone, Mail } from "lucide-react";
+import { Eye, Search, Users, UserCheck, Phone, Mail, Trash2 } from "lucide-react";
 
 type LeadStatus = "novo" | "em_contato" | "convertido" | "descartado";
 
@@ -69,6 +79,7 @@ export default function SiteLeadsPage() {
   const [detailStatus, setDetailStatus] = useState<LeadStatus>("novo");
   const [detailNotes, setDetailNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -106,6 +117,16 @@ export default function SiteLeadsPage() {
     setSelected(lead);
     setDetailStatus(lead.status);
     setDetailNotes(lead.notes ?? "");
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+    const { error } = await db.from("site_form_submissions").delete().eq("id", deleteId);
+    if (error) { toast.error("Erro ao excluir"); return; }
+    toast.success("Lead excluído");
+    setDeleteId(null);
+    if (selected?.id === deleteId) setSelected(null);
+    await load();
   };
 
   const saveDetail = async () => {
@@ -195,7 +216,7 @@ export default function SiteLeadsPage() {
                     <TableHead className="hidden md:table-cell">E-mail</TableHead>
                     <TableHead className="hidden sm:table-cell">Telefone</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="w-10"></TableHead>
+                    <TableHead className="w-20"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -216,10 +237,16 @@ export default function SiteLeadsPage() {
                       <TableCell>
                         <StatusBadge status={lead.status} />
                       </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); openDetail(lead); }}>
-                          <Eye className="h-3.5 w-3.5" />
-                        </Button>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); openDetail(lead); }}>
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                            onClick={(e) => { e.stopPropagation(); setDeleteId(lead.id); }}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -306,6 +333,10 @@ export default function SiteLeadsPage() {
               </div>
 
               <div className="flex gap-2">
+                <Button variant="outline" size="icon" className="text-destructive hover:text-destructive shrink-0"
+                  onClick={() => { setDeleteId(selected.id); }}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
                 <Button variant="outline" className="flex-1" onClick={() => setSelected(null)}>
                   Fechar
                 </Button>
@@ -317,6 +348,24 @@ export default function SiteLeadsPage() {
           )}
         </DialogContent>
       </Dialog>
+      <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir lead?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. O lead será removido permanentemente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => confirmDelete()}>
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }
