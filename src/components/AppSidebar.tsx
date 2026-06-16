@@ -24,7 +24,7 @@ import {
   CalendarCheck, UserCheck, Upload, Receipt, Plug, CalendarHeart,
   History, BarChart3, FileBarChart, RefreshCw, Workflow, Activity,
   ChevronDown, SlidersHorizontal, CalendarClock,
-  Trophy, Boxes, Package,
+  Trophy, Boxes, Package, Banknote, TrendingUp, TrendingDown, CreditCard,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -92,6 +92,20 @@ function isEstoqueFiscalPath(path: string) {
   return ESTOQUE_FISCAL_PATHS.has(path);
 }
 
+/** Submenu Financeiro (dados financeiros via SSótica). */
+const financeiroNavItems: NavItem[] = [
+  { path: "/financeiro/contas-receber",    label: "Contas a Receber",    icon: TrendingUp },
+  { path: "/financeiro/contas-pagar",      label: "Contas a Pagar",      icon: TrendingDown },
+  { path: "/financeiro/fluxo",             label: "Fluxo Financeiro",    icon: BarChart3 },
+  { path: "/financeiro/recebimentos-cartao", label: "Recebimentos Cartão", icon: CreditCard },
+];
+
+const FINANCEIRO_PATHS = new Set(financeiroNavItems.map((i) => i.path));
+
+function isFinanceiroPath(path: string) {
+  return FINANCEIRO_PATHS.has(path);
+}
+
 interface Props {
   /** Callback chamado após navegação — usado pelo mobile para fechar o drawer. */
   onNavigate?: () => void;
@@ -105,6 +119,7 @@ export default function AppSidebar({ onNavigate }: Props) {
   const [updating, setUpdating] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [estoqueFiscalOpen, setEstoqueFiscalOpen] = useState(false);
+  const [financeiroOpen, setFinanceiroOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { canInstall, install, isStandalone } = usePwaInstall();
@@ -124,9 +139,13 @@ export default function AppSidebar({ onNavigate }: Props) {
   const visibleEstoqueFiscalItems = estoqueFiscalNavItems.filter(canSee);
   const estoqueFiscalSectionActive = visibleEstoqueFiscalItems.some((i) => location.pathname === i.path);
 
+  const visibleFinanceiroItems = financeiroNavItems.filter(canSee);
+  const financeiroSectionActive = visibleFinanceiroItems.some((i) => location.pathname === i.path);
+
   useEffect(() => {
     if (isConfigPath(location.pathname)) setConfigOpen(true);
     if (isEstoqueFiscalPath(location.pathname)) setEstoqueFiscalOpen(true);
+    if (isFinanceiroPath(location.pathname)) setFinanceiroOpen(true);
   }, [location.pathname]);
 
   /** Navega para a rota e (no mobile) fecha o drawer. */
@@ -274,6 +293,45 @@ export default function AppSidebar({ onNavigate }: Props) {
             </CollapsibleTrigger>
             <CollapsibleContent className="space-y-0.5 pt-0.5 pl-2">
               {visibleEstoqueFiscalItems.map((item) => (
+                <button
+                  key={item.path}
+                  onClick={() => handleNav(item.path)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-lg py-2 pl-5 pr-3 text-sm font-medium transition-colors",
+                    location.pathname === item.path
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-sidebar-foreground/90 hover:bg-sidebar-accent/50"
+                  )}
+                >
+                  <item.icon className="h-4 w-4 shrink-0 opacity-90" />
+                  {item.label}
+                </button>
+              ))}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+
+        {visibleFinanceiroItems.length > 0 && (
+          <Collapsible open={financeiroOpen} onOpenChange={setFinanceiroOpen} className="pt-1">
+            <CollapsibleTrigger
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                financeiroSectionActive && !financeiroOpen
+                  ? "bg-sidebar-accent/70 text-sidebar-accent-foreground"
+                  : "hover:bg-sidebar-accent/50"
+              )}
+            >
+              <Banknote className="h-4 w-4 shrink-0" />
+              <span className="flex-1 text-left">Financeiro</span>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 opacity-70 transition-transform duration-200",
+                  financeiroOpen && "rotate-180"
+                )}
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-0.5 pt-0.5 pl-2">
+              {visibleFinanceiroItems.map((item) => (
                 <button
                   key={item.path}
                   onClick={() => handleNav(item.path)}

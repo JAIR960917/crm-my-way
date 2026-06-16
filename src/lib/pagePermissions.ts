@@ -42,6 +42,10 @@ export const APP_PAGES: AppPage[] = [
   { key: "status_ssotica",       label: "Status SSótica",         path: "/status-ssotica" },
   { key: "estoque",              label: "Estoque",                path: "/estoque" },
   { key: "logs_movimentacao",    label: "Logs Movimentação",      path: "/logs-movimentacao" },
+  { key: "fin_contas_receber",   label: "Contas a Receber",       path: "/financeiro/contas-receber" },
+  { key: "fin_contas_pagar",     label: "Contas a Pagar",         path: "/financeiro/contas-pagar" },
+  { key: "fin_fluxo",            label: "Fluxo Financeiro",       path: "/financeiro/fluxo" },
+  { key: "fin_recebimentos_cartao", label: "Recebimentos Cartão", path: "/financeiro/recebimentos-cartao" },
   { key: "configuracoes",        label: "Configurações",          path: "/configuracoes" },
 ];
 
