@@ -60,8 +60,6 @@ import EstoquePage from "./pages/EstoquePage";
 import TransitionLogsPage from "./pages/TransitionLogsPage";
 import ContasReceberPage from "./pages/financeiro/ContasReceberPage";
 import ContasPagarPage from "./pages/financeiro/ContasPagarPage";
-import FluxoFinanceiroPage from "./pages/financeiro/FluxoFinanceiroPage";
-import RecebimentosCartaoPage from "./pages/financeiro/RecebimentosCartaoPage";
 import DashboardPage from "./pages/DashboardPage";
 import SalesReportPage from "./pages/SalesReportPage";
 import MeuDashboardPage from "./pages/MeuDashboardPage";
@@ -177,8 +175,6 @@ const AppRoutes = () => {
       <Route path="/logs-movimentacao" element={<RoleGate><TransitionLogsPage /></RoleGate>} />
       <Route path="/financeiro/contas-receber" element={<RoleGate><ContasReceberPage /></RoleGate>} />
       <Route path="/financeiro/contas-pagar" element={<RoleGate><ContasPagarPage /></RoleGate>} />
-      <Route path="/financeiro/fluxo" element={<RoleGate><FluxoFinanceiroPage /></RoleGate>} />
-      <Route path="/financeiro/recebimentos-cartao" element={<RoleGate><RecebimentosCartaoPage /></RoleGate>} />
       <Route path="/dashboard" element={<RoleGate><DashboardPage /></RoleGate>} />
       <Route path="/relatorio-vendas" element={<RoleGate><SalesReportPage /></RoleGate>} />
       <Route path="/meu-dashboard" element={<RoleGate><MeuDashboardPage /></RoleGate>} />

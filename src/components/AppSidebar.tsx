@@ -24,7 +24,7 @@ import {
   CalendarCheck, UserCheck, Upload, Receipt, Plug, CalendarHeart,
   History, BarChart3, FileBarChart, RefreshCw, Workflow, Activity,
   ChevronDown, SlidersHorizontal, CalendarClock,
-  Trophy, Boxes, Package, Banknote, TrendingUp, TrendingDown, CreditCard,
+  Trophy, Boxes, Package, Banknote, TrendingUp, TrendingDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -96,8 +96,6 @@ function isEstoqueFiscalPath(path: string) {
 const financeiroNavItems: NavItem[] = [
   { path: "/financeiro/contas-receber",    label: "Contas a Receber",    icon: TrendingUp },
   { path: "/financeiro/contas-pagar",      label: "Contas a Pagar",      icon: TrendingDown },
-  { path: "/financeiro/fluxo",             label: "Fluxo Financeiro",    icon: BarChart3 },
-  { path: "/financeiro/recebimentos-cartao", label: "Recebimentos Cartão", icon: CreditCard },
 ];
 
 const FINANCEIRO_PATHS = new Set(financeiroNavItems.map((i) => i.path));
