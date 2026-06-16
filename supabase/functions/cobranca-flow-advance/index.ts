@@ -263,8 +263,9 @@ serve(async (req) => {
               );
               if (result.ok) {
                 const sentAt = new Date().toISOString();
+                const { envio_erro: _e, envio_erro_em: _eem, envio_erro_campaign_id: _ecid, envio_erro_campaign_name: _ecn, ...dataWithoutError } = data;
                 const newData = {
-                  ...data,
+                  ...dataWithoutError,
                   gatilho_enviado_em: sentAt,
                   gatilho_status_key: cob.status,
                   gatilho_campaign_id: campaign.id,
@@ -389,6 +390,10 @@ serve(async (req) => {
       delete newData.gatilho_status_key;
       delete newData.gatilho_campaign_id;
       delete newData.gatilho_campaign_name;
+      delete newData.envio_erro;
+      delete newData.envio_erro_em;
+      delete newData.envio_erro_campaign_id;
+      delete newData.envio_erro_campaign_name;
       newData.status_entered_at = new Date().toISOString();
       newData.status_entered_status_key = nextStatus.key;
 
