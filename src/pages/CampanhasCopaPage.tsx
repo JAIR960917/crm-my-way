@@ -19,6 +19,8 @@ import {
   CAMPANHA_COPA_JOGO_SETTING_KEY,
   CAMPANHA_COPA_PIXEL_FORM_KEY,
   CAMPANHA_COPA_PIXEL_SUCCESS_KEY,
+  parseJogoConfig,
+  buildJogoKey,
 } from "@/lib/campanha-copa-jogo";
 import {
   CAMPANHA_COPA_PERIODO_FIM_KEY,
@@ -525,6 +527,37 @@ export default function CampanhasCopaPage() {
 
   const formUrl = `${window.location.origin}/campanha-copa`;
 
+  const currentJogoKey = useMemo(() => {
+    if (!jogoConfigRaw) return null;
+    const cfg = parseJogoConfig(jogoConfigRaw);
+    return buildJogoKey(cfg.team_home_name, cfg.team_away_name);
+  }, [jogoConfigRaw]);
+
+  const currentJogoRows = useMemo(
+    () => (currentJogoKey ? rows.filter((r) => r.jogo === currentJogoKey) : rows),
+    [rows, currentJogoKey],
+  );
+
+  // Phones/CPFs that voted in any PREVIOUS game (not the current one)
+  const phonesEmPalpitesAnteriores = useMemo(() => {
+    const phones = new Set<string>();
+    rows.forEach((r) => {
+      if (r.jogo !== currentJogoKey && r.telefone) {
+        phones.add(r.telefone.replace(/\D/g, ""));
+      }
+    });
+    return phones;
+  }, [rows, currentJogoKey]);
+
+  // People in the current game who did NOT participate in any previous game
+  const novosNoPalpiteAtual = useMemo(() => {
+    if (!currentJogoKey) return 0;
+    return currentJogoRows.filter((r) => {
+      const phone = r.telefone?.replace(/\D/g, "") ?? "";
+      return !phonesEmPalpitesAnteriores.has(phone);
+    }).length;
+  }, [currentJogoRows, phonesEmPalpitesAnteriores, currentJogoKey]);
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -560,17 +593,31 @@ export default function CampanhasCopaPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>Total de inscrições</CardDescription>
-              <CardTitle className="text-3xl">{rows.length}</CardTitle>
+              <CardDescription>Palpite atual</CardDescription>
+              <CardTitle className="text-3xl">{currentJogoRows.length}</CardTitle>
+              {rows.length !== currentJogoRows.length && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Total geral (todos os jogos): {rows.length}
+                </p>
+              )}
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Link do formulário</CardDescription>
               <CardTitle className="text-sm font-mono break-all">{formUrl}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Novos no palpite atual</CardDescription>
+              <CardTitle className="text-3xl">{novosNoPalpiteAtual}</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Não responderam palpites anteriores
+              </p>
             </CardHeader>
           </Card>
           <Card>
