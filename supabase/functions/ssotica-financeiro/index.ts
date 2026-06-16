@@ -3,8 +3,8 @@
  * Proxy unificado para os endpoints financeiros do SSótica:
  *   - contas_receber  → /financeiro/contas-a-receber/periodo
  *   - contas_pagar    → /financeiro/contas-a-pagar/periodo
- *   - fluxo_caixa     → /financeiro/fluxo-caixa/periodo
- *   - recebimentos_cartao → /financeiro/recebimentos-cartao/periodo
+ *
+ * Fluxo caixa e recebimentos cartão não existem como endpoint SSótica.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
@@ -18,8 +18,6 @@ const corsHeaders = {
 const TIPO_ENDPOINT: Record<string, string> = {
   contas_receber: "financeiro/contas-a-receber/periodo",
   contas_pagar: "financeiro/contas-a-pagar/periodo",
-  fluxo_caixa: "financeiro/fluxo-caixa/periodo",
-  recebimentos_cartao: "financeiro/recebimentos-cartao/periodo",
 };
 
 async function decryptToken(supabase: ReturnType<typeof createClient>, raw: string): Promise<string> {
@@ -33,6 +31,57 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+function calcDiasAtraso(vencimento: string | null): number | null {
+  if (!vencimento) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const venc = new Date(vencimento + "T00:00:00");
+  return Math.floor((today.getTime() - venc.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function normalizeContasReceber(row: any): Record<string, unknown> {
+  const cliente = row.titulo?.cliente ?? row.cliente ?? {};
+  const vencimento: string | null = row.vencimento ?? null;
+  return {
+    parcela_id: row.id,
+    titulo_id: row.titulo?.id ?? null,
+    numero_parcela: row.numero_parcela ?? null,
+    vencimento,
+    valor: Number(row.valor_reajustado ?? row.valor_original ?? row.valor ?? 0),
+    situacao: row.situacao ?? row["situação"] ?? null,
+    cliente_nome: cliente.nome ?? null,
+    cliente_id: cliente.id ?? null,
+    dias_atraso: calcDiasAtraso(vencimento),
+    forma_pagamento: row.forma_pagamento ?? null,
+    numero_documento: row.titulo?.numero_documento ?? null,
+  };
+}
+
+function normalizeContasPagar(row: any): Record<string, unknown> {
+  // SSótica contas a pagar: tenta múltiplas variações de campo de fornecedor/descrição
+  const fornecedor = row.fornecedor ?? row.credor ?? row.pessoa ?? {};
+  const fornecedor_nome =
+    fornecedor?.nome ??
+    row.descricao ??
+    row.titulo ??
+    row.nome_fornecedor ??
+    row.fornecedor_nome ??
+    null;
+
+  const vencimento: string | null =
+    row.vencimento ?? row.data_vencimento ?? row.dt_vencimento ?? null;
+
+  return {
+    parcela_id: row.id ?? null,
+    numero_parcela: row.numero_parcela ?? row.parcela ?? null,
+    vencimento,
+    valor: Number(row.valor_original ?? row.valor ?? row.valor_total ?? 0),
+    situacao: row.situacao ?? row["situação"] ?? row.status ?? null,
+    fornecedor_nome,
+    dias_atraso: calcDiasAtraso(vencimento),
+  };
 }
 
 Deno.serve(async (req) => {
@@ -74,7 +123,14 @@ Deno.serve(async (req) => {
     }
 
     const endpoint = TIPO_ENDPOINT[tipo];
-    if (!endpoint) return json({ error: `Tipo inválido: ${tipo}` }, 400);
+    if (!endpoint) {
+      return json({
+        data: [],
+        total: 0,
+        totalPages: 1,
+        warning: `O tipo "${tipo}" não possui endpoint disponível no SSótica. Apenas contas_receber e contas_pagar são suportados.`,
+      });
+    }
 
     const { data: integ, error: integErr } = await supabase
       .from("ssotica_integrations")
@@ -98,13 +154,18 @@ Deno.serve(async (req) => {
 
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
-      return json({ error: `SSótica ${res.status}: ${txt.slice(0, 300)}` }, 502);
+      // Retorna 200 para o cliente Supabase não engolir o erro, mas com mensagem útil
+      return json({
+        data: [],
+        total: 0,
+        totalPages: 1,
+        error: `SSótica retornou erro ${res.status}. Detalhes: ${txt.slice(0, 200) || "(sem detalhes)"}`,
+      });
     }
 
     const ssoticaData = await res.json().catch(() => ({}));
 
-    // Normaliza resposta: SSótica pode retornar array direto ou { data: [], total: N, ... }
-    const rows: unknown[] = Array.isArray(ssoticaData)
+    const rawRows: any[] = Array.isArray(ssoticaData)
       ? ssoticaData
       : Array.isArray(ssoticaData?.data)
       ? ssoticaData.data
@@ -112,13 +173,20 @@ Deno.serve(async (req) => {
 
     const total: number = typeof ssoticaData?.total === "number"
       ? ssoticaData.total
-      : rows.length;
+      : rawRows.length;
 
     const totalPages: number = typeof ssoticaData?.last_page === "number"
       ? ssoticaData.last_page
+      : typeof ssoticaData?.totalPages === "number"
+      ? ssoticaData.totalPages
       : Math.ceil(total / perPage) || 1;
 
-    return json({ data: rows, total, totalPages, currentPage: page, raw: ssoticaData });
+    // Normaliza campos para que o frontend use nomes consistentes
+    const normalizedRows = rawRows.map(
+      tipo === "contas_receber" ? normalizeContasReceber : normalizeContasPagar,
+    );
+
+    return json({ data: normalizedRows, total, totalPages, currentPage: page });
   } catch (err) {
     console.error("[ssotica-financeiro]", err);
     return json({ error: (err as Error).message || "Erro interno" }, 500);
