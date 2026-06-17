@@ -4,6 +4,9 @@ import {
   type CidadeLojaRoute,
 } from "@/lib/campanha-copa-cidade";
 
+/** Valor sentinela para o filtro de empresa: leads sem empresa mapeada pela cidade. */
+export const NO_COMPANY_FILTER = "__no_company__";
+
 export const EXAME_VISTA_OPTIONS = [
   "Menos de 6 meses",
   "6 meses a 1 ano",
@@ -485,7 +488,9 @@ export async function fetchCampanhaCopaRelatorio(
     rows = rows.filter((r) => r.renovacao_match === filters.renovacao_filtro);
   }
 
-  if (filters.company_id) {
+  if (filters.company_id === NO_COMPANY_FILTER) {
+    rows = rows.filter((r) => !r.company_id);
+  } else if (filters.company_id) {
     rows = rows.filter((r) => r.company_id === filters.company_id);
   }
 

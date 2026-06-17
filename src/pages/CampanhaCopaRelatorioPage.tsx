@@ -49,10 +49,12 @@ import {
   type CampanhaCopaRelatorioFilters,
   type CampanhaCopaRelatorioRow,
   type RenovacaoMatch,
+  NO_COMPANY_FILTER,
 } from "@/lib/campanha-copa-relatorio";
 import { Navigate } from "react-router-dom";
 
 const ALL = "__all__";
+const NO_COMPANY = NO_COMPANY_FILTER;
 
 type Profile = { user_id: string; full_name: string; email?: string };
 
@@ -156,7 +158,7 @@ export default function CampanhaCopaRelatorioPage() {
     renovacao_filtro: renovacaoFiltro === ALL ? null : (renovacaoFiltro as RenovacaoMatch),
     assigned_to: assignedTo === ALL ? null : assignedTo,
     placar: placarFiltro,
-    company_id: empresa === ALL ? null : empresa,
+    company_id: empresa === ALL ? null : empresa === NO_COMPANY ? NO_COMPANY : empresa,
     converteu: converteu === ALL ? null : converteu === "sim",
   }), [ultimoExame, cidade, jogo, dataInicio, dataFim, renovacaoFiltro, assignedTo, placarFiltro, empresa, converteu]);
 
@@ -353,6 +355,7 @@ export default function CampanhaCopaRelatorioPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL}>Todas</SelectItem>
+                    <SelectItem value={NO_COMPANY}>Sem empresa mapeada</SelectItem>
                     {empresaOptions.map((e) => (
                       <SelectItem key={e.id} value={e.id}>
                         {e.name}
