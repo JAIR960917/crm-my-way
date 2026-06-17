@@ -27,6 +27,8 @@ type SituacaoKey =
   | "1_dia_antes_vencimento"
   | "vence_hoje"
   | "1_dia_atraso"
+  | "2_parcelas_atraso"
+  | "3_parcelas_atraso"
   | "mais_30_dias_sem_negativacao"
   | "negativado_serasa"
   | "ajuizado_saniely"
@@ -35,6 +37,8 @@ const SITUACOES: { key: SituacaoKey; label: string; help: string }[] = [
   { key: "1_dia_antes_vencimento", label: "1 dia antes do vencimento", help: "Parcelas que vencem amanhã (entram nesta coluna)" },
   { key: "vence_hoje", label: "Vence hoje", help: "Parcelas que vencem hoje (0 dias de atraso). Se vazio, vai para a coluna padrão" },
   { key: "1_dia_atraso", label: "10 dias de atraso", help: "Parcelas de 10 a 29 dias de atraso ficam retidas nesta coluna até completar 30 dias" },
+  { key: "2_parcelas_atraso", label: "2 parcelas em atraso", help: "Cliente com exatamente 2 parcelas em atraso (sobrepõe a coluna por dias). Não se aplica se já estiver Negativado Serasa ou Ajuizado" },
+  { key: "3_parcelas_atraso", label: "3 parcelas em atraso", help: "Cliente com exatamente 3 parcelas em atraso (sobrepõe a coluna por dias e a regra de 2 parcelas). Não se aplica se já estiver Negativado Serasa ou Ajuizado" },
   { key: "mais_30_dias_sem_negativacao", label: "Mais de 30 dias sem negativação", help: "Parcelas com 30 dias de atraso ou mais e que ainda NÃO estão negativadas no Serasa" },
   { key: "negativado_serasa", label: "Negativado Serasa", help: "Cliente negativado no Serasa" },
   { key: "ajuizado_saniely", label: "Ajuizado(A) Saniely", help: "Cliente ajuizado pela advogada Saniely" },

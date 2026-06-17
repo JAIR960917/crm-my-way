@@ -1262,6 +1262,9 @@ async function syncContasReceber(
       const s = String(p?.situacao ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
       return s === "em atraso" || s === "atrasado" || s === "atrasada";
     });
+    // Quantidade de parcelas efetivamente em atraso (dias_atraso >= 1) — usado
+    // pelas regras de "2 parcelas em atraso" / "3 parcelas em atraso".
+    const parcelasEmAtrasoCount = parcelasMerged.filter((p) => Number(p?.dias_atraso ?? 0) >= 1).length;
 
     // Regra de coluna (configurável via tabela crm_cobranca_situacao_mapping):
     //  • Ajuizado(A) Saniely / Návde → coluna mapeada (fallback: última coluna)
@@ -1282,6 +1285,10 @@ async function syncContasReceber(
       colunaKeyAlvo = situacaoMapping["negativado_serasa"]
         ?? cobStatusList[7]?.key
         ?? coluna8Key;
+    } else if (parcelasEmAtrasoCount === 3 && situacaoMapping["3_parcelas_atraso"]) {
+      colunaKeyAlvo = situacaoMapping["3_parcelas_atraso"];
+    } else if (parcelasEmAtrasoCount === 2 && situacaoMapping["2_parcelas_atraso"]) {
+      colunaKeyAlvo = situacaoMapping["2_parcelas_atraso"];
     } else {
       colunaKeyAlvo = clampToLockedEntryDyn(colunaKeyForDiasAtraso(maisAntiga.dias_atraso));
     }
