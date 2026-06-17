@@ -23,6 +23,7 @@ export type CampanhaCopaRelatorioFilters = {
   renovacao_filtro?: RenovacaoMatch | null;
   assigned_to?: string | null;
   placar?: string | null;
+  company_id?: string | null;
 };
 
 export type CampanhaCopaRelatorioMetrics = {
@@ -421,6 +422,10 @@ export async function fetchCampanhaCopaRelatorio(
     rows = rows.filter((r) => r.renovacao_match === filters.renovacao_filtro);
   }
 
+  if (filters.company_id) {
+    rows = rows.filter((r) => r.company_id === filters.company_id);
+  }
+
   return {
     metrics: buildMetrics(rows),
     rows,
@@ -430,26 +435,47 @@ export async function fetchCampanhaCopaRelatorio(
 export async function fetchCampanhaCopaRelatorioMeta(): Promise<{
   cities: string[];
   jogos: string[];
+  companies: Array<{ id: string; name: string }>;
 }> {
-  const { data, error } = await supabase
-    .from("campanha_copa_submissions")
-    .select("cidade, jogo, jogo_label")
-    .order("created_at", { ascending: false })
-    .limit(2000);
+  const [subRes, routesRes] = await Promise.all([
+    supabase
+      .from("campanha_copa_submissions")
+      .select("cidade, jogo, jogo_label")
+      .order("created_at", { ascending: false })
+      .limit(2000),
+    supabase
+      .from("campanha_copa_cidade_lojas" as never)
+      .select("company_id"),
+  ]);
 
-  if (error) throw new Error(error.message);
+  if (subRes.error) throw new Error(subRes.error.message);
 
   const cities = new Set<string>();
   const jogos = new Map<string, string>();
-  for (const row of data || []) {
+  for (const row of subRes.data || []) {
     const r = row as { cidade?: string; jogo?: string; jogo_label?: string };
     if (r.cidade?.trim()) cities.add(r.cidade.trim());
     if (r.jogo) jogos.set(r.jogo, r.jogo_label || r.jogo);
   }
 
+  const companyIds = new Set<string>(
+    ((routesRes.data ?? []) as { company_id: string }[]).map((r) => r.company_id).filter(Boolean),
+  );
+
+  let companies: Array<{ id: string; name: string }> = [];
+  if (companyIds.size > 0) {
+    const { data: companiesData } = await supabase
+      .from("companies")
+      .select("id, name")
+      .in("id", [...companyIds])
+      .order("name");
+    companies = (companiesData ?? []) as Array<{ id: string; name: string }>;
+  }
+
   return {
     cities: Array.from(cities).sort((a, b) => a.localeCompare(b, "pt-BR")),
     jogos: Array.from(jogos.keys()).sort(),
+    companies,
   };
 }
 

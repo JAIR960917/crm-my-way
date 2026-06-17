@@ -11,6 +11,7 @@ import { Settings, Save, Upload, Loader2, Trash2 } from "lucide-react";
 type Cfg = Record<string, string>;
 type Service = { icon: string; title: string; text: string };
 type Testimonial = { quote: string; author: string; location: string };
+type Differential = { title: string; text: string };
 
 const TABS = [
   { key: "identidade", label: "Identidade" },
@@ -56,6 +57,7 @@ export default function SiteConfigPage() {
   // JSON arrays
   const [services, setServices] = useState<Service[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
+  const [differentials, setDifferentials] = useState<Differential[]>([]);
 
   const set = (k: string, v: string) => setCfg(p => ({ ...p, [k]: v }));
 
@@ -86,6 +88,20 @@ export default function SiteConfigPage() {
       setCfg(map);
       try { setServices(JSON.parse(map["services_items"] || "[]")); } catch { setServices([]); }
       try { setTestimonials(JSON.parse(map["testimonials_items"] || "[]")); } catch { setTestimonials([]); }
+      try {
+        if (map["about_differentials_items"]) {
+          setDifferentials(JSON.parse(map["about_differentials_items"]));
+        } else {
+          // Migra dos campos fixos legados
+          const legacy: Differential[] = [];
+          for (let n = 1; n <= 3; n++) {
+            const t = map[`about_f${n}_title`] || "";
+            const x = map[`about_f${n}_text`] || "";
+            if (t || x) legacy.push({ title: t, text: x });
+          }
+          setDifferentials(legacy);
+        }
+      } catch { setDifferentials([]); }
       setLoading(false);
     })();
   }, []);
@@ -119,6 +135,16 @@ export default function SiteConfigPage() {
 
   const setTst = (i: number, f: keyof Testimonial, v: string) =>
     setTestimonials(prev => prev.map((t, idx) => idx === i ? { ...t, [f]: v } : t));
+
+  const setDff = (i: number, f: keyof Differential, v: string) =>
+    setDifferentials(prev => prev.map((d, idx) => idx === i ? { ...d, [f]: v } : d));
+
+  const saveDifferentials = () => {
+    const val = JSON.stringify(differentials);
+    setCfg(p => ({ ...p, about_differentials_items: val }));
+    saveSection(["about_badge", "about_title", "about_text", "about_image_caption", "about_differentials_items"],
+      { about_differentials_items: val });
+  };
 
   if (loading) return <AppLayout><p className="p-6 text-sm text-muted-foreground">Carregando...</p></AppLayout>;
 
@@ -269,13 +295,32 @@ export default function SiteConfigPage() {
               <Field label="Texto principal" k="about_text" cfg={cfg} set={set} multi />
               <Field label="Legenda da imagem" k="about_image_caption" cfg={cfg} set={set} />
               <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide pt-2">Diferenciais</p>
-              {[1,2,3].map(n => (
-                <div key={n} className="space-y-2 border rounded-md p-3">
-                  <Field label={`Diferencial ${n} — Título`} k={`about_f${n}_title`} cfg={cfg} set={set} />
-                  <Field label={`Diferencial ${n} — Texto`} k={`about_f${n}_text`} cfg={cfg} set={set} multi />
+              {differentials.map((d, i) => (
+                <div key={i} className="border rounded-md p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-muted-foreground">Diferencial {i + 1}</p>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive"
+                      onClick={() => setDifferentials(p => p.filter((_, idx) => idx !== i))}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Título</Label>
+                    <Input value={d.title} onChange={e => setDff(i, "title", e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Texto</Label>
+                    <textarea className="w-full min-h-[60px] rounded-md border border-input px-3 py-2 text-sm bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                      value={d.text} onChange={e => setDff(i, "text", e.target.value)} />
+                  </div>
                 </div>
               ))}
-              <Button onClick={() => saveSection(["about_badge","about_title","about_text","about_image_caption","about_f1_title","about_f1_text","about_f2_title","about_f2_text","about_f3_title","about_f3_text"])} disabled={saving}>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setDifferentials(p => [...p, { title: "", text: "" }])}>
+                  + Adicionar diferencial
+                </Button>
+              </div>
+              <Button onClick={saveDifferentials} disabled={saving}>
                 <Save className="h-4 w-4 mr-1" />{saving ? "Salvando..." : "Salvar sobre"}
               </Button>
             </CardContent></Card>

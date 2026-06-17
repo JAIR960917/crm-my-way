@@ -186,7 +186,7 @@ async function insertAppointmentFromTratativa(
 }
 
 export default function CrediarioTarefasPage() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -218,31 +218,37 @@ export default function CrediarioTarefasPage() {
     const end = toDateString(queryEnd);
     const { startIso, endIso } = calendarRangeIso(queryStart, queryEnd);
 
+    const crediarioQuery = supabase
+      .from("crediario_tasks")
+      .select("id, lead_name, scheduled_date, scheduled_time, phone, cpf, observacao, renegociacao_status, renegociacao_comentario, completed_at, parent_task_id")
+      .gte("scheduled_date", start)
+      .lte("scheduled_date", end)
+      .order("scheduled_date", { ascending: true })
+      .order("lead_name", { ascending: true });
+    if (!isAdmin) crediarioQuery.eq("user_id", user.id);
+
+    const cobrancaQuery = supabase
+      .from("cobranca_activities")
+      .select("id, cobranca_id, title, description, scheduled_date, completed_at")
+      .is("completed_at", null)
+      .gte("scheduled_date", startIso)
+      .lte("scheduled_date", endIso)
+      .order("scheduled_date", { ascending: true });
+    if (!isAdmin) cobrancaQuery.eq("created_by", user.id);
+
+    const leadActQuery = supabase
+      .from("lead_activities")
+      .select("id, lead_id, title, description, scheduled_date, completed_at, crm_leads(data)")
+      .is("completed_at", null)
+      .gte("scheduled_date", startIso)
+      .lte("scheduled_date", endIso)
+      .order("scheduled_date", { ascending: true });
+    if (!isAdmin) leadActQuery.eq("created_by", user.id);
+
     const [crediarioRes, activitiesRes, leadActivitiesRes] = await Promise.all([
-      supabase
-        .from("crediario_tasks")
-        .select("id, lead_name, scheduled_date, scheduled_time, phone, cpf, observacao, renegociacao_status, renegociacao_comentario, completed_at, parent_task_id")
-        .eq("user_id", user.id)
-        .gte("scheduled_date", start)
-        .lte("scheduled_date", end)
-        .order("scheduled_date", { ascending: true })
-        .order("lead_name", { ascending: true }),
-      supabase
-        .from("cobranca_activities")
-        .select("id, cobranca_id, title, description, scheduled_date, completed_at")
-        .eq("created_by", user.id)
-        .is("completed_at", null)
-        .gte("scheduled_date", startIso)
-        .lte("scheduled_date", endIso)
-        .order("scheduled_date", { ascending: true }),
-      supabase
-        .from("lead_activities")
-        .select("id, lead_id, title, description, scheduled_date, completed_at, crm_leads(data)")
-        .eq("created_by", user.id)
-        .is("completed_at", null)
-        .gte("scheduled_date", startIso)
-        .lte("scheduled_date", endIso)
-        .order("scheduled_date", { ascending: true }),
+      crediarioQuery,
+      cobrancaQuery,
+      leadActQuery,
     ]);
 
     if (crediarioRes.error || activitiesRes.error || leadActivitiesRes.error) {
@@ -296,7 +302,7 @@ export default function CrediarioTarefasPage() {
 
     setTasks(merged);
     setLoading(false);
-  }, [user, queryStart, queryEnd]);
+  }, [user, isAdmin, queryStart, queryEnd]);
 
   useEffect(() => {
     fetchTasks();

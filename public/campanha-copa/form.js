@@ -258,6 +258,7 @@
   }
 
   var cidadesPorEstado = {};
+  var municipiosCarregados = false;
 
   function setCidadeSelectState(message, disabled) {
     if (!cidadeSelect) return;
@@ -280,38 +281,6 @@
     }
   }
 
-  function loadCidadesForEstado(uf) {
-    if (!cidadeSelect) return;
-    showCidadeError("");
-
-    if (!uf) {
-      setCidadeSelectState("Selecione o estado", true);
-      return;
-    }
-
-    if (cidadesPorEstado[uf]) {
-      populateCidadeSelect(cidadesPorEstado[uf]);
-      return;
-    }
-
-    setCidadeSelectState("Carregando cidades...", true);
-
-    fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados/" + uf + "/municipios?orderBy=nome")
-      .then(function (res) {
-        if (!res.ok) throw new Error("Falha ao carregar cidades");
-        return res.json();
-      })
-      .then(function (data) {
-        var nomes = (data || []).map(function (m) { return m.nome; });
-        cidadesPorEstado[uf] = nomes;
-        populateCidadeSelect(nomes);
-      })
-      .catch(function () {
-        setCidadeSelectState("Erro ao carregar cidades", true);
-        showCidadeError("Não foi possível carregar as cidades. Verifique sua conexão e tente novamente.");
-      });
-  }
-
   function populateCidadeSelect(nomes) {
     cidadeSelect.innerHTML = "";
     var placeholder = document.createElement("option");
@@ -326,6 +295,53 @@
     });
     cidadeSelect.disabled = false;
   }
+
+  function loadCidadesForEstado(uf) {
+    if (!cidadeSelect) return;
+    showCidadeError("");
+
+    if (!uf) {
+      setCidadeSelectState("Selecione o estado", true);
+      return;
+    }
+
+    if (cidadesPorEstado[uf]) {
+      populateCidadeSelect(cidadesPorEstado[uf]);
+      return;
+    }
+
+    if (municipiosCarregados) {
+      setCidadeSelectState("Nenhuma cidade encontrada", true);
+      return;
+    }
+
+    setCidadeSelectState("Carregando cidades...", true);
+
+    fetch("/campanha-copa/municipios.json")
+      .then(function (res) {
+        if (!res.ok) throw new Error("Falha");
+        return res.json();
+      })
+      .then(function (data) {
+        cidadesPorEstado = data || {};
+        municipiosCarregados = true;
+        if (cidadesPorEstado[uf]) {
+          populateCidadeSelect(cidadesPorEstado[uf]);
+        } else {
+          setCidadeSelectState("Nenhuma cidade encontrada", true);
+        }
+      })
+      .catch(function () {
+        setCidadeSelectState("Erro ao carregar cidades", true);
+        showCidadeError("Não foi possível carregar as cidades. Tente recarregar a página.");
+      });
+  }
+
+  // Pré-carrega o JSON de municípios ao iniciar para agilizar a seleção
+  fetch("/campanha-copa/municipios.json")
+    .then(function (res) { return res.ok ? res.json() : null; })
+    .then(function (data) { if (data) { cidadesPorEstado = data; municipiosCarregados = true; } })
+    .catch(function () { /* fallback silencioso — será tentado ao selecionar estado */ });
 
   if (estadoSelect) {
     estadoSelect.addEventListener("change", function () {

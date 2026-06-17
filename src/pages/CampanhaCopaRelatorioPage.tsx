@@ -135,6 +135,8 @@ export default function CampanhaCopaRelatorioPage() {
 
   const [cidadeOptions, setCidadeOptions] = useState<string[]>([]);
   const [jogoOptions, setJogoOptions] = useState<string[]>([]);
+  const [empresaOptions, setEmpresaOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [empresa, setEmpresa] = useState(ALL);
 
   const placarFiltro = useMemo(
     () => normalizePlacarInput(placarHome, placarAway),
@@ -150,7 +152,8 @@ export default function CampanhaCopaRelatorioPage() {
     renovacao_filtro: renovacaoFiltro === ALL ? null : (renovacaoFiltro as RenovacaoMatch),
     assigned_to: assignedTo === ALL ? null : assignedTo,
     placar: placarFiltro,
-  }), [ultimoExame, cidade, jogo, dataInicio, dataFim, renovacaoFiltro, assignedTo, placarFiltro]);
+    company_id: empresa === ALL ? null : empresa,
+  }), [ultimoExame, cidade, jogo, dataInicio, dataFim, renovacaoFiltro, assignedTo, placarFiltro, empresa]);
 
   const loadMeta = useCallback(async () => {
     const [profRes, meta] = await Promise.all([
@@ -160,6 +163,7 @@ export default function CampanhaCopaRelatorioPage() {
     setProfiles((profRes.data || []) as Profile[]);
     setCidadeOptions(meta.cities);
     setJogoOptions(meta.jogos);
+    setEmpresaOptions(meta.companies);
   }, []);
 
   const loadReport = useCallback(async () => {
@@ -236,7 +240,7 @@ export default function CampanhaCopaRelatorioPage() {
               Filtros
             </CardTitle>
             <CardDescription>
-              Refine por último exame, cidade, jogo, placar, período, status na Renovação e responsável.
+              Refine por último exame, cidade, jogo, placar, período, status na Renovação, responsável e empresa.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -330,6 +334,23 @@ export default function CampanhaCopaRelatorioPage() {
                     {profiles.map((p) => (
                       <SelectItem key={p.user_id} value={p.user_id}>
                         {p.full_name || p.email}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Empresa</Label>
+                <Select value={empresa} onValueChange={setEmpresa}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>Todas</SelectItem>
+                    {empresaOptions.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
