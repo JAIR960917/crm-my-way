@@ -67,6 +67,7 @@ type TaskRow = CrediarioTask & {
   renegociacao_comentario: string | null;
   completed_at: string | null;
   parent_task_id: string | null;
+  scheduled_by?: string | null;
 };
 
 type LeadActivityWithLead = {
@@ -76,8 +77,11 @@ type LeadActivityWithLead = {
   description: string | null;
   scheduled_date: string;
   completed_at: string | null;
+  created_by: string | null;
   crm_leads: { data: Record<string, unknown> | null } | null;
 };
+
+type ProfileLite = { user_id: string; full_name: string | null; email: string | null };
 
 function formatCpfBR(value: string): string {
   const digits = value.replace(/\D/g, "").slice(0, 11);
@@ -190,6 +194,7 @@ export default function CrediarioTarefasPage() {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [profiles, setProfiles] = useState<ProfileLite[]>([]);
   const [focusDate, setFocusDate] = useState(() => new Date());
   const [calendarView, setCalendarView] = useState<CalendarViewMode>("month");
 
@@ -220,7 +225,7 @@ export default function CrediarioTarefasPage() {
 
     const crediarioQuery = supabase
       .from("crediario_tasks")
-      .select("id, lead_name, scheduled_date, scheduled_time, phone, cpf, observacao, renegociacao_status, renegociacao_comentario, completed_at, parent_task_id")
+      .select("id, user_id, lead_name, scheduled_date, scheduled_time, phone, cpf, observacao, renegociacao_status, renegociacao_comentario, completed_at, parent_task_id")
       .gte("scheduled_date", start)
       .lte("scheduled_date", end)
       .order("scheduled_date", { ascending: true })
@@ -229,7 +234,7 @@ export default function CrediarioTarefasPage() {
 
     const cobrancaQuery = supabase
       .from("cobranca_activities")
-      .select("id, cobranca_id, title, description, scheduled_date, completed_at")
+      .select("id, cobranca_id, title, description, scheduled_date, completed_at, created_by")
       .is("completed_at", null)
       .gte("scheduled_date", startIso)
       .lte("scheduled_date", endIso)
@@ -238,7 +243,7 @@ export default function CrediarioTarefasPage() {
 
     const leadActQuery = supabase
       .from("lead_activities")
-      .select("id, lead_id, title, description, scheduled_date, completed_at, crm_leads(data)")
+      .select("id, lead_id, title, description, scheduled_date, completed_at, created_by, crm_leads(data)")
       .is("completed_at", null)
       .gte("scheduled_date", startIso)
       .lte("scheduled_date", endIso)
@@ -257,9 +262,9 @@ export default function CrediarioTarefasPage() {
       return;
     }
 
-    const crediarioTasks: TaskRow[] = ((crediarioRes.data || []) as Omit<TaskRow, "source">[])
+    const crediarioTasks: TaskRow[] = ((crediarioRes.data || []) as (Omit<TaskRow, "source"> & { user_id?: string })[])
       .filter((task) => !task.completed_at && !task.renegociacao_status)
-      .map((task) => ({ ...task, source: "crediario" as const, is_pending: true }));
+      .map((task) => ({ ...task, source: "crediario" as const, is_pending: true, scheduled_by: task.user_id ?? null }));
 
     const activities = (activitiesRes.data || []).filter((a) =>
       isManualCobrancaActivity(a.title),
@@ -277,12 +282,13 @@ export default function CrediarioTarefasPage() {
       );
     }
 
-    const cobrancaTasks: TaskRow[] = activities.map((activity) =>
-      mapCobrancaActivityToCalendarTask(
+    const cobrancaTasks: TaskRow[] = activities.map((activity) => ({
+      ...mapCobrancaActivityToCalendarTask(
         activity,
         cobrancaMap.get(activity.cobranca_id) ?? null,
       ),
-    );
+      scheduled_by: (activity as { created_by?: string | null }).created_by ?? null,
+    }));
 
     const leadActivities = ((leadActivitiesRes.data || []) as LeadActivityWithLead[]).filter((a) =>
       isManualCobrancaActivity(a.title),
@@ -292,6 +298,7 @@ export default function CrediarioTarefasPage() {
       .map((activity) => ({
         ...mapLeadActivityToCalendarTask(activity, activity.crm_leads?.data ?? null),
         is_pending: true,
+        scheduled_by: activity.created_by ?? null,
       }));
 
     const merged = [...crediarioTasks, ...cobrancaTasks, ...leadTasks].sort((a, b) => {
@@ -307,6 +314,12 @@ export default function CrediarioTarefasPage() {
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
+
+  useEffect(() => {
+    supabase.from("profiles").select("user_id, full_name, email").then(({ data }) => {
+      setProfiles((data ?? []) as ProfileLite[]);
+    });
+  }, []);
 
   const resetForm = () => {
     setFormNome("");
@@ -721,6 +734,17 @@ export default function CrediarioTarefasPage() {
                 </div>
               )}
             </div>
+
+            {editing?.scheduled_by && (
+              <p className="text-xs text-muted-foreground pt-1">
+                Agendado por:{" "}
+                <span className="font-medium text-foreground">
+                  {profiles.find((p) => p.user_id === editing.scheduled_by)?.full_name ||
+                    profiles.find((p) => p.user_id === editing.scheduled_by)?.email ||
+                    "Usuário desconhecido"}
+                </span>
+              </p>
+            )}
 
             <div className="flex flex-wrap gap-2 justify-end pt-2">
               {editing?.source === "cobranca" && editing.cobrancaId && (
