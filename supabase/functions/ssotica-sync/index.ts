@@ -888,9 +888,9 @@ async function syncContasReceber(
     return lockedKeys.has(key) ? lockedEntryKey() : key;
   }
   function colunaKeyForDiasAtraso(dias: number): string {
-    // Atalho: parcelas com EXATAMENTE 5 dias de atraso vão direto para a coluna
-    // mapeada como "1_dia_atraso" (que agora representa "5 dias de atraso").
-    if (dias === 5 && situacaoMapping["1_dia_atraso"]) return situacaoMapping["1_dia_atraso"];
+    // Atalho: parcelas com EXATAMENTE 10 dias de atraso vão direto para a coluna
+    // mapeada como "1_dia_atraso" (que agora representa "10 dias de atraso").
+    if (dias === 10 && situacaoMapping["1_dia_atraso"]) return situacaoMapping["1_dia_atraso"];
     const idx = diasParaIndiceLogico(dias);
     return resolveColunaKeyByLogicalIndex(idx, dias) ?? "";
   }
