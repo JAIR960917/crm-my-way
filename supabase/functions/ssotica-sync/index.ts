@@ -1285,7 +1285,7 @@ async function syncContasReceber(
       colunaKeyAlvo = situacaoMapping["negativado_serasa"]
         ?? cobStatusList[7]?.key
         ?? coluna8Key;
-    } else if (parcelasEmAtrasoCount === 3 && situacaoMapping["3_parcelas_atraso"]) {
+    } else if (parcelasEmAtrasoCount >= 3 && situacaoMapping["3_parcelas_atraso"]) {
       colunaKeyAlvo = situacaoMapping["3_parcelas_atraso"];
     } else if (parcelasEmAtrasoCount === 2 && situacaoMapping["2_parcelas_atraso"]) {
       colunaKeyAlvo = situacaoMapping["2_parcelas_atraso"];
