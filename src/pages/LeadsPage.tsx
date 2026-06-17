@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Plus, Filter, X, Search, ArrowRightLeft } from "lucide-react";
+import { Plus, Filter, X, Search, ArrowRightLeft, Users } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -26,6 +26,7 @@ import { normalizeLeadData, resolveLeadIdentity } from "@/lib/leadIdentity";
 import { resolveCanalFromLeadData, fetchActiveAppointedLeadIds, logAppointmentHistory } from "@/lib/appointmentUtils";
 import { getLeadExamTimestamp, sortKanbanByExamAndTratativa } from "@/lib/kanbanCardSort";
 import BulkTransferDialog from "@/components/crm/BulkTransferDialog";
+import AllocateUnassignedDialog from "@/components/crm/AllocateUnassignedDialog";
 
 type CrmColumn = {
   id: string; name: string; field_key: string; field_type: string;
@@ -95,6 +96,7 @@ export default function LeadsPage() {
   const [userRoles, setUserRoles] = useState<UserRole[]>([]);
   const [assignableUserIds, setAssignableUserIds] = useState<Set<string> | null>(null);
   const [bulkTransferOpen, setBulkTransferOpen] = useState(false);
+  const [allocateUnassignedOpen, setAllocateUnassignedOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Schedule dialog
@@ -131,6 +133,12 @@ export default function LeadsPage() {
     apply: (q: any, statusKey?: string) => {
       let res = q;
       if (
+        (isAdmin || isGerente)
+        && filterVendedor === "__unassigned__"
+        && statusKey !== "excluidos"
+      ) {
+        res = res.is("assigned_to", null);
+      } else if (
         (isAdmin || isGerente)
         && filterVendedor
         && filterVendedor !== "all"
@@ -949,6 +957,17 @@ export default function LeadsPage() {
           {(isAdmin || isGerente) && (
             <Button
               size="sm"
+              variant="outline"
+              onClick={() => setAllocateUnassignedOpen(true)}
+              className="shrink-0"
+            >
+              <Users className="mr-1 h-4 w-4" />
+              Alocar sem usuário
+            </Button>
+          )}
+          {(isAdmin || isGerente) && (
+            <Button
+              size="sm"
               variant={showFilters ? "default" : "outline"}
               onClick={() => setShowFilters(!showFilters)}
               className="shrink-0"
@@ -991,6 +1010,7 @@ export default function LeadsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="__unassigned__">Sem usuário alocado</SelectItem>
                 {vendedorOptions.map(p => (
                   <SelectItem key={p.user_id} value={p.user_id}>
                     {p.full_name || "Sem nome"}
@@ -1308,6 +1328,15 @@ export default function LeadsPage() {
           entityLabel="leads"
           sourceProfiles={bulkTransferSourceProfiles}
           destProfiles={bulkTransferDestProfiles}
+          onSuccess={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
+
+      {(isAdmin || isGerente) && (
+        <AllocateUnassignedDialog
+          open={allocateUnassignedOpen}
+          onOpenChange={setAllocateUnassignedOpen}
+          companies={companies}
           onSuccess={() => setRefreshKey((k) => k + 1)}
         />
       )}
