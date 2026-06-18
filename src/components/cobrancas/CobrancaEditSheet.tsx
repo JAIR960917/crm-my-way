@@ -434,21 +434,102 @@ export default function CobrancaEditSheet(props: Props) {
     }
     setMarkingPaid(true);
     try {
-      await supabase.from("crm_module_transition_logs").insert({
-        cliente_nome: formData.nome || "Cliente",
-        from_module: "cobranca",
-        to_module: "none",
-        to_status_key: null,
-        to_status_label: null,
-        source_record_id: cobrancaId,
-        ssotica_cliente_id: ssoticaClienteId ?? null,
-        company_id: formCompanyId || null,
-        triggered_by: user?.id ?? null,
-        trigger_source: "manual_marcado_pago",
-      });
+      const clienteNome = formData.nome || "Cliente";
+
+      // Mesma regra do sync automático: se o cliente quitou tudo e ainda não
+      // tem card em Renovação, cria um (senão ele "desaparece" do CRM).
+      let renovacaoCriada = false;
+      if (ssoticaClienteId && ssoticaCompanyId) {
+        const { data: jaTemRen } = await supabase
+          .from("crm_renovacoes")
+          .select("id")
+          .eq("ssotica_cliente_id", ssoticaClienteId)
+          .eq("ssotica_company_id", ssoticaCompanyId)
+          .maybeSingle();
+
+        if (!jaTemRen) {
+          const dataReferencia: string | null =
+            (formData.data_ultima_receita as string | undefined) ??
+            (formData.data_ultima_venda as string | undefined) ??
+            (formData.data_ultima_compra as string | undefined) ??
+            null;
+          const resolvedAssignedTo = formAssigned || null;
+          let renStatusKey = "fazer_direcionamento_para_o_vendedor";
+          if (resolvedAssignedTo) {
+            if (!dataReferencia) {
+              renStatusKey = "novo";
+            } else {
+              const dias = Math.floor(
+                (Date.now() - new Date(`${dataReferencia}T00:00:00Z`).getTime()) / 86400000,
+              );
+              renStatusKey =
+                dias < 365 ? "em_contato" : dias < 730 ? "agendado" : dias < 1095 ? "renovado" : "mais_de_3_anos";
+            }
+          }
+
+          const { data: insertedRen, error: renErr } = await supabase
+            .from("crm_renovacoes")
+            .insert({
+              ssotica_cliente_id: ssoticaClienteId,
+              ssotica_company_id: ssoticaCompanyId,
+              assigned_to: resolvedAssignedTo,
+              data: {
+                nome: clienteNome,
+                telefone: formData.telefone || "",
+                documento: formData.documento || formData.cpf || "",
+                cpf: formData.documento || formData.cpf || "",
+                data_ultima_receita: formData.data_ultima_receita || null,
+                data_ultima_venda: formData.data_ultima_venda || null,
+                data_ultima_compra: dataReferencia,
+                origem_transicao: "cobranca_quitada_manual",
+              },
+              status: renStatusKey,
+              data_ultima_compra: dataReferencia,
+              scheduled_date: dataReferencia,
+            })
+            .select("id")
+            .maybeSingle();
+          if (renErr) throw renErr;
+          renovacaoCriada = !!insertedRen?.id;
+
+          await supabase.from("crm_module_transition_logs").insert({
+            cliente_nome: clienteNome,
+            from_module: "cobranca",
+            to_module: "renovacao",
+            to_status_key: renStatusKey,
+            to_status_label: null,
+            source_record_id: cobrancaId,
+            target_record_id: insertedRen?.id ?? null,
+            ssotica_cliente_id: ssoticaClienteId,
+            company_id: ssoticaCompanyId,
+            triggered_by: user?.id ?? null,
+            trigger_source: "manual_marcado_pago",
+          });
+        }
+      }
+
+      if (!renovacaoCriada) {
+        await supabase.from("crm_module_transition_logs").insert({
+          cliente_nome: clienteNome,
+          from_module: "cobranca",
+          to_module: "none",
+          to_status_key: null,
+          to_status_label: null,
+          source_record_id: cobrancaId,
+          ssotica_cliente_id: ssoticaClienteId ?? null,
+          company_id: ssoticaCompanyId ?? formCompanyId ?? null,
+          triggered_by: user?.id ?? null,
+          trigger_source: "manual_marcado_pago",
+        });
+      }
+
       const { error } = await supabase.from("crm_cobrancas").delete().eq("id", cobrancaId);
       if (error) throw error;
-      toast.success("Cobrança marcada como paga e removida.");
+      toast.success(
+        renovacaoCriada
+          ? "Cobrança marcada como paga — cliente movido para Renovação."
+          : "Cobrança marcada como paga e removida.",
+      );
       onOpenChange(false);
       onCardUpdated?.();
     } catch (e: unknown) {
