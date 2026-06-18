@@ -184,9 +184,19 @@ export default function LeadCard({
           if (nameFieldIds.has(f.id) || phoneFieldIds.has(f.id)) return false;
           // Campo condicional: só exibe se a resposta do pai bater com o valor que o ativa
           if (f.parent_field_id) {
+            if (!f.parent_trigger_value) return true;
+            let triggerValues: string[];
+            try {
+              const parsed = JSON.parse(f.parent_trigger_value);
+              triggerValues = Array.isArray(parsed) ? parsed : [f.parent_trigger_value];
+            } catch {
+              triggerValues = [f.parent_trigger_value];
+            }
             const parentValue = data[`field_${f.parent_field_id}`];
-            const parentValues = Array.isArray(parentValue) ? parentValue : [parentValue];
-            if (!parentValues.includes(f.parent_trigger_value)) return false;
+            const matches = Array.isArray(parentValue)
+              ? parentValue.some((v: string) => triggerValues.includes(v))
+              : triggerValues.includes(parentValue);
+            if (!matches) return false;
           }
           if (f.show_on_card) return true;
           const label = (f.label || "").toLowerCase();
