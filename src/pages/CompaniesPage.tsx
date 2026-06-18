@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Building2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Building2, Clock } from "lucide-react";
+import CompanyBusinessHoursDialog from "@/components/companies/CompanyBusinessHoursDialog";
 
 type Company = {
   id: string;
@@ -26,6 +27,7 @@ export default function CompaniesPage() {
   const [cnpj, setCnpj] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [hoursCompany, setHoursCompany] = useState<Company | null>(null);
 
   const fetchCompanies = async () => {
     const { data } = await supabase.from("companies").select("*").order("name");
@@ -140,6 +142,9 @@ export default function CompaniesPage() {
                 <td className="p-3 text-muted-foreground text-sm">{c.address || "—"}</td>
                 <td className="p-3">
                   <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Horário de funcionamento" onClick={() => setHoursCompany(c)}>
+                      <Clock className="h-3.5 w-3.5" />
+                    </Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -167,6 +172,9 @@ export default function CompaniesPage() {
                 <span className="font-medium">{c.name}</span>
               </div>
               <div className="flex gap-1 shrink-0">
+                <Button variant="ghost" size="icon" className="h-7 w-7" title="Horário de funcionamento" onClick={() => setHoursCompany(c)}>
+                  <Clock className="h-3.5 w-3.5" />
+                </Button>
                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(c)}>
                   <Pencil className="h-3.5 w-3.5" />
                 </Button>
@@ -183,6 +191,13 @@ export default function CompaniesPage() {
           </div>
         ))}
       </div>
+
+      <CompanyBusinessHoursDialog
+        open={!!hoursCompany}
+        onOpenChange={(v) => { if (!v) setHoursCompany(null); }}
+        companyId={hoursCompany?.id ?? null}
+        companyName={hoursCompany?.name ?? ""}
+      />
     </AppLayout>
   );
 }
