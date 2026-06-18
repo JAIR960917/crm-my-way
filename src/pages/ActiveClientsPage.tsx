@@ -451,7 +451,7 @@ export default function ActiveClientsPage() {
     if (nameField) dataToSave.nome = formData[`field_${nameField.id}`] || "";
     if (phoneField) dataToSave.telefone = formData[`field_${phoneField.id}`] || "";
     const lastVisitValue = lastVisitField
-      ? (editingItem?.data_ultima_compra ?? formData[`field_${lastVisitField.id}`] ?? null)
+      ? (formData[`field_${lastVisitField.id}`] ?? editingItem?.data_ultima_compra ?? null)
       : null;
     const assignedTo = formAssigned || null;
     const hasAssignedUser = !!assignedTo;
