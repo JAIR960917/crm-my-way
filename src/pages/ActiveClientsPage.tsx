@@ -178,7 +178,13 @@ export default function ActiveClientsPage() {
   const buildSearchOr = useCallback((q: string) => {
     const safe = q.replace(/[%,()]/g, "");
     if (!safe) return null;
-    return `data->>nome.ilike.%${safe}%,data->>telefone.ilike.%${safe}%`;
+    const digits = safe.replace(/\D/g, "");
+    const parts = [
+      `data->>nome.ilike.%${safe}%`,
+      `data->>telefone.ilike.%${safe}%`,
+    ];
+    if (digits) parts.push(`data->>telefone.ilike.%${digits}%`);
+    return parts.join(",");
   }, []);
 
   const {
@@ -1007,7 +1013,7 @@ export default function ActiveClientsPage() {
           )}
           <div className="relative flex-1 sm:flex-initial">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Buscar..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-8 h-9 w-full sm:w-48" />
+            <Input placeholder="Buscar por nome ou telefone..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-8 h-9 w-full sm:w-48" />
           </div>
           {(isAdmin || isGerente) && (
             <Button size="sm" variant="outline" onClick={() => setBulkTransferOpen(true)}>
