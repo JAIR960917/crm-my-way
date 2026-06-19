@@ -1,29 +1,18 @@
+/**
+ * Este arquivo (/sw.js) existiu apenas para "desinstalar" um service worker
+ * legado em dispositivos antigos — o service worker real do app hoje é
+ * /service-worker.js (ver src/lib/pwaBootstrap.ts).
+ *
+ * A versão anterior deste arquivo, ao reativar, apagava TODOS os caches e
+ * forçava a navegação (reload) de toda aba aberta — incluindo usuários que
+ * estavam no meio do preenchimento de um formulário OFFLINE, derrubando o
+ * progresso deles. Esta versão apenas se desregistra silenciosamente, sem
+ * apagar cache nem recarregar a página do usuário.
+ */
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil((async () => {
-    await self.clients.claim();
-
-    const cacheNames = await caches.keys();
-    await Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
-
-    const windowClients = await self.clients.matchAll({
-      type: "window",
-      includeUncontrolled: true,
-    });
-
-    await Promise.all(
-      windowClients.map(async (client) => {
-        if (typeof client.navigate === "function") {
-          const url = new URL(client.url);
-          url.searchParams.set("sw-cleanup", Date.now().toString());
-          await client.navigate(url.toString());
-        }
-      })
-    );
-
-    await self.registration.unregister();
-  })());
+  event.waitUntil(self.registration.unregister());
 });
