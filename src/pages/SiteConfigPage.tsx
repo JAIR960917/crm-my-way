@@ -433,7 +433,10 @@ export default function SiteConfigPage() {
           <Card><CardHeader><CardTitle className="text-base">Seção Franquia (CTA)</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <Field label="Badge" k="franchise_badge" cfg={cfg} set={set} />
-              <Field label="Título" k="franchise_title" cfg={cfg} set={set} placeholder="Seja parte da rede que mais cresce no Brasil" />
+              <Field label="Título" k="franchise_title" cfg={cfg} set={set} placeholder="Seja parte da rede que mais *cresce* no Brasil" />
+              <p className="text-xs text-muted-foreground -mt-2">
+                Coloque a palavra entre asteriscos (ex.: *cresce*) para destacá-la em vermelho.
+              </p>
               <Field label="Subtítulo" k="franchise_subtitle" cfg={cfg} set={set} multi />
               <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide pt-2">Cards de destaque</p>
               {franchiseCards.map((c, i) => (
