@@ -12,6 +12,7 @@ type Cfg = Record<string, string>;
 type Service = { icon: string; title: string; text: string };
 type Testimonial = { quote: string; author: string; location: string };
 type Differential = { title: string; text: string };
+type FranchiseCard = { value: string; title: string; text: string };
 
 const TABS = [
   { key: "identidade", label: "Identidade" },
@@ -58,6 +59,7 @@ export default function SiteConfigPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [differentials, setDifferentials] = useState<Differential[]>([]);
+  const [franchiseCards, setFranchiseCards] = useState<FranchiseCard[]>([]);
 
   const set = (k: string, v: string) => setCfg(p => ({ ...p, [k]: v }));
 
@@ -102,6 +104,7 @@ export default function SiteConfigPage() {
           setDifferentials(legacy);
         }
       } catch { setDifferentials([]); }
+      try { setFranchiseCards(JSON.parse(map["franchise_cards"] || "[]")); } catch { setFranchiseCards([]); }
       setLoading(false);
     })();
   }, []);
@@ -144,6 +147,16 @@ export default function SiteConfigPage() {
     setCfg(p => ({ ...p, about_differentials_items: val }));
     saveSection(["about_badge", "about_title", "about_text", "about_image_caption", "about_differentials_items"],
       { about_differentials_items: val });
+  };
+
+  const setFc = (i: number, f: keyof FranchiseCard, v: string) =>
+    setFranchiseCards(prev => prev.map((c, idx) => idx === i ? { ...c, [f]: v } : c));
+
+  const saveFranchise = () => {
+    const val = JSON.stringify(franchiseCards);
+    setCfg(p => ({ ...p, franchise_cards: val }));
+    saveSection(["franchise_badge", "franchise_title", "franchise_subtitle", "franchise_cards", "franchise_btn"],
+      { franchise_cards: val });
   };
 
   if (loading) return <AppLayout><p className="p-6 text-sm text-muted-foreground">Carregando...</p></AppLayout>;
@@ -420,18 +433,42 @@ export default function SiteConfigPage() {
           <Card><CardHeader><CardTitle className="text-base">Seção Franquia (CTA)</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <Field label="Badge" k="franchise_badge" cfg={cfg} set={set} />
-              <Field label="Título" k="franchise_title" cfg={cfg} set={set} />
+              <Field label="Título" k="franchise_title" cfg={cfg} set={set} placeholder="Seja parte da rede que mais cresce no Brasil" />
               <Field label="Subtítulo" k="franchise_subtitle" cfg={cfg} set={set} multi />
-              <div className="space-y-1.5">
-                <Label>Diferenciais (um por linha)</Label>
-                <textarea
-                  className="w-full min-h-[120px] rounded-md border border-input px-3 py-2 text-sm bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={(() => { try { return (JSON.parse(cfg["franchise_features"] || "[]") as string[]).join("\n"); } catch { return ""; } })()}
-                  onChange={e => set("franchise_features", JSON.stringify(e.target.value.split("\n").filter(Boolean)))}
-                />
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide pt-2">Cards de destaque</p>
+              {franchiseCards.map((c, i) => (
+                <div key={i} className="border rounded-md p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-muted-foreground">Card {i + 1}</p>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive"
+                      onClick={() => setFranchiseCards(p => p.filter((_, idx) => idx !== i))}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="space-y-1.5">
+                      <Label>Número/valor</Label>
+                      <Input value={c.value} onChange={e => setFc(i, "value", e.target.value)} placeholder="10" />
+                    </div>
+                    <div className="col-span-3 space-y-1.5">
+                      <Label>Título</Label>
+                      <Input value={c.title} onChange={e => setFc(i, "title", e.target.value)} placeholder="Lojas abertas" />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Descrição</Label>
+                    <textarea className="w-full min-h-[60px] rounded-md border border-input px-3 py-2 text-sm bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                      value={c.text} onChange={e => setFc(i, "text", e.target.value)} />
+                  </div>
+                </div>
+              ))}
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setFranchiseCards(p => [...p, { value: "", title: "", text: "" }])}>
+                  + Adicionar card
+                </Button>
               </div>
               <Field label="Texto do botão" k="franchise_btn" cfg={cfg} set={set} />
-              <Button onClick={() => saveSection(["franchise_badge","franchise_title","franchise_subtitle","franchise_features","franchise_btn"])} disabled={saving}>
+              <Button onClick={saveFranchise} disabled={saving}>
                 <Save className="h-4 w-4 mr-1" />{saving ? "Salvando..." : "Salvar franquia"}
               </Button>
             </CardContent></Card>
