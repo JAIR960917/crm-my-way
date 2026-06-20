@@ -69,7 +69,8 @@ Deno.serve(async (req) => {
       .in("id", ids);
 
     if (rowsErr) {
-      return new Response(JSON.stringify({ error: rowsErr.message }), {
+      console.error("[campanha-copa-send-to-leads] erro ao buscar submissions:", rowsErr);
+      return new Response(JSON.stringify({ error: "Erro ao buscar inscrições" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -114,11 +115,19 @@ Deno.serve(async (req) => {
       };
       applyUltimoExameVistaToLeadData(leadData, sub.ultimo_exame_vista || "", lastVisitFieldId);
 
+      // Inscrições do jogo ATUAL entram na coluna "Participando da campanha
+      // atual"; as de jogos anteriores caem direto na coluna geral
+      // "Campanha Copa". Quando o admin troca o jogo, um trigger no banco
+      // move quem estava em "participando" de volta pra "campanha_copa".
+      const statusKey = sub.jogo === jogoCfg.jogo_key
+        ? "participando_campanha_atual"
+        : "campanha_copa";
+
       const { data: lead, error: leadErr } = await admin
         .from("crm_leads")
         .insert({
           data: leadData,
-          status: "campanha_copa",
+          status: statusKey,
           assigned_to: sub.assigned_to,
           created_by: user!.id,
         })
@@ -126,7 +135,8 @@ Deno.serve(async (req) => {
         .single();
 
       if (leadErr || !lead) {
-        results.push({ submissionId: id, status: "error", error: leadErr?.message ?? "Erro ao criar lead" });
+        console.error("[campanha-copa-send-to-leads] erro ao criar lead:", leadErr);
+        results.push({ submissionId: id, status: "error", error: "Erro ao criar lead" });
         continue;
       }
 
@@ -136,7 +146,8 @@ Deno.serve(async (req) => {
         .eq("id", id);
 
       if (updErr) {
-        results.push({ submissionId: id, status: "error", error: updErr.message });
+        console.error("[campanha-copa-send-to-leads] erro ao vincular submission:", updErr);
+        results.push({ submissionId: id, status: "error", error: "Erro ao vincular inscrição" });
         continue;
       }
 

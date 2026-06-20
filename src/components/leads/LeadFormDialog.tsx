@@ -994,9 +994,11 @@ export default function LeadFormDialog({
 
                       if (fresh) {
                         const resolvedStatus = (fresh.status as string) || newStatus || previousStatus;
-                        if (resolvedStatus !== previousStatus) {
-                          onLeadStatusChange?.(previousStatus, resolvedStatus, fresh as Record<string, unknown>);
-                        }
+                        // Sempre notifica o pai — mesmo quando o status nao muda — para
+                        // que o card seja repatchado com data.tratativa_em e reordene
+                        // para o fim da coluna (sem isso, o card tratado ficava parado
+                        // no topo, pois o estado local nunca era atualizado).
+                        onLeadStatusChange?.(previousStatus, resolvedStatus, fresh as Record<string, unknown>);
                       }
                     } catch (e) {
                       console.error("[tratativa] falha ao reavaliar status:", e);

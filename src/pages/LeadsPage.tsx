@@ -1058,7 +1058,7 @@ export default function LeadsPage() {
         <div className="flex gap-1.5 min-w-max">
           {visibleStatuses.map((status) => {
             const colors = colorMap[status.color] || colorMap.blue;
-            const count = getLeadsByStatus(status.key).length;
+            const count = getColumnState(status.key).total;
             return (
               <button
                 key={status.key}
@@ -1117,7 +1117,7 @@ export default function LeadsPage() {
               ))}
               {hasMore && (
                 <p className="text-center text-xs text-muted-foreground py-2">
-                  Mostrando {visibleLeads.length} de {statusLeads.length} — role para carregar mais
+                  Mostrando {visibleLeads.length} de {colState.total} — role para carregar mais
                 </p>
               )}
               <button
@@ -1146,7 +1146,7 @@ export default function LeadsPage() {
                   <div className={`h-2.5 w-2.5 rounded-full ${colors.header}`} />
                   <h3 className="font-semibold text-sm text-foreground">{status.label}</h3>
                   <span className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full ${colors.badge}`}>
-                    {statusLeads.length}
+                    {colState.total}
                   </span>
                 </div>
 
@@ -1199,7 +1199,7 @@ export default function LeadsPage() {
 
                       {hasMore && (
                         <p className="text-center text-xs text-muted-foreground py-1">
-                          Mostrando {visibleLeads.length} de {statusLeads.length} — role para carregar mais
+                          Mostrando {visibleLeads.length} de {colState.total} — role para carregar mais
                         </p>
                       )}
 
