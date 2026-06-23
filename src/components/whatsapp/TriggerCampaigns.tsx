@@ -36,6 +36,7 @@ type TriggerStep = {
   image_url?: string | null;
   meta_template_name?: string | null;
   meta_template_language?: string | null;
+  force_template?: boolean;
 };
 
 type TriggerCampaign = {
@@ -107,6 +108,7 @@ export default function TriggerCampaigns({ instances }: Props) {
   ]);
   const [metaTemplateName, setMetaTemplateName] = useState("");
   const [metaTemplateLanguage, setMetaTemplateLanguage] = useState("pt_BR");
+  const [forceTemplate, setForceTemplate] = useState(false);
 
   const canManage = isAdmin;
 
@@ -182,6 +184,7 @@ export default function TriggerCampaigns({ instances }: Props) {
     setSteps([{ position: 0, delay_days: 0, message: "", image_url: null }]);
     setMetaTemplateName("");
     setMetaTemplateLanguage("pt_BR");
+    setForceTemplate(false);
     setEditingId(null);
     setShowForm(false);
   };
@@ -204,6 +207,7 @@ export default function TriggerCampaigns({ instances }: Props) {
     );
     setMetaTemplateName(firstStep?.meta_template_name || "");
     setMetaTemplateLanguage(firstStep?.meta_template_language || "pt_BR");
+    setForceTemplate(!!firstStep?.force_template);
     setEditingId(c.id);
     setShowForm(true);
   };
@@ -289,6 +293,7 @@ export default function TriggerCampaigns({ instances }: Props) {
           image_url: s.image_url || null,
           meta_template_name: stepMetaTemplate,
           meta_template_language: stepMetaLang,
+          force_template: forceTemplate,
         }));
 
       const resolveCompanyId = (val: string) =>
@@ -601,6 +606,14 @@ export default function TriggerCampaigns({ instances }: Props) {
                 onChange={(e) => setMetaTemplateLanguage(e.target.value)}
               />
             </div>
+            <div className="flex items-start gap-2 sm:col-span-2">
+              <Switch checked={forceTemplate} onCheckedChange={setForceTemplate} id="force-template" />
+              <Label htmlFor="force-template" className="text-xs font-normal leading-snug cursor-pointer">
+                Sempre enviar como template (mesmo com a janela de 24h aberta) — necessário para
+                preservar botões/quick-replies do template aprovado. Se desmarcado, envia texto livre
+                quando possível e só usa o template como obrigação da Meta fora da janela.
+              </Label>
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -734,6 +747,7 @@ export default function TriggerCampaigns({ instances }: Props) {
                         {sortedSteps[0]?.meta_template_name ? (
                           <Badge variant="outline" className="text-[10px] flex items-center gap-1">
                             <ShieldCheck className="h-3 w-3" /> {sortedSteps[0].meta_template_name}
+                            {sortedSteps[0]?.force_template ? " · sempre template" : ""}
                           </Badge>
                         ) : null}
                       </div>
