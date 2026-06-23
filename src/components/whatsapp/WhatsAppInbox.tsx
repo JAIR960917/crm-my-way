@@ -11,6 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import {
   inboxDisplayModuleForConversation,
@@ -32,6 +33,7 @@ import {
   Clock,
   FileText,
   Image as ImageIcon,
+  Info,
   Mic,
   MessageSquare,
   Paperclip,
@@ -242,6 +244,7 @@ export default function WhatsAppInbox() {
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mobileInfoOpen, setMobileInfoOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"pending" | "mine" | "all">("pending");
   const [localUnreadBoost, setLocalUnreadBoost] = useState<Record<string, number>>({});
@@ -1189,6 +1192,170 @@ export default function WhatsAppInbox() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Conteúdo "Vinculado no CRM" — reaproveitado no painel lateral (desktop)
+  // e dentro da folha de informações do cliente (mobile).
+  const crmPanelInner = conversation ? (
+    <div className="min-w-0 space-y-4">
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Vinculado no CRM
+        </p>
+        <dl className="mt-3 space-y-3 text-sm">
+          <div>
+            <dt className="text-xs text-muted-foreground">Módulo</dt>
+            <dd className="mt-0.5">
+              <span className={cn("rounded px-2 py-0.5 text-xs font-medium", mod.className)}>
+                {mod.label}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Nossa linha (recebe/envia)</dt>
+            <dd className="mt-0.5 text-xs font-medium text-sky-800 dark:text-sky-300 break-words">
+              {conversationInstanceLabel || "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Telefone do cliente</dt>
+            <dd className="mt-0.5 font-medium text-amber-700 dark:text-amber-300 break-words">
+              {formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
+            </dd>
+          </div>
+        </dl>
+      </div>
+      {isAdmin || isGerente ? (
+        <WhatsAppCobrancaPanel
+          conversation={conversation}
+          formatPhone={formatPhoneDisplay}
+          onLinked={handleLeadLinked}
+          onResolvedModule={setPanelResolvedModule}
+          fallback={
+            <WhatsAppCreateLeadPanel
+              conversation={conversation}
+              formatPhone={formatPhoneDisplay}
+              onLinked={handleLeadLinked}
+              afterCobrancaSearch
+              onResolvedModule={setPanelResolvedModule}
+            />
+          }
+        />
+      ) : useCobrancaPanel ? (
+        <WhatsAppCobrancaPanel
+          conversation={conversation}
+          formatPhone={formatPhoneDisplay}
+          onLinked={handleLeadLinked}
+          onResolvedModule={setPanelResolvedModule}
+        />
+      ) : (
+        <WhatsAppCreateLeadPanel
+          conversation={conversation}
+          formatPhone={formatPhoneDisplay}
+          onLinked={handleLeadLinked}
+          onResolvedModule={setPanelResolvedModule}
+        />
+      )}
+    </div>
+  ) : null;
+
+  // Status + ações da conversa (aceitar/transferir/fechar/IA) — usado no
+  // cabeçalho desktop e dentro da folha de informações no mobile.
+  const conversationStatusAndActions = conversation ? (
+    <div className="flex w-full flex-wrap items-center justify-between gap-2">
+      <p className="text-xs text-muted-foreground">
+        {conversation.status === "pending"
+          ? "Aguardando atendimento"
+          : conversation.status === "closed"
+            ? "Atendimento encerrado"
+            : conversation.assigned_to === user?.id
+              ? "Atendido por você"
+              : `Atendido por: ${conversation.assigned_to_name || "—"}`}
+      </p>
+      <div className="flex items-center gap-2">
+        {conversation.ai_enabled &&
+        conversation.status !== "pending" &&
+        (conversation.assigned_to === user?.id || isPrivileged) ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            disabled={conversationActionLoading !== null}
+            onClick={() => void handleToggleAi(!conversation.ai_active)}
+          >
+            <Bot className="h-3.5 w-3.5" />
+            {conversation.ai_active ? "Pausar IA" : "Reativar IA"}
+          </Button>
+        ) : null}
+        {conversation.status === "pending" ? (
+          <Button
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            disabled={conversationActionLoading !== null}
+            onClick={() => void handleAcceptConversation()}
+          >
+            <UserCheck className="h-3.5 w-3.5" />
+            Aceitar
+          </Button>
+        ) : null}
+        {conversation.status === "open" &&
+        (conversation.assigned_to === user?.id || isPrivileged) ? (
+          <>
+            <Popover open={transferOpen} onOpenChange={setTransferOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  disabled={conversationActionLoading !== null}
+                  onClick={handleOpenTransfer}
+                >
+                  <ArrowRightLeft className="h-3.5 w-3.5" />
+                  Transferir
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-64 space-y-3">
+                <p className="text-sm font-medium">Transferir conversa</p>
+                <Select value={transferTarget} onValueChange={setTransferTarget}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue
+                      placeholder={transferUsersLoading ? "Carregando..." : "Selecione um atendente"}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {transferUsers
+                      .filter((u) => u.user_id !== user?.id)
+                      .map((u) => (
+                        <SelectItem key={u.user_id} value={u.user_id}>
+                          {u.full_name || u.email || u.user_id}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  className="h-8 w-full text-xs"
+                  disabled={!transferTarget || conversationActionLoading !== null}
+                  onClick={() => void handleTransferConversation()}
+                >
+                  Confirmar transferência
+                </Button>
+              </PopoverContent>
+            </Popover>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 text-xs"
+              disabled={conversationActionLoading !== null}
+              onClick={() => void handleCloseConversation()}
+            >
+              <UserX className="h-3.5 w-3.5" />
+              Fechar
+            </Button>
+          </>
+        ) : null}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-0 flex-1 overflow-hidden border bg-card lg:rounded-xl lg:shadow-sm">
@@ -1392,165 +1559,119 @@ export default function WhatsAppInbox() {
           ) : (
             <>
               {/* Cabeçalho da conversa */}
-              <header className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="-ml-1 h-8 w-8 shrink-0 lg:hidden"
-                  onClick={() => setSelectedId(null)}
-                  title="Voltar para as conversas"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-                <Avatar className="h-10 w-10">
-                  <AvatarFallback>{initials(conversation.contact_name || conversation.wa_id)}</AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="font-semibold">
+              <header className="border-b">
+                {/* Mobile: cabeçalho compacto, estilo WhatsApp — detalhes ficam na folha de informações */}
+                <div className="flex items-center gap-2 px-3 py-2 lg:hidden">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="-ml-1 h-9 w-9 shrink-0"
+                    onClick={() => setSelectedId(null)}
+                    title="Voltar para as conversas"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                  <Avatar className="h-9 w-9 shrink-0">
+                    <AvatarFallback>{initials(conversation.contact_name || conversation.wa_id)}</AvatarFallback>
+                  </Avatar>
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => setMobileInfoOpen(true)}
+                  >
+                    <h2 className="truncate text-sm font-semibold leading-tight">
                       {conversation.card_id && conversation.contact_name?.trim()
                         ? conversation.contact_name
                         : formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
                     </h2>
-                    <span className={cn("rounded px-2 py-0.5 text-xs font-medium", mod.className)}>
+                    <p className="truncate text-[11px] leading-tight text-muted-foreground">
                       {mod.label}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Cliente: {formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
-                  </p>
-                  {conversationInstanceLabel ? (
-                    <p className="mt-1 flex items-center gap-1 text-xs font-medium text-sky-800 dark:text-sky-300">
-                      <Smartphone className="h-3.5 w-3.5 shrink-0" />
-                      Nossa linha: {conversationInstanceLabel}
+                      {" · "}
+                      {windowOpen ? "Janela 24h aberta" : "Só template aprovado"}
                     </p>
+                  </button>
+                  {conversation.status === "pending" ? (
+                    <Button
+                      size="sm"
+                      className="h-8 shrink-0 gap-1 px-2.5 text-xs"
+                      disabled={conversationActionLoading !== null}
+                      onClick={() => void handleAcceptConversation()}
+                    >
+                      <UserCheck className="h-3.5 w-3.5" />
+                      Aceitar
+                    </Button>
                   ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 shrink-0"
+                    onClick={() => setMobileInfoOpen(true)}
+                    title="Informações do cliente"
+                  >
+                    <Info className="h-4 w-4" />
+                  </Button>
                 </div>
-                {windowOpen ? (
-                  <Badge variant="secondary" className="gap-1 bg-emerald-500/15 text-emerald-800 dark:text-emerald-200">
-                    <Clock className="h-3 w-3" />
-                    Janela 24h aberta
-                    {conversation.window_expires_at ? (
-                      <span className="font-normal opacity-80">
-                        · até {format(new Date(conversation.window_expires_at), "HH:mm", { locale: ptBR })}
-                      </span>
-                    ) : null}
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary" className="gap-1 bg-amber-500/15 text-amber-900 dark:text-amber-100">
-                    <FileText className="h-3 w-3" />
-                    Só template aprovado
-                  </Badge>
-                )}
 
-                {conversation.ai_enabled ? (
-                  conversation.ai_active ? (
-                    <Badge variant="secondary" className="gap-1 bg-violet-500/15 text-violet-800 dark:text-violet-200">
-                      <Bot className="h-3 w-3" />
-                      IA respondendo
+                {/* Desktop: cabeçalho completo */}
+                <div className="hidden flex-wrap items-center gap-3 px-4 py-3 lg:flex">
+                  <Avatar className="h-10 w-10">
+                    <AvatarFallback>{initials(conversation.contact_name || conversation.wa_id)}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="font-semibold">
+                        {conversation.card_id && conversation.contact_name?.trim()
+                          ? conversation.contact_name
+                          : formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
+                      </h2>
+                      <span className={cn("rounded px-2 py-0.5 text-xs font-medium", mod.className)}>
+                        {mod.label}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Cliente: {formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
+                    </p>
+                    {conversationInstanceLabel ? (
+                      <p className="mt-1 flex items-center gap-1 text-xs font-medium text-sky-800 dark:text-sky-300">
+                        <Smartphone className="h-3.5 w-3.5 shrink-0" />
+                        Nossa linha: {conversationInstanceLabel}
+                      </p>
+                    ) : null}
+                  </div>
+                  {windowOpen ? (
+                    <Badge variant="secondary" className="gap-1 bg-emerald-500/15 text-emerald-800 dark:text-emerald-200">
+                      <Clock className="h-3 w-3" />
+                      Janela 24h aberta
+                      {conversation.window_expires_at ? (
+                        <span className="font-normal opacity-80">
+                          · até {format(new Date(conversation.window_expires_at), "HH:mm", { locale: ptBR })}
+                        </span>
+                      ) : null}
                     </Badge>
                   ) : (
-                    <Badge variant="secondary" className="gap-1 bg-muted text-muted-foreground">
-                      <Bot className="h-3 w-3" />
-                      IA pausada
+                    <Badge variant="secondary" className="gap-1 bg-amber-500/15 text-amber-900 dark:text-amber-100">
+                      <FileText className="h-3 w-3" />
+                      Só template aprovado
                     </Badge>
-                  )
-                ) : null}
+                  )}
 
-                <div className="flex w-full flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
-                    {conversation.status === "pending"
-                      ? "Aguardando atendimento"
-                      : conversation.status === "closed"
-                        ? "Atendimento encerrado"
-                        : conversation.assigned_to === user?.id
-                          ? "Atendido por você"
-                          : `Atendido por: ${conversation.assigned_to_name || "—"}`}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    {conversation.ai_enabled &&
-                    conversation.status !== "pending" &&
-                    (conversation.assigned_to === user?.id || isPrivileged) ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 gap-1.5 text-xs"
-                        disabled={conversationActionLoading !== null}
-                        onClick={() => void handleToggleAi(!conversation.ai_active)}
-                      >
-                        <Bot className="h-3.5 w-3.5" />
-                        {conversation.ai_active ? "Pausar IA" : "Reativar IA"}
-                      </Button>
-                    ) : null}
-                    {conversation.status === "pending" ? (
-                      <Button
-                        size="sm"
-                        className="h-8 gap-1.5 text-xs"
-                        disabled={conversationActionLoading !== null}
-                        onClick={() => void handleAcceptConversation()}
-                      >
-                        <UserCheck className="h-3.5 w-3.5" />
-                        Aceitar
-                      </Button>
-                    ) : null}
-                    {conversation.status === "open" &&
-                    (conversation.assigned_to === user?.id || isPrivileged) ? (
-                      <>
-                        <Popover open={transferOpen} onOpenChange={setTransferOpen}>
-                          <PopoverTrigger asChild>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 gap-1.5 text-xs"
-                              disabled={conversationActionLoading !== null}
-                              onClick={handleOpenTransfer}
-                            >
-                              <ArrowRightLeft className="h-3.5 w-3.5" />
-                              Transferir
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent align="end" className="w-64 space-y-3">
-                            <p className="text-sm font-medium">Transferir conversa</p>
-                            <Select value={transferTarget} onValueChange={setTransferTarget}>
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue
-                                  placeholder={transferUsersLoading ? "Carregando..." : "Selecione um atendente"}
-                                />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {transferUsers
-                                  .filter((u) => u.user_id !== user?.id)
-                                  .map((u) => (
-                                    <SelectItem key={u.user_id} value={u.user_id}>
-                                      {u.full_name || u.email || u.user_id}
-                                    </SelectItem>
-                                  ))}
-                              </SelectContent>
-                            </Select>
-                            <Button
-                              size="sm"
-                              className="h-8 w-full text-xs"
-                              disabled={!transferTarget || conversationActionLoading !== null}
-                              onClick={() => void handleTransferConversation()}
-                            >
-                              Confirmar transferência
-                            </Button>
-                          </PopoverContent>
-                        </Popover>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 gap-1.5 text-xs"
-                          disabled={conversationActionLoading !== null}
-                          onClick={() => void handleCloseConversation()}
-                        >
-                          <UserX className="h-3.5 w-3.5" />
-                          Fechar
-                        </Button>
-                      </>
-                    ) : null}
-                  </div>
+                  {conversation.ai_enabled ? (
+                    conversation.ai_active ? (
+                      <Badge variant="secondary" className="gap-1 bg-violet-500/15 text-violet-800 dark:text-violet-200">
+                        <Bot className="h-3 w-3" />
+                        IA respondendo
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="gap-1 bg-muted text-muted-foreground">
+                        <Bot className="h-3 w-3" />
+                        IA pausada
+                      </Badge>
+                    )
+                  ) : null}
+
+                  {conversationStatusAndActions}
                 </div>
               </header>
 
@@ -1931,72 +2052,66 @@ export default function WhatsAppInbox() {
                   </footer>
                 </div>
 
-                {/* Painel lateral CRM */}
+                {/* Painel lateral CRM (desktop) */}
                 <aside className="hidden min-h-0 min-w-[300px] w-[min(100%,360px)] shrink-0 flex-col border-l bg-muted/20 lg:flex">
                   <ScrollArea className="min-h-0 flex-1">
-                    <div className="min-w-0 p-4 space-y-4">
-                      <div>
-                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          Vinculado no CRM
-                        </p>
-                        <dl className="mt-3 space-y-3 text-sm">
-                          <div>
-                            <dt className="text-xs text-muted-foreground">Módulo</dt>
-                            <dd className="mt-0.5">
-                              <span className={cn("rounded px-2 py-0.5 text-xs font-medium", mod.className)}>
-                                {mod.label}
-                              </span>
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-xs text-muted-foreground">Nossa linha (recebe/envia)</dt>
-                            <dd className="mt-0.5 text-xs font-medium text-sky-800 dark:text-sky-300 break-words">
-                              {conversationInstanceLabel || "—"}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-xs text-muted-foreground">Telefone do cliente</dt>
-                            <dd className="mt-0.5 font-medium text-amber-700 dark:text-amber-300 break-words">
-                              {formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
-                            </dd>
-                          </div>
-                        </dl>
-                      </div>
-                      {isAdmin || isGerente ? (
-                        <WhatsAppCobrancaPanel
-                          conversation={conversation}
-                          formatPhone={formatPhoneDisplay}
-                          onLinked={handleLeadLinked}
-                          onResolvedModule={setPanelResolvedModule}
-                          fallback={
-                            <WhatsAppCreateLeadPanel
-                              conversation={conversation}
-                              formatPhone={formatPhoneDisplay}
-                              onLinked={handleLeadLinked}
-                              afterCobrancaSearch
-                              onResolvedModule={setPanelResolvedModule}
-                            />
-                          }
-                        />
-                      ) : useCobrancaPanel ? (
-                        <WhatsAppCobrancaPanel
-                          conversation={conversation}
-                          formatPhone={formatPhoneDisplay}
-                          onLinked={handleLeadLinked}
-                          onResolvedModule={setPanelResolvedModule}
-                        />
-                      ) : (
-                        <WhatsAppCreateLeadPanel
-                          conversation={conversation}
-                          formatPhone={formatPhoneDisplay}
-                          onLinked={handleLeadLinked}
-                          onResolvedModule={setPanelResolvedModule}
-                        />
-                      )}
-                    </div>
+                    <div className="p-4">{crmPanelInner}</div>
                   </ScrollArea>
                 </aside>
               </div>
+
+              {/* Folha de informações do cliente (mobile) — status, ações e card do CRM */}
+              <Sheet open={mobileInfoOpen} onOpenChange={setMobileInfoOpen}>
+                <SheetContent side="right" className="w-full overflow-y-auto p-0 sm:max-w-sm">
+                  <SheetHeader className="border-b p-4 text-left">
+                    <SheetTitle className="flex items-center gap-2">
+                      <Avatar className="h-9 w-9">
+                        <AvatarFallback>{initials(conversation.contact_name || conversation.wa_id)}</AvatarFallback>
+                      </Avatar>
+                      <span className="truncate">
+                        {conversation.card_id && conversation.contact_name?.trim()
+                          ? conversation.contact_name
+                          : formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
+                      </span>
+                    </SheetTitle>
+                  </SheetHeader>
+                  <div className="space-y-4 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {windowOpen ? (
+                        <Badge variant="secondary" className="gap-1 bg-emerald-500/15 text-emerald-800 dark:text-emerald-200">
+                          <Clock className="h-3 w-3" />
+                          Janela 24h aberta
+                          {conversation.window_expires_at ? (
+                            <span className="font-normal opacity-80">
+                              · até {format(new Date(conversation.window_expires_at), "HH:mm", { locale: ptBR })}
+                            </span>
+                          ) : null}
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="gap-1 bg-amber-500/15 text-amber-900 dark:text-amber-100">
+                          <FileText className="h-3 w-3" />
+                          Só template aprovado
+                        </Badge>
+                      )}
+                      {conversation.ai_enabled ? (
+                        conversation.ai_active ? (
+                          <Badge variant="secondary" className="gap-1 bg-violet-500/15 text-violet-800 dark:text-violet-200">
+                            <Bot className="h-3 w-3" />
+                            IA respondendo
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="gap-1 bg-muted text-muted-foreground">
+                            <Bot className="h-3 w-3" />
+                            IA pausada
+                          </Badge>
+                        )
+                      ) : null}
+                    </div>
+                    {conversationStatusAndActions}
+                    <div className="border-t pt-4">{crmPanelInner}</div>
+                  </div>
+                </SheetContent>
+              </Sheet>
             </>
           )}
         </div>
