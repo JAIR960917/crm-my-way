@@ -127,6 +127,7 @@ export default function ImportLeadsPage() {
   const [scanning, setScanning] = useState(false);
   const [duplicates, setDuplicates] = useState<DuplicateMatch[] | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   const extractPhones = (data: Record<string, any>): string[] => {
     const phones: string[] = [];
@@ -204,25 +205,53 @@ export default function ImportLeadsPage() {
     }
   };
 
+  const deleteLeadCascade = async (leadId: string) => {
+    // Cascade-clean dependent tables first
+    await Promise.all([
+      supabase.from("crm_lead_notes").delete().eq("lead_id", leadId),
+      supabase.from("lead_activities").delete().eq("lead_id", leadId),
+      supabase.from("crm_appointments").delete().eq("lead_id", leadId),
+      supabase.from("notifications").delete().eq("lead_id", leadId),
+      supabase.from("scheduled_whatsapp_messages").delete().eq("lead_id", leadId),
+    ]);
+    const { error } = await supabase.from("crm_leads").delete().eq("id", leadId);
+    if (error) throw error;
+  };
+
   const deleteLeadById = async (leadId: string) => {
     setDeletingId(leadId);
     try {
-      // Cascade-clean dependent tables first
-      await Promise.all([
-        supabase.from("crm_lead_notes").delete().eq("lead_id", leadId),
-        supabase.from("lead_activities").delete().eq("lead_id", leadId),
-        supabase.from("crm_appointments").delete().eq("lead_id", leadId),
-        supabase.from("notifications").delete().eq("lead_id", leadId),
-        supabase.from("scheduled_whatsapp_messages").delete().eq("lead_id", leadId),
-      ]);
-      const { error } = await supabase.from("crm_leads").delete().eq("id", leadId);
-      if (error) throw error;
+      await deleteLeadCascade(leadId);
       setDuplicates((prev) => (prev ? prev.filter((d) => d.leadId !== leadId) : prev));
       toast.success("Lead excluído.");
     } catch (err: any) {
       toast.error(`Erro ao excluir: ${err.message || err}`);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const deleteAllDuplicates = async () => {
+    if (!duplicates || duplicates.length === 0) return;
+    setDeletingAll(true);
+    let okCount = 0;
+    let errCount = 0;
+    const remaining: DuplicateMatch[] = [];
+    for (const d of duplicates) {
+      try {
+        await deleteLeadCascade(d.leadId);
+        okCount++;
+      } catch {
+        errCount++;
+        remaining.push(d);
+      }
+    }
+    setDuplicates(remaining);
+    setDeletingAll(false);
+    if (errCount === 0) {
+      toast.success(`${okCount} lead(s) duplicado(s) excluído(s).`);
+    } else {
+      toast.error(`${okCount} excluído(s), ${errCount} falharam. Tente novamente para os restantes.`);
     }
   };
 
@@ -639,9 +668,41 @@ export default function ImportLeadsPage() {
               )}
 
               {duplicates && duplicates.length > 0 && (
-                <p className="text-sm text-muted-foreground">
-                  {duplicates.length} lead(s) com telefone também em Renovações. Use o botão individual ao lado de cada lead para excluí-lo da tela de Leads.
-                </p>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    {duplicates.length} lead(s) com telefone também em Renovações. Use o botão individual ao lado
+                    de cada lead, ou exclua todos de uma vez.
+                  </p>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button size="sm" variant="destructive" disabled={deletingAll || deletingId !== null}>
+                        {deletingAll ? (
+                          <><RefreshCw className="mr-1 h-3 w-3 animate-spin" /> Excluindo...</>
+                        ) : (
+                          <><Trash2 className="mr-1 h-3 w-3" /> Excluir todos os duplicados</>
+                        )}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir todos os {duplicates.length} leads duplicados?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Todos os cards listados abaixo serão removidos da tela de Leads. As renovações
+                          correspondentes NÃO serão afetadas. Essa ação não pode ser desfeita.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => void deleteAllDuplicates()}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                          Sim, excluir todos
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               )}
 
               {duplicates && duplicates.length > 0 && (
