@@ -1693,7 +1693,7 @@ export default function WhatsAppInbox() {
                         const at = new Date(msg.created_at);
                         const canDelete = out && (isAdmin || isGerente || msg.sent_by === user?.id);
                         return (
-                          <div key={msg.id} className={cn("group flex items-end gap-1", out ? "justify-end" : "justify-start")}>
+                          <div key={msg.id} className={cn("group flex min-w-0 items-end gap-1", out ? "justify-end" : "justify-start")}>
                             {out && canDelete && (
                               <button
                                 className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 rounded p-1 text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
@@ -1705,7 +1705,7 @@ export default function WhatsAppInbox() {
                             )}
                             <div
                               className={cn(
-                                "relative max-w-[85%] rounded-lg px-3 py-2 text-sm shadow-sm",
+                                "relative min-w-0 max-w-[85%] break-words rounded-lg px-3 py-2 text-sm shadow-sm",
                                 out
                                   ? "rounded-br-none bg-[#d9fdd3] text-foreground dark:bg-emerald-900/50"
                                   : "rounded-bl-none bg-white dark:bg-card",
