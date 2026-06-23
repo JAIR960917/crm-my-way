@@ -426,8 +426,9 @@ export default function CobrancaEditSheet(props: Props) {
     if (!cobrancaId) return;
     if (
       !confirm(
-        `Marcar "${formData.nome || "este cliente"}" como pago e remover da cobrança?\n\n` +
-          "Use isso quando o portal da SSótica já mostra a parcela como paga, mas o CRM ainda não atualizou.",
+        `Marcar "${formData.nome || "este cliente"}" como pago/renegociado e remover da cobrança?\n\n` +
+          "Use isso quando o portal da SSótica já mostra a parcela como paga ou renegociada (novo acordo), " +
+          "mas a API ainda devolve a parcela antiga como em aberto e o CRM não atualizou.",
       )
     ) {
       return;
@@ -740,7 +741,7 @@ export default function CobrancaEditSheet(props: Props) {
                   onClick={() => void handleMarkAsPaid()}
                 >
                   <CheckCircle2 className="h-4 w-4" />
-                  {markingPaid ? "Removendo..." : "Marcar como paga (divergência SSótica)"}
+                  {markingPaid ? "Removendo..." : "Marcar como paga/renegociada (divergência SSótica)"}
                 </Button>
               )}
             </form>
