@@ -83,6 +83,23 @@ serve(async (req) => {
 
     const isPrivileged = roles.some((r) => r === "admin" || r === "gerente");
 
+    async function isMyCompany(companyId: string): Promise<boolean> {
+      const { data: profile } = await admin
+        .from("profiles")
+        .select("company_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (profile?.company_id === companyId) return true;
+
+      const { data: mgr } = await admin
+        .from("manager_companies")
+        .select("company_id")
+        .eq("user_id", user.id)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      return !!mgr?.company_id;
+    }
+
     // Mesma regra de public.user_has_whatsapp_inbox_access(), mas usando
     // user.id diretamente (não dá para chamar a RPC com o client de service
     // role porque auth.uid() ficaria nulo) — vínculo manual, OU empresa da
@@ -102,22 +119,7 @@ serve(async (req) => {
         .select("company_id")
         .eq("id", instanceId)
         .maybeSingle();
-      if (instance?.company_id) {
-        const { data: profile } = await admin
-          .from("profiles")
-          .select("company_id")
-          .eq("user_id", user.id)
-          .maybeSingle();
-        if (profile?.company_id === instance.company_id) return true;
-
-        const { data: mgr } = await admin
-          .from("manager_companies")
-          .select("company_id")
-          .eq("user_id", user.id)
-          .eq("company_id", instance.company_id)
-          .maybeSingle();
-        if (mgr?.company_id) return true;
-      }
+      if (instance?.company_id && (await isMyCompany(instance.company_id))) return true;
 
       const { data: assignedConv } = await admin
         .from("whatsapp_conversations")
@@ -132,7 +134,7 @@ serve(async (req) => {
     async function assertConversationAccess(conversationId: string) {
       const { data: conv, error: convErr } = await admin
         .from("whatsapp_conversations")
-        .select("id, instance_id, wa_id, contact_name")
+        .select("id, instance_id, wa_id, contact_name, status, assigned_to, routed_to_company_id")
         .eq("id", conversationId.trim())
         .maybeSingle();
       if (convErr) throw convErr;
@@ -140,7 +142,16 @@ serve(async (req) => {
         return { error: "Conversa não encontrada", status: 404, conv: null as null };
       }
       if (!isPrivileged && conv.instance_id) {
-        const allowed = await hasInboxAccess(conv.instance_id);
+        let allowed: boolean;
+        if (conv.assigned_to === user.id) {
+          // Já é o responsável (inclusive após transferência entre empresas).
+          allowed = true;
+        } else if (conv.status === "pending" && conv.routed_to_company_id) {
+          // Encaminhada para outra empresa — só essa empresa (ou admin) age nela.
+          allowed = await isMyCompany(conv.routed_to_company_id);
+        } else {
+          allowed = await hasInboxAccess(conv.instance_id);
+        }
         if (!allowed) {
           return { error: "Você não tem acesso a este número WhatsApp", status: 403, conv: null as null };
         }

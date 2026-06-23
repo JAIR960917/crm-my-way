@@ -35,6 +35,7 @@ import WhatsAppCobrancaPanel from "@/components/whatsapp/WhatsAppCobrancaPanel";
 import {
   AlertCircle,
   ArrowLeft,
+  Building2,
   Check,
   CheckCheck,
   Clock,
@@ -285,11 +286,14 @@ export default function WhatsAppInbox() {
   const [deletingMsgId, setDeletingMsgId] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  const [conversationActionLoading, setConversationActionLoading] = useState<"accept" | "close" | "transfer" | "ai-on" | "ai-off" | null>(null);
+  const [conversationActionLoading, setConversationActionLoading] = useState<"accept" | "close" | "transfer" | "route-company" | "ai-on" | "ai-off" | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferUsers, setTransferUsers] = useState<{ user_id: string; full_name: string | null; email: string | null }[]>([]);
   const [transferUsersLoading, setTransferUsersLoading] = useState(false);
   const [transferTarget, setTransferTarget] = useState("");
+  const [routeCompanyOpen, setRouteCompanyOpen] = useState(false);
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+  const [routeCompanyTarget, setRouteCompanyTarget] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -709,6 +713,43 @@ export default function WhatsAppInbox() {
       setConversationActionLoading(null);
     }
   }, [conversation, applyConversationPatch, loadConversations]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void supabase.from("companies").select("id, name").order("name").then(({ data }) => {
+      if (!cancelled) setCompanies((data || []) as { id: string; name: string }[]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleOpenRouteToCompany = useCallback(() => {
+    setRouteCompanyTarget("");
+    setRouteCompanyOpen(true);
+  }, []);
+
+  const handleRouteToCompany = useCallback(async () => {
+    if (!conversation || !routeCompanyTarget) return;
+    setConversationActionLoading("route-company");
+    try {
+      const { error } = await supabase.rpc("route_whatsapp_conversation_to_company", {
+        p_conversation_id: conversation.id,
+        p_company_id: routeCompanyTarget,
+      });
+      if (error) throw error;
+      const target = companies.find((c) => c.id === routeCompanyTarget);
+      setRouteCompanyOpen(false);
+      toast.success(`Conversa encaminhada para ${target?.name || "a empresa selecionada"}`);
+      setSelectedId(null);
+      void loadConversations();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao encaminhar conversa");
+      void loadConversations();
+    } finally {
+      setConversationActionLoading(null);
+    }
+  }, [conversation, routeCompanyTarget, companies, loadConversations]);
 
   const loadTransferUsers = useCallback(async (instanceId: string | null) => {
     if (!instanceId) {
@@ -1346,6 +1387,46 @@ export default function WhatsAppInbox() {
                   onClick={() => void handleTransferConversation()}
                 >
                   Confirmar transferência
+                </Button>
+              </PopoverContent>
+            </Popover>
+            <Popover open={routeCompanyOpen} onOpenChange={setRouteCompanyOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  disabled={conversationActionLoading !== null}
+                  onClick={handleOpenRouteToCompany}
+                >
+                  <Building2 className="h-3.5 w-3.5" />
+                  Encaminhar p/ empresa
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-64 space-y-3">
+                <p className="text-sm font-medium">Encaminhar para outra empresa</p>
+                <p className="text-xs text-muted-foreground">
+                  A conversa fica pendente para qualquer usuário da empresa escolhida aceitar.
+                </p>
+                <Select value={routeCompanyTarget} onValueChange={setRouteCompanyTarget}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Selecione a empresa" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {companies.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  className="h-8 w-full text-xs"
+                  disabled={!routeCompanyTarget || conversationActionLoading !== null}
+                  onClick={() => void handleRouteToCompany()}
+                >
+                  Confirmar encaminhamento
                 </Button>
               </PopoverContent>
             </Popover>
