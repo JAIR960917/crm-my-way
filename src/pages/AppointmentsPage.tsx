@@ -36,6 +36,7 @@ import {
 import { cn } from "@/lib/utils";
 import { isRealtimeEnabled } from "@/lib/runtime-config";
 import {
+  CANAIS_AGENDAMENTO,
   FORMAS_PAGAMENTO_CONSULTA,
   FORMAS_PAGAMENTO_OCULOS,
   formaConsultaSemValor,
@@ -135,6 +136,7 @@ export default function AppointmentsPage() {
   const [formNome, setFormNome] = useState("");
   const [formTelefone, setFormTelefone] = useState("");
   const [formIdade, setFormIdade] = useState("");
+  const [formCanal, setFormCanal] = useState("Loja");
   const [formDate, setFormDate] = useState<Date | undefined>();
   const [formTime, setFormTime] = useState("09:00");
   const [formValor, setFormValor] = useState("");
@@ -796,7 +798,7 @@ export default function AppointmentsPage() {
     setEditingAppt(null);
     setFormNome(""); setFormTelefone(""); setFormIdade("");
     setFormDate(undefined); setFormTime("09:00");
-    setFormValor(""); setFormPagamentoOculos(""); setFormPagamentoConsulta("");
+    setFormValor(""); setFormPagamentoOculos(""); setFormPagamentoConsulta(""); setFormCanal("Loja");
     setFormConsultaPaga(""); setFormConfirmacao("Pendente");
     setFormComparecimento("Pendente"); setFormVenda("Pendente"); setFormResumo("");
     setFormRescheduleDate(undefined); setFormRescheduleTime("09:00");
@@ -816,6 +818,7 @@ export default function AppointmentsPage() {
     setFormValor(String(appt.valor));
     setFormPagamentoOculos(appt.forma_pagamento_oculos || appt.forma_pagamento || "");
     setFormPagamentoConsulta(appt.forma_pagamento_consulta || "");
+    setFormCanal(appt.canal_agendamento || "Loja");
     setFormConsultaPaga(appt.consulta_paga === true ? "sim" : appt.consulta_paga === false ? "nao" : "");
     setFormConfirmacao(appt.confirmacao || "Pendente");
     setFormComparecimento(appt.comparecimento || "Pendente");
@@ -863,6 +866,7 @@ export default function AppointmentsPage() {
         forma_pagamento: formPagamentoOculos,
         forma_pagamento_oculos: formPagamentoOculos,
         forma_pagamento_consulta: formPagamentoConsulta,
+        canal_agendamento: formCanal,
         confirmacao: formConfirmacao,
         comparecimento: formComparecimento,
         resumo: formResumo,
@@ -897,7 +901,7 @@ export default function AppointmentsPage() {
         consulta_paga_no_agendamento: pagaConsulta,
         consulta_paga_em: pagaConsulta ? nowIso : null,
         consulta_paga_por: pagaConsulta ? user.id : null,
-        canal_agendamento: "Loja",
+        canal_agendamento: formCanal,
         nome: formNome, telefone: formTelefone, idade: formIdade,
         previous_status: "manual",
         original_scheduled_datetime: dt.toISOString(),
@@ -1354,6 +1358,13 @@ export default function AppointmentsPage() {
                 <Label>Horário <span className="text-destructive">*</span></Label>
                 <Input type="time" value={formTime} onChange={e => setFormTime(e.target.value)} required />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Forma de captação <span className="text-destructive">*</span></Label>
+              <Select value={formCanal} onValueChange={setFormCanal}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{CANAIS_AGENDAMENTO.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <Label>Forma de pagamento do Óculos <span className="text-destructive">*</span></Label>

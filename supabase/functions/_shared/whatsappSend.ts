@@ -523,6 +523,8 @@ export type SendWhatsAppParams = {
   supabase?: ReturnType<typeof import("https://esm.sh/@supabase/supabase-js@2").createClient>;
   skipWindowCheck?: boolean;
   conversationId?: string | null;
+  /** Envio explícito de template (botão "Enviar template" no Inbox) — sempre envia como template, mesmo com a janela de 24h aberta. */
+  forceTemplate?: boolean;
 };
 
 export async function sendWhatsAppMessage(params: SendWhatsAppParams): Promise<SendResult> {
@@ -541,6 +543,7 @@ export async function sendWhatsAppMessage(params: SendWhatsAppParams): Promise<S
     supabase,
     skipWindowCheck = false,
     conversationId = null,
+    forceTemplate = false,
   } = params;
 
   const cp = cleanPhone(phone);
@@ -566,7 +569,7 @@ export async function sendWhatsAppMessage(params: SendWhatsAppParams): Promise<S
     windowOpen = await isMetaWindowOpen(supabase, target.instanceId, cp, conversationId);
   }
 
-  if (windowOpen) {
+  if (windowOpen && !forceTemplate) {
     if (imageUrl) {
       return sendMetaImage(metaAccessToken, target.phoneNumberId, cp, imageUrl, text);
     }

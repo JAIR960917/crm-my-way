@@ -615,6 +615,7 @@ serve(async (req) => {
       metaTemplateBodyParams: [],
       supabase: admin as any,
       conversationId: conv.id,
+      forceTemplate: isTemplate,
     });
 
     if (!result.ok) {
