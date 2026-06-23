@@ -56,7 +56,6 @@ import {
   Trash2,
   UserCheck,
   UserX,
-  ArrowRightLeft,
   Bot,
 } from "lucide-react";
 import {
@@ -286,11 +285,7 @@ export default function WhatsAppInbox() {
   const [deletingMsgId, setDeletingMsgId] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  const [conversationActionLoading, setConversationActionLoading] = useState<"accept" | "close" | "transfer" | "route-company" | "ai-on" | "ai-off" | null>(null);
-  const [transferOpen, setTransferOpen] = useState(false);
-  const [transferUsers, setTransferUsers] = useState<{ user_id: string; full_name: string | null; email: string | null }[]>([]);
-  const [transferUsersLoading, setTransferUsersLoading] = useState(false);
-  const [transferTarget, setTransferTarget] = useState("");
+  const [conversationActionLoading, setConversationActionLoading] = useState<"accept" | "close" | "route-company" | "ai-on" | "ai-off" | null>(null);
   const [routeCompanyOpen, setRouteCompanyOpen] = useState(false);
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [routeCompanyTarget, setRouteCompanyTarget] = useState("");
@@ -750,60 +745,6 @@ export default function WhatsAppInbox() {
       setConversationActionLoading(null);
     }
   }, [conversation, routeCompanyTarget, companies, loadConversations]);
-
-  const loadTransferUsers = useCallback(async (instanceId: string | null) => {
-    if (!instanceId) {
-      setTransferUsers([]);
-      return;
-    }
-    setTransferUsersLoading(true);
-    try {
-      const { data, error } = await supabase.rpc("list_whatsapp_inbox_assignable_users", {
-        p_instance_id: instanceId,
-      });
-      if (error) throw error;
-      setTransferUsers((data || []) as { user_id: string; full_name: string | null; email: string | null }[]);
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Erro ao listar usuários para transferência");
-      setTransferUsers([]);
-    } finally {
-      setTransferUsersLoading(false);
-    }
-  }, []);
-
-  const handleOpenTransfer = useCallback(() => {
-    if (!conversation) return;
-    setTransferTarget("");
-    setTransferOpen(true);
-    void loadTransferUsers(conversation.instance_id);
-  }, [conversation, loadTransferUsers]);
-
-  const handleTransferConversation = useCallback(async () => {
-    if (!conversation || !transferTarget) return;
-    setConversationActionLoading("transfer");
-    try {
-      const { error } = await supabase.rpc("transfer_whatsapp_conversation", {
-        p_conversation_id: conversation.id,
-        p_to_user_id: transferTarget,
-      });
-      if (error) throw error;
-      const target = transferUsers.find((u) => u.user_id === transferTarget);
-      applyConversationPatch({
-        ...conversation,
-        status: "open",
-        assigned_to: transferTarget,
-        assigned_to_name: target?.full_name || target?.email || null,
-      });
-      setTransferOpen(false);
-      toast.success("Conversa transferida");
-      void loadConversations();
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Erro ao transferir conversa");
-      void loadConversations();
-    } finally {
-      setConversationActionLoading(null);
-    }
-  }, [conversation, transferTarget, transferUsers, applyConversationPatch, loadConversations]);
 
   const handleDeleteMessage = useCallback(async () => {
     if (!deletingMsgId) return;
@@ -1349,47 +1290,6 @@ export default function WhatsAppInbox() {
         {conversation.status === "open" &&
         (conversation.assigned_to === user?.id || isPrivileged) ? (
           <>
-            <Popover open={transferOpen} onOpenChange={setTransferOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 gap-1.5 text-xs"
-                  disabled={conversationActionLoading !== null}
-                  onClick={handleOpenTransfer}
-                >
-                  <ArrowRightLeft className="h-3.5 w-3.5" />
-                  Transferir
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-64 space-y-3">
-                <p className="text-sm font-medium">Transferir conversa</p>
-                <Select value={transferTarget} onValueChange={setTransferTarget}>
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue
-                      placeholder={transferUsersLoading ? "Carregando..." : "Selecione um atendente"}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {transferUsers
-                      .filter((u) => u.user_id !== user?.id)
-                      .map((u) => (
-                        <SelectItem key={u.user_id} value={u.user_id}>
-                          {u.full_name || u.email || u.user_id}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  size="sm"
-                  className="h-8 w-full text-xs"
-                  disabled={!transferTarget || conversationActionLoading !== null}
-                  onClick={() => void handleTransferConversation()}
-                >
-                  Confirmar transferência
-                </Button>
-              </PopoverContent>
-            </Popover>
             <Popover open={routeCompanyOpen} onOpenChange={setRouteCompanyOpen}>
               <PopoverTrigger asChild>
                 <Button
