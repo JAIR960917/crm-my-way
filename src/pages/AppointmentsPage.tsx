@@ -1262,7 +1262,15 @@ export default function AppointmentsPage() {
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={handleEditDialogOpenChange}>
-        <DialogContent className={cn(editingAppt ? "sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" : "sm:max-w-md")}>
+        <DialogContent
+          className={cn(editingAppt ? "sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" : "sm:max-w-md")}
+          onPointerDownOutside={(e) => {
+            if (!editingAppt) e.preventDefault();
+          }}
+          onEscapeKeyDown={(e) => {
+            if (!editingAppt) e.preventDefault();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>
               {editingAppt?.is_reschedule_snapshot
