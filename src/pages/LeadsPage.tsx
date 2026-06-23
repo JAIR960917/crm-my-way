@@ -144,7 +144,7 @@ export default function LeadsPage() {
         && filterVendedor !== "all"
         && statusKey !== "excluidos"
       ) {
-        res = res.or(`assigned_to.eq.${filterVendedor},created_by.eq.${filterVendedor}`);
+        res = res.eq("assigned_to", filterVendedor);
       }
       if (filterDateFrom) {
         const from = new Date(filterDateFrom); from.setHours(0, 0, 0, 0);
