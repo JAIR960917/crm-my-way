@@ -49,11 +49,15 @@ CREATE POLICY "Staff read whatsapp_conversations"
   ON public.whatsapp_conversations FOR SELECT TO authenticated
   USING (
     has_role(auth.uid(), 'admin'::app_role)
+    OR has_role(auth.uid(), 'gerente'::app_role)
+    OR has_role(auth.uid(), 'financeiro'::app_role)
     OR assigned_to = auth.uid()
     OR (status = 'pending' AND public.can_act_on_pending_conversation(id))
   );
 
--- 2) Mesmo filtro na RPC de listagem do inbox.
+-- 2) Mesmo filtro na RPC de listagem do inbox. Mantém as colunas ai_active/
+--    ai_enabled (adicionadas pela feature de Agente de IA) — Postgres não
+--    permite CREATE OR REPLACE mudando as colunas de retorno da função.
 CREATE OR REPLACE FUNCTION public.list_whatsapp_inbox_conversations(p_limit int DEFAULT 200)
 RETURNS TABLE (
   id uuid,
@@ -71,7 +75,9 @@ RETURNS TABLE (
   last_read_at timestamptz,
   assigned_to uuid,
   assigned_to_name text,
-  status text
+  status text,
+  ai_active boolean,
+  ai_enabled boolean
 )
 LANGUAGE sql
 STABLE
@@ -102,7 +108,9 @@ AS $$
     c.last_read_at,
     c.assigned_to,
     p.full_name AS assigned_to_name,
-    c.status
+    c.status,
+    c.ai_active,
+    COALESCE(i.ai_enabled, false) AS ai_enabled
   FROM public.whatsapp_conversations c
   LEFT JOIN LATERAL (
     SELECT m.direction, m.created_at
@@ -112,8 +120,11 @@ AS $$
     LIMIT 1
   ) lm ON true
   LEFT JOIN public.profiles p ON p.user_id = c.assigned_to
+  LEFT JOIN public.whatsapp_instances i ON i.id = c.instance_id
   WHERE
     has_role(auth.uid(), 'admin'::app_role)
+    OR has_role(auth.uid(), 'gerente'::app_role)
+    OR has_role(auth.uid(), 'financeiro'::app_role)
     OR c.assigned_to = auth.uid()
     OR (c.status = 'pending' AND public.can_act_on_pending_conversation(c.id))
   ORDER BY c.last_message_at DESC NULLS LAST
@@ -128,6 +139,8 @@ CREATE POLICY "Staff read whatsapp_messages"
   TO authenticated
   USING (
     public.has_role(auth.uid(), 'admin'::app_role)
+    OR public.has_role(auth.uid(), 'gerente'::app_role)
+    OR public.has_role(auth.uid(), 'financeiro'::app_role)
     OR EXISTS (
       SELECT 1
       FROM public.whatsapp_conversations c
