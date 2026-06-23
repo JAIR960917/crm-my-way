@@ -1,5 +1,5 @@
 /** Bump quando precisar limpar SW/cache antigo (ex.: tela branca / removeChild). */
-const SW_CACHE_GENERATION = "6";
+const SW_CACHE_GENERATION = "7";
 
 const DEFER_REGISTER_KEY = "crm_sw_defer_register";
 
