@@ -369,6 +369,16 @@ export default function WhatsAppPage() {
     else { toast.success("Instância excluída"); fetchData(); }
   };
 
+  const handleUpdateInstanceCompany = async (inst: Instance, companyId: string) => {
+    const resolved = companyId === "none" ? null : companyId;
+    const { error } = await supabase
+      .from("whatsapp_instances")
+      .update({ company_id: resolved })
+      .eq("id", inst.id);
+    if (error) toast.error("Erro ao vincular empresa");
+    else { toast.success("Empresa do número atualizada"); fetchData(); }
+  };
+
   const handleSyncFromApiFull = async () => {
     setInstanceLoading(true);
     console.groupCollapsed("[APIFULL] list-instances");
@@ -801,9 +811,24 @@ export default function WhatsAppPage() {
                               <Smartphone className="h-4 w-4 text-primary" />
                               <span className="font-semibold text-sm">{inst.name}</span>
                               <Badge variant="outline" className="font-mono text-[10px]">{inst.session}</Badge>
-                              {company && (
+                              {canManage ? (
+                                <Select
+                                  value={inst.company_id || "none"}
+                                  onValueChange={(v) => void handleUpdateInstanceCompany(inst, v)}
+                                >
+                                  <SelectTrigger className="h-7 w-[180px] text-[11px]">
+                                    <SelectValue placeholder="Vincular empresa" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="none">Sem empresa</SelectItem>
+                                    {companies.map(c => (
+                                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : company ? (
                                 <Badge variant="secondary" className="text-[10px]">{company.name}</Badge>
-                              )}
+                              ) : null}
                               {status && (
                                 <Badge variant={connected ? "default" : "destructive"} className="flex items-center gap-1 text-[10px]">
                                   {connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
