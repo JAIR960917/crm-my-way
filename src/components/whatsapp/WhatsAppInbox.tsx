@@ -259,6 +259,7 @@ export default function WhatsAppInbox() {
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [templateLanguage, setTemplateLanguage] = useState<string>("pt_BR");
+  const [templatePopoverOpen, setTemplatePopoverOpen] = useState(false);
 
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [messages, setMessages] = useState<MessageRow[]>([]);
@@ -1699,6 +1700,76 @@ export default function WhatsAppInbox() {
                           >
                             {recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                           </Button>
+                          <Popover open={templatePopoverOpen} onOpenChange={setTemplatePopoverOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="shrink-0"
+                                disabled={sending || uploading || !conversation.instance_id}
+                                title="Enviar template"
+                              >
+                                <FileText className="h-4 w-4" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-72 space-y-3">
+                              <p className="text-sm font-medium">Enviar template aprovado</p>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-muted-foreground">Template</label>
+                                {templates.length > 0 ? (
+                                  <Select
+                                    value={selectedTemplate}
+                                    onValueChange={(v) => {
+                                      setSelectedTemplate(v);
+                                      const t = templates.find((x) => x.name === v);
+                                      if (t?.language) setTemplateLanguage(t.language);
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-8 text-xs">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {templates.map((t) => (
+                                        <SelectItem key={`${t.name}-${t.language}`} value={t.name}>
+                                          {t.name} · {t.language}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                ) : (
+                                  <Input
+                                    className="h-8 text-xs"
+                                    placeholder={templatesLoading ? "Carregando…" : "Digite o nome do template aprovado"}
+                                    value={selectedTemplate}
+                                    onChange={(e) => setSelectedTemplate(e.target.value)}
+                                  />
+                                )}
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-muted-foreground">Idioma</label>
+                                <Input
+                                  className="h-8 text-xs"
+                                  value={templateLanguage}
+                                  onChange={(e) => setTemplateLanguage(e.target.value)}
+                                  placeholder="pt_BR"
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="w-full gap-1 text-xs"
+                                disabled={sending || !conversation.instance_id}
+                                onClick={async () => {
+                                  await handleSendTemplate();
+                                  setTemplatePopoverOpen(false);
+                                }}
+                              >
+                                <Send className="h-3.5 w-3.5" />
+                                Enviar template
+                              </Button>
+                            </PopoverContent>
+                          </Popover>
                           <Textarea
                             placeholder="Digite sua mensagem..."
                             className="min-h-[44px] resize-none"
