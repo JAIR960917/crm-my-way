@@ -9,7 +9,6 @@ import {
   Filter,
   Loader2,
   RefreshCw,
-  ShoppingBag,
   Trophy,
   UserCheck,
   Users,
@@ -490,7 +489,7 @@ export default function CampanhaCopaRelatorioPage() {
           </CardContent>
         </Card>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Total de inscrições</CardDescription>
@@ -542,43 +541,9 @@ export default function CampanhaCopaRelatorioPage() {
               </CardTitle>
             </CardHeader>
           </Card>
-          <Card className="border-amber-500/40 bg-amber-500/5">
-            <CardHeader className="pb-2">
-              <CardDescription className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                <ShoppingBag className="h-3.5 w-3.5" />
-                Compraram após a campanha
-              </CardDescription>
-              <CardTitle className="text-3xl text-amber-600 dark:text-amber-400">
-                {metrics.convertidos}
-                <span className="text-base font-normal text-muted-foreground ml-2">
-                  ({metrics.total > 0 ? Math.round((metrics.convertidos / metrics.total) * 100) : 0}%)
-                </span>
-              </CardTitle>
-              <p className="text-xs text-muted-foreground pt-1">
-                Última compra registrada é posterior à data de inscrição
-              </p>
-            </CardHeader>
-          </Card>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
-          <Card className="border-green-500/40 bg-green-500/5">
-            <CardHeader className="pb-2">
-              <CardDescription className="flex items-center gap-1 text-green-600 dark:text-green-400">
-                <ShoppingBag className="h-3.5 w-3.5" />
-                Prospects que compraram (nunca havia comprado)
-              </CardDescription>
-              <CardTitle className="text-3xl text-green-600 dark:text-green-400">
-                {metrics.prospect_convertidos}
-                <span className="text-base font-normal text-muted-foreground ml-2">
-                  ({metrics.prospect > 0 ? Math.round((metrics.prospect_convertidos / (metrics.prospect + metrics.prospect_convertidos)) * 100) : 0}% dos prospects)
-                </span>
-              </CardTitle>
-              <p className="text-xs text-muted-foreground pt-1">
-                Leads sem histórico de compra anterior que converteram após a campanha
-              </p>
-            </CardHeader>
-          </Card>
+        <div className="grid gap-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Consentimento de marketing</CardTitle>
