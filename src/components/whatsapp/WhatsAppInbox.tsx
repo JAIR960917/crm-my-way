@@ -403,17 +403,21 @@ export default function WhatsAppInbox() {
     return conversations.filter((c) => {
       if (view === "pending" && !(c.status === "pending" && c.last_message_direction === "in")) return false;
       if (view === "mine" && !(c.status === "open" && c.assigned_to === user?.id)) return false;
-      // "Todos" = conversas que eu mesmo fechei. Conversas que eu encaminhei
-      // para outra empresa não entram aqui — ao encaminhar, assigned_to deixa
-      // de ser eu e o status volta para "pending" (não "closed").
-      if (view === "all" && !(c.status === "closed" && c.assigned_to === user?.id)) return false;
+      // "Todos" = para admin, literalmente todas as conversas de todas as
+      // empresas (visão geral). Para os demais usuários, só as conversas que
+      // eles mesmos fecharam — conversas encaminhadas para outra empresa não
+      // entram aqui, pois ao encaminhar o assigned_to deixa de ser o usuário
+      // e o status volta para "pending" (não "closed").
+      if (view === "all" && !isAdmin && !(c.status === "closed" && c.assigned_to === user?.id)) {
+        return false;
+      }
       if (!q) return true;
       const name = (c.contact_name || "").toLowerCase();
       const wa = (c.wa_id || "").toLowerCase();
       const preview = (c.last_preview || "").toLowerCase();
       return name.includes(q) || wa.includes(q) || preview.includes(q);
     });
-  }, [conversations, view, search, user?.id]);
+  }, [conversations, view, search, user?.id, isAdmin]);
 
   const pendingConversationsCount = useMemo(
     () => conversations.filter((c) => c.status === "pending" && c.last_message_direction === "in").length,
@@ -430,11 +434,13 @@ export default function WhatsAppInbox() {
     [conversations, user?.id],
   );
 
+  const allTabCount = isAdmin ? conversations.length : closedMineConversationsCount;
+
   const inboxTabs = useMemo((): { key: "pending" | "mine" | "all"; label: string }[] => [
     { key: "pending", label: pendingConversationsCount > 0 ? `Pendentes (${pendingConversationsCount})` : "Pendentes" },
     { key: "mine", label: mineConversationsCount > 0 ? `Ativos (${mineConversationsCount})` : "Ativos" },
-    { key: "all", label: closedMineConversationsCount > 0 ? `Todos (${closedMineConversationsCount})` : "Todos" },
-  ], [pendingConversationsCount, mineConversationsCount, closedMineConversationsCount]);
+    { key: "all", label: allTabCount > 0 ? `Todos (${allTabCount})` : "Todos" },
+  ], [pendingConversationsCount, mineConversationsCount, allTabCount]);
 
   const loadInstances = useCallback(async () => {
     const { data, error } = await supabase.rpc("list_whatsapp_instances_for_inbox");
