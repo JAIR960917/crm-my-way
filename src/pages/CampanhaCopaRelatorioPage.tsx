@@ -3,16 +3,25 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   BarChart3,
+  Banknote,
   Building2,
+  Calculator,
+  CircleDollarSign,
   Download,
   Eye,
   Filter,
   LayoutDashboard,
   Loader2,
+  Plus,
+  ReceiptText,
   RefreshCw,
   Search,
+  ShoppingCart,
+  Target,
+  TrendingUp,
   Trophy,
   UserCheck,
+  UserPlus,
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -42,15 +51,20 @@ import {
 } from "@/components/ui/table";
 import {
   EXAME_VISTA_OPTIONS,
+  addCampanhaCopaDespesa,
+  buildGeralMetrics,
   dedupeRowsByCpf,
+  deleteCampanhaCopaDespesa,
   exportCampanhaCopaPlacarCsv,
   exportCampanhaCopaUnmappedCsv,
+  fetchCampanhaCopaDespesas,
   fetchCampanhaCopaRelatorio,
   fetchCampanhaCopaRelatorioMeta,
   lookupLeadsByPhones,
   normalizePhoneDigits,
   normalizePlacarInput,
   renovacaoMatchLabel,
+  type CampanhaCopaDespesa,
   type CampanhaCopaRelatorioFilters,
   type CampanhaCopaRelatorioRow,
   type RenovacaoMatch,
@@ -376,6 +390,75 @@ export default function CampanhaCopaRelatorioPage() {
 
   const empresaBase = Math.max(1, metrics.total);
   const exameBase = Math.max(1, metrics.total);
+
+  // ===== Seção "Geral" — despesas/investimento e métricas financeiras =====
+  const [despesas, setDespesas] = useState<CampanhaCopaDespesa[]>([]);
+  const [despesasLoading, setDespesasLoading] = useState(true);
+  const [novaDespesaValor, setNovaDespesaValor] = useState("");
+  const [novaDespesaDescricao, setNovaDespesaDescricao] = useState("");
+  const [addingDespesa, setAddingDespesa] = useState(false);
+  const [deletingDespesaId, setDeletingDespesaId] = useState<string | null>(null);
+
+  const loadDespesas = useCallback(async () => {
+    setDespesasLoading(true);
+    try {
+      setDespesas(await fetchCampanhaCopaDespesas());
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao carregar despesas");
+    } finally {
+      setDespesasLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void loadDespesas();
+  }, [isAdmin, loadDespesas]);
+
+  const despesasTotal = useMemo(
+    () => despesas.reduce((acc, d) => acc + Number(d.valor || 0), 0),
+    [despesas],
+  );
+
+  const geralMetrics = useMemo(
+    () => buildGeralMetrics(rows, despesasTotal, uniqueLeadsCount, metrics.prospect),
+    [rows, despesasTotal, uniqueLeadsCount, metrics.prospect],
+  );
+
+  const handleAddDespesa = useCallback(async () => {
+    const valor = Number(novaDespesaValor.replace(",", "."));
+    if (!Number.isFinite(valor) || valor <= 0) {
+      toast.error("Informe um valor válido");
+      return;
+    }
+    setAddingDespesa(true);
+    try {
+      await addCampanhaCopaDespesa(valor, novaDespesaDescricao);
+      setNovaDespesaValor("");
+      setNovaDespesaDescricao("");
+      await loadDespesas();
+      toast.success("Despesa adicionada.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao adicionar despesa");
+    } finally {
+      setAddingDespesa(false);
+    }
+  }, [novaDespesaValor, novaDespesaDescricao, loadDespesas]);
+
+  const handleDeleteDespesa = useCallback(async (id: string) => {
+    setDeletingDespesaId(id);
+    try {
+      await deleteCampanhaCopaDespesa(id);
+      setDespesas((prev) => prev.filter((d) => d.id !== id));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao excluir despesa");
+    } finally {
+      setDeletingDespesaId(null);
+    }
+  }, []);
+
+  const formatBRL = (v: number) =>
+    v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   if (!isAdmin) {
     return <Navigate to="/campanhas-copa" replace />;
@@ -742,6 +825,178 @@ export default function CampanhaCopaRelatorioPage() {
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Calculator className="h-4 w-4" />
+              Geral
+            </CardTitle>
+            <CardDescription>
+              Resultado financeiro da campanha — calculado a partir das inscrições filtradas acima e das despesas
+              lançadas abaixo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <Banknote className="h-3.5 w-3.5" />
+                    Faturamento
+                  </CardDescription>
+                  <CardTitle className="text-2xl text-emerald-600">{formatBRL(geralMetrics.faturamento)}</CardTitle>
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Valor vendido para quem fez a 1ª compra após a inscrição
+                  </p>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <ShoppingCart className="h-3.5 w-3.5" />
+                    Vendas
+                  </CardDescription>
+                  <CardTitle className="text-2xl">{geralMetrics.vendas}</CardTitle>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <UserPlus className="h-3.5 w-3.5" />
+                    Novos Clientes
+                  </CardDescription>
+                  <CardTitle className="text-2xl">{geralMetrics.novosClientes}</CardTitle>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <ReceiptText className="h-3.5 w-3.5" />
+                    Despesas
+                  </CardDescription>
+                  <CardTitle className="text-2xl text-amber-600">{formatBRL(geralMetrics.despesas)}</CardTitle>
+                  <p className="text-xs text-muted-foreground pt-1">Soma dos lançamentos abaixo</p>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <CircleDollarSign className="h-3.5 w-3.5" />
+                    Ticket Médio
+                  </CardDescription>
+                  <CardTitle className="text-2xl">{formatBRL(geralMetrics.ticketMedio)}</CardTitle>
+                  <p className="text-xs text-muted-foreground pt-1">Faturamento ÷ Vendas</p>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <Target className="h-3.5 w-3.5" />
+                    CAC
+                  </CardDescription>
+                  <CardTitle className="text-2xl">{formatBRL(geralMetrics.cac)}</CardTitle>
+                  <p className="text-xs text-muted-foreground pt-1">Despesas ÷ Vendas</p>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <TrendingUp className="h-3.5 w-3.5" />
+                    CPL Leads totais
+                  </CardDescription>
+                  <CardTitle className="text-2xl">{formatBRL(geralMetrics.cplLeadsTotais)}</CardTitle>
+                  <p className="text-xs text-muted-foreground pt-1">Despesas ÷ Leads únicos (CPF)</p>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <TrendingUp className="h-3.5 w-3.5" />
+                    CPL Leads novos
+                  </CardDescription>
+                  <CardTitle className="text-2xl">{formatBRL(geralMetrics.cplLeadsNovos)}</CardTitle>
+                  <p className="text-xs text-muted-foreground pt-1">Despesas ÷ Prospect (leads novos)</p>
+                </CardHeader>
+              </Card>
+            </div>
+
+            <div className="rounded-lg border p-4 space-y-3">
+              <p className="text-sm font-medium">Despesas / valor investido</p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                <div className="space-y-1 sm:w-40">
+                  <Label className="text-xs">Valor (R$)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="0,00"
+                    value={novaDespesaValor}
+                    onChange={(e) => setNovaDespesaValor(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1 flex-1">
+                  <Label className="text-xs">Descrição (opcional)</Label>
+                  <Input
+                    placeholder="Ex.: Investimento em anúncio — semana 1"
+                    value={novaDespesaDescricao}
+                    onChange={(e) => setNovaDespesaDescricao(e.target.value)}
+                  />
+                </div>
+                <Button onClick={() => void handleAddDespesa()} disabled={addingDespesa}>
+                  {addingDespesa ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+                  Adicionar
+                </Button>
+              </div>
+
+              {despesasLoading ? (
+                <p className="text-sm text-muted-foreground">Carregando despesas…</p>
+              ) : despesas.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhuma despesa lançada ainda.</p>
+              ) : (
+                <div className="max-h-60 overflow-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Data</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead className="text-right">Valor</TableHead>
+                        <TableHead className="text-right">Ação</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {despesas.map((d) => (
+                        <TableRow key={d.id}>
+                          <TableCell className="text-xs whitespace-nowrap">
+                            {format(new Date(d.created_at), "dd/MM/yy HH:mm", { locale: ptBR })}
+                          </TableCell>
+                          <TableCell className="text-xs">{d.descricao || "—"}</TableCell>
+                          <TableCell className="text-xs text-right whitespace-nowrap">
+                            {formatBRL(Number(d.valor))}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={deletingDespesaId === d.id}
+                              onClick={() => void handleDeleteDespesa(d.id)}
+                            >
+                              {deletingDespesaId === d.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

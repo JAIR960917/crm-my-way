@@ -79,6 +79,8 @@ export type CampanhaCopaRelatorioRow = {
   renovacao_company_name: string | null;
   converteu_apos_campanha: boolean;
   cliente_novo_pos_campanha: boolean;
+  /** Valor da última venda (crm_renovacoes.valor) — só é a venda "qualificada" quando converteu_apos_campanha é true. */
+  valor_venda: number | null;
   /** Telefone já existia como card em Leads ANTES/independente da Campanha Copa. */
   em_leads_externo: boolean;
   /** Telefone está em Leads só porque a própria inscrição da Campanha Copa criou o card. */
@@ -115,6 +117,7 @@ type RenovacaoLite = {
   status: string;
   data_ultima_compra: string | null;
   data_ultima_venda: string | null;
+  valor: number | null;
   ssotica_company_id: string;
   cpf_digits: string;
   phone_digits: string;
@@ -538,6 +541,11 @@ export async function fetchCampanhaCopaRelatorio(
     }
 
     const renovacaoCompanyId = matched?.ssotica_company_id ?? null;
+    const converteuAposCampanha = !!(
+      matched &&
+      ultimaCompraReal(matched) &&
+      dateOnOrAfterTimestamp(ultimaCompraReal(matched)!, sub.created_at)
+    );
 
     return {
       id: sub.id,
@@ -571,11 +579,7 @@ export async function fetchCampanhaCopaRelatorio(
       renovacao_company_name: renovacaoCompanyId
         ? companyNameById.get(renovacaoCompanyId) ?? null
         : null,
-      converteu_apos_campanha: !!(
-        matched &&
-        ultimaCompraReal(matched) &&
-        dateOnOrAfterTimestamp(ultimaCompraReal(matched)!, sub.created_at)
-      ),
+      converteu_apos_campanha: converteuAposCampanha,
       // O registro de renovação só existe a partir da primeira compra conhecida.
       // Se ele foi criado no MESMO DIA ou DEPOIS da inscrição na campanha, o
       // cliente ainda não existia como comprador no momento em que participou
@@ -584,6 +588,10 @@ export async function fetchCampanhaCopaRelatorio(
       cliente_novo_pos_campanha: !!(
         matched?.created_at && !timestampBefore(matched.created_at, sub.created_at)
       ),
+      // valor é da venda mais RECENTE do cliente — só é a venda "qualificada"
+      // (a que aconteceu depois da inscrição) quando converteu_apos_campanha
+      // é true; senão o valor seria de uma venda antiga, sem relação com a campanha.
+      valor_venda: converteuAposCampanha ? matched?.valor ?? null : null,
       em_leads_externo: phone.length >= 10 && leadsExternos.has(phone),
       em_leads_via_copa: phone.length >= 10 && leadsViaCopa.has(phone),
     };
@@ -806,4 +814,80 @@ export function renovacaoMatchLabel(match: RenovacaoMatch): string {
     default:
       return "Não está em Renovação";
   }
+}
+
+// ============================================================
+// Seção "Geral" — despesas/investimento da campanha e métricas
+// financeiras derivadas (faturamento, CAC, CPL, ticket médio).
+// ============================================================
+
+export type CampanhaCopaDespesa = {
+  id: string;
+  valor: number;
+  descricao: string | null;
+  created_at: string;
+};
+
+export async function fetchCampanhaCopaDespesas(): Promise<CampanhaCopaDespesa[]> {
+  const { data, error } = await supabase
+    .from("campanha_copa_despesas" as never)
+    .select("id, valor, descricao, created_at")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CampanhaCopaDespesa[];
+}
+
+export async function addCampanhaCopaDespesa(valor: number, descricao: string): Promise<void> {
+  const { error } = await supabase
+    .from("campanha_copa_despesas" as never)
+    .insert({ valor, descricao: descricao.trim() || null } as never);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteCampanhaCopaDespesa(id: string): Promise<void> {
+  const { error } = await supabase.from("campanha_copa_despesas" as never).delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export type CampanhaCopaGeralMetrics = {
+  faturamento: number;
+  vendas: number;
+  novosClientes: number;
+  despesas: number;
+  ticketMedio: number;
+  cac: number;
+  cplLeadsTotais: number;
+  cplLeadsNovos: number;
+};
+
+/**
+ * Vendas/Novos Clientes/Faturamento usam o MESMO grupo: pessoas cuja
+ * PRIMEIRA compra conhecida aconteceu depois da inscrição na campanha
+ * (cliente_novo_pos_campanha && converteu_apos_campanha) — quem já era
+ * cliente antes e comprou de novo não entra aqui. Deduplicado por CPF
+ * (mesma pessoa em mais de uma campanha conta uma vez).
+ */
+export function buildGeralMetrics(
+  rows: CampanhaCopaRelatorioRow[],
+  despesasTotal: number,
+  leadsTotais: number,
+  leadsNovos: number,
+): CampanhaCopaGeralMetrics {
+  const uniquePeople = dedupeRowsByCpf(rows);
+  const novosClientesRows = uniquePeople.filter(
+    (r) => r.cliente_novo_pos_campanha && r.converteu_apos_campanha,
+  );
+  const vendas = novosClientesRows.length;
+  const faturamento = novosClientesRows.reduce((acc, r) => acc + (r.valor_venda ?? 0), 0);
+
+  return {
+    faturamento,
+    vendas,
+    novosClientes: vendas,
+    despesas: despesasTotal,
+    ticketMedio: vendas > 0 ? faturamento / vendas : 0,
+    cac: vendas > 0 ? despesasTotal / vendas : 0,
+    cplLeadsTotais: leadsTotais > 0 ? despesasTotal / leadsTotais : 0,
+    cplLeadsNovos: leadsNovos > 0 ? despesasTotal / leadsNovos : 0,
+  };
 }
