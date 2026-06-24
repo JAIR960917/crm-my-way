@@ -7,6 +7,7 @@ import {
   Download,
   Eye,
   Filter,
+  LayoutDashboard,
   Loader2,
   RefreshCw,
   Trophy,
@@ -128,9 +129,11 @@ export default function CampanhaCopaRelatorioPage() {
   const [metrics, setMetrics] = useState({
     total: 0,
     em_renovacao: 0,
+    em_leads: 0,
     prospect: 0,
     outra_loja: 0,
     pct_renovacao: 0,
+    pct_leads: 0,
     pct_prospect: 0,
     pct_outra_loja: 0,
     consentimento_marketing: 0,
@@ -489,7 +492,7 @@ export default function CampanhaCopaRelatorioPage() {
           </CardContent>
         </Card>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Total de inscrições</CardDescription>
@@ -530,8 +533,25 @@ export default function CampanhaCopaRelatorioPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-1">
+                <LayoutDashboard className="h-3.5 w-3.5" />
+                Na tela de Leads
+              </CardDescription>
+              <CardTitle className="text-3xl text-blue-600">
+                {metrics.em_leads}
+                <span className="text-base font-normal text-muted-foreground ml-2">
+                  ({metrics.pct_leads}%)
+                </span>
+              </CardTitle>
+              <p className="text-xs text-muted-foreground pt-1">
+                Telefone da inscrição já existe como card em Leads (qualquer origem)
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-1">
                 <Users className="h-3.5 w-3.5" />
-                Prospect (não em Renovação)
+                Prospect (sem Renovação nem Leads)
               </CardDescription>
               <CardTitle className="text-3xl">
                 {metrics.prospect}

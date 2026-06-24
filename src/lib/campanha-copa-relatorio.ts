@@ -33,9 +33,11 @@ export type CampanhaCopaRelatorioFilters = {
 export type CampanhaCopaRelatorioMetrics = {
   total: number;
   em_renovacao: number;
+  em_leads: number;
   prospect: number;
   outra_loja: number;
   pct_renovacao: number;
+  pct_leads: number;
   pct_prospect: number;
   pct_outra_loja: number;
   consentimento_marketing: number;
@@ -75,6 +77,8 @@ export type CampanhaCopaRelatorioRow = {
   renovacao_company_name: string | null;
   converteu_apos_campanha: boolean;
   cliente_novo_pos_campanha: boolean;
+  /** Telefone da inscrição já existe como card na tela de Leads (qualquer origem). */
+  em_leads: boolean;
 };
 
 export type CampanhaCopaRelatorioResult = {
@@ -299,8 +303,14 @@ export function dedupeRowsByCpf(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaR
 export function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRelatorioMetrics {
   const total = rows.length;
   const em_renovacao = rows.filter((r) => r.renovacao_match === "sim").length;
-  // outra_loja é fundido no prospect — não é exibido separadamente
-  const prospect = rows.filter((r) => r.renovacao_match === "nao" || r.renovacao_match === "outra_loja").length;
+  const em_leads = rows.filter((r) => r.em_leads).length;
+  // outra_loja é fundido no prospect — não é exibido separadamente.
+  // Prospect = não está em Renovação (nem na loja, nem em outra) E também
+  // não tem card na tela de Leads — senão a pessoa já está sendo trabalhada
+  // em algum lugar e não deveria contar como "prospect solto".
+  const prospect = rows.filter(
+    (r) => (r.renovacao_match === "nao" || r.renovacao_match === "outra_loja") && !r.em_leads,
+  ).length;
   const outra_loja = 0;
   const consentimento_marketing = rows.filter((r) => r.consentimento_marketing).length;
   // Comprou APÓS a data da inscrição na campanha (última compra >= data do
@@ -336,9 +346,11 @@ export function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRela
   return {
     total,
     em_renovacao,
+    em_leads,
     prospect,
     outra_loja,
     pct_renovacao: total > 0 ? Math.round((em_renovacao / total) * 1000) / 10 : 0,
+    pct_leads: total > 0 ? Math.round((em_leads / total) * 1000) / 10 : 0,
     pct_prospect: total > 0 ? Math.round((prospect / total) * 1000) / 10 : 0,
     pct_outra_loja: total > 0 ? Math.round((outra_loja / total) * 1000) / 10 : 0,
     consentimento_marketing,
@@ -390,6 +402,19 @@ async function lookupRenovacoes(cpfs: string[], phones: string[]): Promise<Renov
   return ((data ?? []) as RenovacaoLite[]).filter((r) => r.ssotica_company_id);
 }
 
+/** Telefones (já normalizados) que existem como card na tela de Leads. */
+async function lookupLeadsPhones(phones: string[]): Promise<Set<string>> {
+  if (phones.length === 0) return new Set();
+
+  const { data, error } = await supabase.rpc("campanha_copa_lookup_leads" as never, {
+    p_phones: phones,
+  } as never);
+
+  if (error) throw new Error(error.message);
+
+  return new Set(((data ?? []) as Array<{ phone_digits: string }>).map((r) => r.phone_digits));
+}
+
 export async function fetchCampanhaCopaRelatorio(
   filters: CampanhaCopaRelatorioFilters,
 ): Promise<CampanhaCopaRelatorioResult> {
@@ -415,7 +440,10 @@ export async function fetchCampanhaCopaRelatorio(
     if (phone.length >= 10) phoneSet.add(phone);
   }
 
-  const renovacoes = await lookupRenovacoes([...cpfSet], [...phoneSet]);
+  const [renovacoes, leadsPhones] = await Promise.all([
+    lookupRenovacoes([...cpfSet], [...phoneSet]),
+    lookupLeadsPhones([...phoneSet]),
+  ]);
   const { byCompanyCpf, byCompanyPhone } = buildRenovacaoIndexes(renovacoes);
 
   const companyIds = new Set<string>();
@@ -506,6 +534,7 @@ export async function fetchCampanhaCopaRelatorio(
       cliente_novo_pos_campanha: !!(
         matched?.created_at && !timestampBefore(matched.created_at, sub.created_at)
       ),
+      em_leads: phone.length >= 10 && leadsPhones.has(phone),
     };
   });
 
