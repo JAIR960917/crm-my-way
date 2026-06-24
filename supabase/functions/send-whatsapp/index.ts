@@ -740,6 +740,11 @@ serve(async (req) => {
           const finalSentIds = new Set((finalSends || []).filter((s: any) => s.status === "sent").map((s: any) => s.lead_id));
           const stillPending = scopedCards.filter((c: any) => !finalSentIds.has(c.id));
           if (stillPending.length === 0) {
+            // sent_count/error_count somam TODAS as execuções que esvaziaram
+            // esta coluna (não só os envios desta execução), senão o log de
+            // conclusão mostra "Cards: 27, Enviados: 2" mesmo já tendo
+            // enviado pra todo mundo ao longo de várias execuções anteriores.
+            const finalErrorCount = (finalSends || []).filter((s: any) => s.status === "error").length;
             await supabase.from("whatsapp_completion_logs").insert({
               source_type: "campaign",
               source_id: campaign.id,
@@ -750,8 +755,8 @@ serve(async (req) => {
               status_key: statusKey,
               company_id: campaign.company_id,
               total_cards: scopedCards.length,
-              sent_count: campaignSentNow,
-              error_count: campaignErrorsNow,
+              sent_count: finalSentIds.size,
+              error_count: finalErrorCount,
               completed_at: new Date().toISOString(),
             });
           }
@@ -1216,6 +1221,12 @@ serve(async (req) => {
             return sent.size < totalSteps;
           });
           if (stillPending.length === 0) {
+            // sent_count/error_count somam TODAS as execuções que esvaziaram
+            // esta coluna (não só os envios desta execução), senão o log de
+            // conclusão mostra "Cards: 27, Enviados: 2" mesmo já tendo
+            // enviado pra todo mundo ao longo de várias execuções anteriores.
+            const finalSentCardCount = cards.filter((c: any) => (finalByCard.get(c.id)?.size || 0) >= totalSteps).length;
+            const finalErrorCount = (finalSends || []).filter((s: any) => s.status === "error").length;
             await supabase.from("whatsapp_completion_logs").insert({
               source_type: "trigger",
               source_id: tc.id,
@@ -1226,8 +1237,8 @@ serve(async (req) => {
               status_key: statusKey,
               company_id: tc.company_id,
               total_cards: cards.length,
-              sent_count: triggerSentNow,
-              error_count: triggerErrorsNow,
+              sent_count: finalSentCardCount,
+              error_count: finalErrorCount,
               completed_at: new Date().toISOString(),
             });
           }
