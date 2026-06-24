@@ -41,6 +41,8 @@ import {
 } from "@/components/ui/table";
 import {
   EXAME_VISTA_OPTIONS,
+  buildMetrics,
+  dedupeRowsByCpf,
   exportCampanhaCopaPlacarCsv,
   exportCampanhaCopaUnmappedCsv,
   fetchCampanhaCopaRelatorio,
@@ -52,6 +54,7 @@ import {
   type RenovacaoMatch,
   NO_COMPANY_FILTER,
 } from "@/lib/campanha-copa-relatorio";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -155,10 +158,23 @@ export default function CampanhaCopaRelatorioPage() {
   const [empresaOptions, setEmpresaOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [empresa, setEmpresa] = useState(ALL);
   const [converteu, setConverteu] = useState(ALL);
+  const [uniqueByCpf, setUniqueByCpf] = useState(false);
 
   const placarFiltro = useMemo(
     () => normalizePlacarInput(placarHome, placarAway),
     [placarHome, placarAway],
+  );
+
+  // Quando ativado, cada CPF conta só uma vez (mantém a inscrição mais
+  // recente) — evita contar a mesma pessoa várias vezes por ter participado
+  // de mais de uma campanha/jogo.
+  const displayRows = useMemo(
+    () => (uniqueByCpf ? dedupeRowsByCpf(rows) : rows),
+    [rows, uniqueByCpf],
+  );
+  const displayMetrics = useMemo(
+    () => (uniqueByCpf ? buildMetrics(displayRows) : metrics),
+    [uniqueByCpf, displayRows, metrics],
   );
 
   const [unmappedExported, setUnmappedExported] = useState(false);
@@ -267,8 +283,8 @@ export default function CampanhaCopaRelatorioPage() {
     void loadReport();
   }, [rows, loadReport]);
 
-  const empresaBase = Math.max(1, metrics.total);
-  const exameBase = Math.max(1, metrics.total);
+  const empresaBase = Math.max(1, displayMetrics.total);
+  const exameBase = Math.max(1, displayMetrics.total);
 
   if (!isAdmin) {
     return <Navigate to="/campanhas-copa" replace />;
@@ -440,6 +456,19 @@ export default function CampanhaCopaRelatorioPage() {
                 </Select>
               </div>
 
+              <div className="space-y-2">
+                <Label>Leads únicos (por CPF)</Label>
+                <div className="flex items-center gap-2 h-10">
+                  <Switch checked={uniqueByCpf} onCheckedChange={setUniqueByCpf} id="unique-by-cpf" />
+                  <Label htmlFor="unique-by-cpf" className="text-sm font-normal text-muted-foreground cursor-pointer">
+                    Contar cada CPF uma única vez
+                  </Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Se a mesma pessoa participou de mais de uma campanha/jogo, conta só a inscrição mais recente.
+                </p>
+              </div>
+
               <div className="space-y-2 sm:col-span-2">
                 <Label>Placar (palpite)</Label>
                 <div className="flex items-center gap-2">
@@ -488,7 +517,7 @@ export default function CampanhaCopaRelatorioPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Total de inscrições</CardDescription>
-              <CardTitle className="text-3xl">{metrics.total}</CardTitle>
+              <CardTitle className="text-3xl">{displayMetrics.total}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
@@ -498,9 +527,9 @@ export default function CampanhaCopaRelatorioPage() {
                 Já em Renovação (loja)
               </CardDescription>
               <CardTitle className="text-3xl text-emerald-600">
-                {metrics.em_renovacao}
+                {displayMetrics.em_renovacao}
                 <span className="text-base font-normal text-muted-foreground ml-2">
-                  ({metrics.pct_renovacao}%)
+                  ({displayMetrics.pct_renovacao}%)
                 </span>
               </CardTitle>
             </CardHeader>
@@ -512,9 +541,9 @@ export default function CampanhaCopaRelatorioPage() {
                 Prospect (não em Renovação)
               </CardDescription>
               <CardTitle className="text-3xl">
-                {metrics.prospect}
+                {displayMetrics.prospect}
                 <span className="text-base font-normal text-muted-foreground ml-2">
-                  ({metrics.pct_prospect}%)
+                  ({displayMetrics.pct_prospect}%)
                 </span>
               </CardTitle>
             </CardHeader>
@@ -526,9 +555,9 @@ export default function CampanhaCopaRelatorioPage() {
                 Compraram após a campanha
               </CardDescription>
               <CardTitle className="text-3xl text-amber-600 dark:text-amber-400">
-                {metrics.convertidos}
+                {displayMetrics.convertidos}
                 <span className="text-base font-normal text-muted-foreground ml-2">
-                  ({metrics.total > 0 ? Math.round((metrics.convertidos / metrics.total) * 100) : 0}%)
+                  ({displayMetrics.total > 0 ? Math.round((displayMetrics.convertidos / displayMetrics.total) * 100) : 0}%)
                 </span>
               </CardTitle>
               <p className="text-xs text-muted-foreground pt-1">
@@ -546,9 +575,9 @@ export default function CampanhaCopaRelatorioPage() {
                 Prospects que compraram (nunca havia comprado)
               </CardDescription>
               <CardTitle className="text-3xl text-green-600 dark:text-green-400">
-                {metrics.prospect_convertidos}
+                {displayMetrics.prospect_convertidos}
                 <span className="text-base font-normal text-muted-foreground ml-2">
-                  ({metrics.prospect > 0 ? Math.round((metrics.prospect_convertidos / (metrics.prospect + metrics.prospect_convertidos)) * 100) : 0}% dos prospects)
+                  ({displayMetrics.prospect > 0 ? Math.round((displayMetrics.prospect_convertidos / (displayMetrics.prospect + displayMetrics.prospect_convertidos)) * 100) : 0}% dos prospects)
                 </span>
               </CardTitle>
               <p className="text-xs text-muted-foreground pt-1">
@@ -560,9 +589,9 @@ export default function CampanhaCopaRelatorioPage() {
             <CardHeader>
               <CardTitle className="text-base">Consentimento de marketing</CardTitle>
               <CardDescription>
-                {metrics.consentimento_marketing} de {metrics.total} inscrições autorizaram comunicações (
-                {metrics.total > 0
-                  ? Math.round((metrics.consentimento_marketing / metrics.total) * 100)
+                {displayMetrics.consentimento_marketing} de {displayMetrics.total} inscrições autorizaram comunicações (
+                {displayMetrics.total > 0
+                  ? Math.round((displayMetrics.consentimento_marketing / displayMetrics.total) * 100)
                   : 0}
                 %)
               </CardDescription>
@@ -579,10 +608,10 @@ export default function CampanhaCopaRelatorioPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {metrics.por_empresa.length === 0 ? (
+              {displayMetrics.por_empresa.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Nenhum dado com os filtros atuais.</p>
               ) : (
-                metrics.por_empresa.map((item) => (
+                displayMetrics.por_empresa.map((item) => (
                   <DistributionBar
                     key={item.empresa}
                     label={item.empresa}
@@ -603,10 +632,10 @@ export default function CampanhaCopaRelatorioPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {metrics.por_exame.length === 0 ? (
+              {displayMetrics.por_exame.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Nenhum dado com os filtros atuais.</p>
               ) : (
-                metrics.por_exame.map((item) => (
+                displayMetrics.por_exame.map((item) => (
                   <DistributionBar
                     key={item.exame}
                     label={item.exame}
@@ -630,15 +659,15 @@ export default function CampanhaCopaRelatorioPage() {
                   <code className="text-xs">crm_renovacoes</code> da loja mapeada pela cidade informada.
                 </CardDescription>
               </div>
-              {placarFiltro && rows.length > 0 && (
+              {placarFiltro && displayRows.length > 0 && (
                 <Button
                   variant="secondary"
                   size="sm"
                   className="shrink-0"
-                  onClick={() => exportCampanhaCopaPlacarCsv(rows, placarFiltro, profileName)}
+                  onClick={() => exportCampanhaCopaPlacarCsv(displayRows, placarFiltro, profileName)}
                 >
                   <Download className="h-4 w-4 mr-2" />
-                  Exportar CSV ({rows.length}) — placar {placarFiltro}
+                  Exportar CSV ({displayRows.length}) — placar {placarFiltro}
                 </Button>
               )}
               {isUnmappedFilter && rows.length > 0 && (
@@ -667,7 +696,7 @@ export default function CampanhaCopaRelatorioPage() {
                 <Loader2 className="h-6 w-6 animate-spin mr-2" />
                 Carregando relatório…
               </div>
-            ) : rows.length === 0 ? (
+            ) : displayRows.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
                 Nenhuma inscrição encontrada com os filtros selecionados.
               </p>
@@ -689,7 +718,7 @@ export default function CampanhaCopaRelatorioPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((row) => (
+                  {displayRows.map((row) => (
                     <TableRow key={row.id}>
                       <TableCell className="whitespace-nowrap text-xs">
                         {format(new Date(row.created_at), "dd/MM/yy HH:mm", { locale: ptBR })}

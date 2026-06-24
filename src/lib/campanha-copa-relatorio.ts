@@ -271,7 +271,32 @@ function buildRenovacaoIndexes(renovacoes: RenovacaoLite[]) {
   return { byCompanyCpf, byCompanyPhone };
 }
 
-function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRelatorioMetrics {
+/**
+ * Reduz a 1 linha por CPF — quando a mesma pessoa participou de várias
+ * campanhas/jogos, ela conta só uma vez. Mantém a inscrição mais RECENTE de
+ * cada CPF (reflete o estado mais atual de renovação/conversão da pessoa).
+ * Linhas sem CPF não são agrupadas entre si (cada uma conta como única).
+ */
+export function dedupeRowsByCpf(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRelatorioRow[] {
+  const byCpf = new Map<string, CampanhaCopaRelatorioRow>();
+  const withoutCpf: CampanhaCopaRelatorioRow[] = [];
+
+  for (const row of rows) {
+    const cpf = cpfDigits(row.cpf);
+    if (cpf.length < 11) {
+      withoutCpf.push(row);
+      continue;
+    }
+    const current = byCpf.get(cpf);
+    if (!current || row.created_at > current.created_at) {
+      byCpf.set(cpf, row);
+    }
+  }
+
+  return [...byCpf.values(), ...withoutCpf];
+}
+
+export function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRelatorioMetrics {
   const total = rows.length;
   const em_renovacao = rows.filter((r) => r.renovacao_match === "sim").length;
   // outra_loja é fundido no prospect — não é exibido separadamente
