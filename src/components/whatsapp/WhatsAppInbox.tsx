@@ -97,6 +97,7 @@ type ConversationRow = {
   status: "pending" | "open" | "closed";
   ai_active?: boolean;
   ai_enabled?: boolean;
+  routed_to_company_id?: string | null;
 };
 
 type MessageRow = {
@@ -219,6 +220,10 @@ function getConversationUnreadState(
 
   const unread = Math.max(Math.max(0, Number(c.unread_count) || 0), localBoost);
   if (unread > 0) return { show: true, count: unread };
+
+  // Encaminhada para esta empresa — precisa de atenção mesmo que a última
+  // mensagem tenha sido enviada pela empresa de origem (não pelo cliente).
+  if (c.status === "pending" && c.routed_to_company_id) return { show: true, count: 1 };
 
   if (c.last_message_direction === "in" && c.last_message_at) {
     const lastMsgAt = new Date(c.last_message_at).getTime();
@@ -496,9 +501,9 @@ export default function WhatsAppInbox() {
 
   const loadConversations = useCallback(async () => {
     const extendedCols =
-      "id, instance_id, wa_id, contact_name, phone_display, module, card_id, window_expires_at, last_message_at, last_preview, unread_count, last_message_direction, last_read_at, assigned_to, status";
+      "id, instance_id, wa_id, contact_name, phone_display, module, card_id, window_expires_at, last_message_at, last_preview, unread_count, last_message_direction, last_read_at, assigned_to, status, routed_to_company_id";
     const basicCols =
-      "id, instance_id, wa_id, contact_name, phone_display, module, card_id, window_expires_at, last_message_at, last_preview, unread_count, assigned_to, status";
+      "id, instance_id, wa_id, contact_name, phone_display, module, card_id, window_expires_at, last_message_at, last_preview, unread_count, assigned_to, status, routed_to_company_id";
 
     let rows: ConversationRow[] | null = null;
 
@@ -1327,6 +1332,19 @@ export default function WhatsAppInbox() {
                   onClick={() => void handleRouteToCompany()}
                 >
                   Confirmar encaminhamento
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 w-full gap-1.5 text-xs"
+                  disabled={conversationActionLoading !== null}
+                  onClick={() => {
+                    setRouteCompanyOpen(false);
+                    void handleCloseConversation();
+                  }}
+                >
+                  <UserX className="h-3.5 w-3.5" />
+                  Fechar conversa em vez de encaminhar
                 </Button>
               </PopoverContent>
             </Popover>
