@@ -370,22 +370,30 @@ export default function CobrancasPage() {
       .trim();
 
   // Mesmo critério usado no sync (parseParcelaCobrancaAtiva): só essas
-  // situações justificam o card continuar na tela de Cobrança.
-  const isSituacaoAtiva = (situacaoRaw: unknown): boolean => {
-    const s = normalizeSituacaoLabel(situacaoRaw);
+  // situações justificam o card continuar na tela de Cobrança. Para
+  // negativado/ajuizado, uma baixa/cancelamento/estorno feito por um
+  // FUNCIONÁRIO de verdade (ex.: "cancelado_por": "Brenda") conta como
+  // resolvido mesmo que a SSótica não tenha atualizado o campo "situacao"
+  // (ela não atualiza esse campo ao cancelar uma parcela negativada).
+  const isParcelaAtiva = (parcela: any): boolean => {
+    const s = normalizeSituacaoLabel(parcela?.situacao);
     if (!s) return false;
-    if (s === "em atraso" || s === "atrasado" || s === "atrasada") return true;
-    if (s.startsWith("negativado") && s.includes("serasa")) return true;
-    if (
+    const isNegativadoOuAjuizado =
+      (s.startsWith("negativado") && s.includes("serasa")) ||
       s.startsWith("ajuizado") ||
       s.startsWith("cobranca dr") ||
       s.startsWith("cobranca dra") ||
       s.startsWith("escritorio de cobranca") ||
-      s.startsWith("escritorio cobranca")
-    ) {
-      return true;
+      s.startsWith("escritorio cobranca");
+    if (!isNegativadoOuAjuizado) {
+      return s === "em atraso" || s === "atrasado" || s === "atrasada";
     }
-    return false;
+    const raw = parcela?.ssotica_raw || {};
+    const resolvidoManualmente =
+      (!!raw.cancelado_em && !!raw.cancelado_por) ||
+      (!!raw.baixado_em && !!raw.baixado_por) ||
+      (!!raw.estornado_em && !!raw.estornado_por);
+    return !resolvidoManualmente;
   };
 
   const scanCobrancasSemDividaAtiva = async () => {
@@ -401,11 +409,18 @@ export default function CobrancasPage() {
       (data || []).forEach((row: any) => {
         const cobData = (row.data || {}) as Record<string, any>;
         const parcelas: any[] = Array.isArray(cobData.parcelas_atrasadas) ? cobData.parcelas_atrasadas : [];
-        const temDividaAtiva = parcelas.some((p) => isSituacaoAtiva(p?.situacao));
+        const temDividaAtiva = parcelas.some((p) => isParcelaAtiva(p));
         if (temDividaAtiva) return;
 
         const situacoes = Array.from(
-          new Set(parcelas.map((p) => String(p?.situacao ?? "").trim()).filter(Boolean)),
+          new Set(
+            parcelas.map((p) => {
+              const base = String(p?.situacao ?? "").trim();
+              const raw = p?.ssotica_raw || {};
+              const resolvidoPor = raw.cancelado_por || raw.baixado_por || raw.estornado_por;
+              return resolvidoPor && base ? `${base} (resolvido por ${resolvidoPor})` : base;
+            }).filter(Boolean),
+          ),
         );
         flagged.push({
           id: row.id,

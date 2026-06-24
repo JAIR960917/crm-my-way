@@ -123,9 +123,22 @@ export function parseParcelaCobrancaAtiva(
 
   const foiRenegociada = situacao.startsWith("renegoc");
   const isNegativada = isNegativadoSerasa || isAjuizado;
-  const foiBaixada = !isNegativada && !!parcela.baixado_em;
-  const foiCancelada = !isNegativada && !!parcela.cancelado_em;
-  const foiEstornada = !isNegativada && !!parcela.estornado_em;
+  // Para negativado/ajuizado, só confiamos em baixado_em/cancelado_em/
+  // estornado_em quando há um responsável humano registrado (ex.:
+  // "cancelado_por": "Brenda") — isso indica uma ação manual de um
+  // funcionário resolvendo o caso depois, não o efeito colateral automático
+  // de quando a SSótica negativa/ajuíza a parcela (que não tem responsável).
+  // Sem essa distinção, uma negativação resolvida manualmente nunca saía da
+  // cobrança, porque a SSótica não atualiza o campo "situacao" ao cancelar.
+  const foiBaixada = !isNegativada
+    ? !!parcela.baixado_em
+    : !!parcela.baixado_em && !!parcela.baixado_por;
+  const foiCancelada = !isNegativada
+    ? !!parcela.cancelado_em
+    : !!parcela.cancelado_em && !!parcela.cancelado_por;
+  const foiEstornada = !isNegativada
+    ? !!parcela.estornado_em
+    : !!parcela.estornado_em && !!parcela.estornado_por;
   const foiPaga = isParcelaQuitada(parcela, situacao, isNegativada, isAtiva);
 
   if (!isAtiva || foiRenegociada || foiBaixada || foiCancelada || foiEstornada || foiPaga) {
