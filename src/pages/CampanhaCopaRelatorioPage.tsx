@@ -669,7 +669,7 @@ export default function CampanhaCopaRelatorioPage() {
                 </span>
               </CardTitle>
               <p className="text-xs text-muted-foreground pt-1">
-                Card em Leads foi criado pela própria inscrição da Campanha Copa
+                Card em Leads veio da própria campanha, e a pessoa não está em Renovação nem tinha lead prévio
               </p>
             </CardHeader>
           </Card>
@@ -685,6 +685,9 @@ export default function CampanhaCopaRelatorioPage() {
                   ({metrics.pct_prospect}%)
                 </span>
               </CardTitle>
+              <p className="text-xs text-muted-foreground pt-1">
+                Mesmo grupo de "Entrou em Leads pela Campanha" — visão como prospect convertido
+              </p>
             </CardHeader>
           </Card>
         </div>

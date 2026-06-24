@@ -308,15 +308,17 @@ export function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRela
   const total = rows.length;
   const em_renovacao = rows.filter((r) => r.renovacao_match === "sim").length;
   const em_leads_externo = rows.filter((r) => r.em_leads_externo).length;
-  const em_leads_via_copa = rows.filter((r) => r.em_leads_via_copa).length;
-  // outra_loja é fundido no prospect — não é exibido separadamente.
-  // Prospect = não está em Renovação (nem na loja, nem em outra) E também
-  // não JÁ tinha card em Leads ANTES da campanha — um lead criado pela
-  // própria Campanha Copa não tira a pessoa de "prospect", já que é
-  // justamente o resultado esperado da campanha converter prospects.
-  const prospect = rows.filter(
-    (r) => (r.renovacao_match === "nao" || r.renovacao_match === "outra_loja") && !r.em_leads_externo,
-  ).length;
+  // "Entrou em Leads pela Campanha" e "Prospect" usam o MESMO critério: o
+  // lead só existe na tela de Leads por causa desta inscrição (não tinha
+  // lead externo) E a pessoa não está em Renovação em lugar nenhum (nem na
+  // própria loja, nem em outra). Quem já está em Renovação ou já tinha lead
+  // de outra origem não entra em nenhum dos dois — já estava sendo
+  // trabalhado em outro lugar antes da campanha.
+  const novoViaCampanha = rows.filter(
+    (r) => r.em_leads_via_copa && r.renovacao_match === "nao" && !r.em_leads_externo,
+  );
+  const em_leads_via_copa = novoViaCampanha.length;
+  const prospect = novoViaCampanha.length;
   const outra_loja = 0;
   const consentimento_marketing = rows.filter((r) => r.consentimento_marketing).length;
   // Comprou APÓS a data da inscrição na campanha (última compra >= data do
