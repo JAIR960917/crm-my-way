@@ -33,11 +33,13 @@ export type CampanhaCopaRelatorioFilters = {
 export type CampanhaCopaRelatorioMetrics = {
   total: number;
   em_renovacao: number;
-  em_leads: number;
+  em_leads_externo: number;
+  em_leads_via_copa: number;
   prospect: number;
   outra_loja: number;
   pct_renovacao: number;
-  pct_leads: number;
+  pct_leads_externo: number;
+  pct_leads_via_copa: number;
   pct_prospect: number;
   pct_outra_loja: number;
   consentimento_marketing: number;
@@ -77,8 +79,10 @@ export type CampanhaCopaRelatorioRow = {
   renovacao_company_name: string | null;
   converteu_apos_campanha: boolean;
   cliente_novo_pos_campanha: boolean;
-  /** Telefone da inscrição já existe como card na tela de Leads (qualquer origem). */
-  em_leads: boolean;
+  /** Telefone já existia como card em Leads ANTES/independente da Campanha Copa. */
+  em_leads_externo: boolean;
+  /** Telefone está em Leads só porque a própria inscrição da Campanha Copa criou o card. */
+  em_leads_via_copa: boolean;
 };
 
 export type CampanhaCopaRelatorioResult = {
@@ -303,13 +307,15 @@ export function dedupeRowsByCpf(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaR
 export function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRelatorioMetrics {
   const total = rows.length;
   const em_renovacao = rows.filter((r) => r.renovacao_match === "sim").length;
-  const em_leads = rows.filter((r) => r.em_leads).length;
+  const em_leads_externo = rows.filter((r) => r.em_leads_externo).length;
+  const em_leads_via_copa = rows.filter((r) => r.em_leads_via_copa).length;
   // outra_loja é fundido no prospect — não é exibido separadamente.
   // Prospect = não está em Renovação (nem na loja, nem em outra) E também
-  // não tem card na tela de Leads — senão a pessoa já está sendo trabalhada
-  // em algum lugar e não deveria contar como "prospect solto".
+  // não JÁ tinha card em Leads ANTES da campanha — um lead criado pela
+  // própria Campanha Copa não tira a pessoa de "prospect", já que é
+  // justamente o resultado esperado da campanha converter prospects.
   const prospect = rows.filter(
-    (r) => (r.renovacao_match === "nao" || r.renovacao_match === "outra_loja") && !r.em_leads,
+    (r) => (r.renovacao_match === "nao" || r.renovacao_match === "outra_loja") && !r.em_leads_externo,
   ).length;
   const outra_loja = 0;
   const consentimento_marketing = rows.filter((r) => r.consentimento_marketing).length;
@@ -346,11 +352,13 @@ export function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRela
   return {
     total,
     em_renovacao,
-    em_leads,
+    em_leads_externo,
+    em_leads_via_copa,
     prospect,
     outra_loja,
     pct_renovacao: total > 0 ? Math.round((em_renovacao / total) * 1000) / 10 : 0,
-    pct_leads: total > 0 ? Math.round((em_leads / total) * 1000) / 10 : 0,
+    pct_leads_externo: total > 0 ? Math.round((em_leads_externo / total) * 1000) / 10 : 0,
+    pct_leads_via_copa: total > 0 ? Math.round((em_leads_via_copa / total) * 1000) / 10 : 0,
     pct_prospect: total > 0 ? Math.round((prospect / total) * 1000) / 10 : 0,
     pct_outra_loja: total > 0 ? Math.round((outra_loja / total) * 1000) / 10 : 0,
     consentimento_marketing,
@@ -402,9 +410,17 @@ async function lookupRenovacoes(cpfs: string[], phones: string[]): Promise<Renov
   return ((data ?? []) as RenovacaoLite[]).filter((r) => r.ssotica_company_id);
 }
 
-/** Telefones (já normalizados) que existem como card na tela de Leads. */
-async function lookupLeadsPhones(phones: string[]): Promise<Set<string>> {
-  if (phones.length === 0) return new Set();
+/**
+ * Telefones (já normalizados) que existem como card na tela de Leads,
+ * separados por origem: leadsExternos = lead que já existia independente da
+ * Campanha Copa (origem_campanha != 'copa' ou nulo); leadsViaCopa = lead que
+ * só existe porque a própria inscrição da Campanha Copa o criou
+ * automaticamente (origem_campanha = 'copa').
+ */
+async function lookupLeadsPhones(
+  phones: string[],
+): Promise<{ leadsExternos: Set<string>; leadsViaCopa: Set<string> }> {
+  if (phones.length === 0) return { leadsExternos: new Set(), leadsViaCopa: new Set() };
 
   const { data, error } = await supabase.rpc("campanha_copa_lookup_leads" as never, {
     p_phones: phones,
@@ -412,7 +428,16 @@ async function lookupLeadsPhones(phones: string[]): Promise<Set<string>> {
 
   if (error) throw new Error(error.message);
 
-  return new Set(((data ?? []) as Array<{ phone_digits: string }>).map((r) => r.phone_digits));
+  const leadsExternos = new Set<string>();
+  const leadsViaCopa = new Set<string>();
+  for (const row of (data ?? []) as Array<{ phone_digits: string; origem_campanha: string | null }>) {
+    if (row.origem_campanha === "copa") {
+      leadsViaCopa.add(row.phone_digits);
+    } else {
+      leadsExternos.add(row.phone_digits);
+    }
+  }
+  return { leadsExternos, leadsViaCopa };
 }
 
 export async function fetchCampanhaCopaRelatorio(
@@ -440,7 +465,7 @@ export async function fetchCampanhaCopaRelatorio(
     if (phone.length >= 10) phoneSet.add(phone);
   }
 
-  const [renovacoes, leadsPhones] = await Promise.all([
+  const [renovacoes, { leadsExternos, leadsViaCopa }] = await Promise.all([
     lookupRenovacoes([...cpfSet], [...phoneSet]),
     lookupLeadsPhones([...phoneSet]),
   ]);
@@ -534,7 +559,8 @@ export async function fetchCampanhaCopaRelatorio(
       cliente_novo_pos_campanha: !!(
         matched?.created_at && !timestampBefore(matched.created_at, sub.created_at)
       ),
-      em_leads: phone.length >= 10 && leadsPhones.has(phone),
+      em_leads_externo: phone.length >= 10 && leadsExternos.has(phone),
+      em_leads_via_copa: phone.length >= 10 && leadsViaCopa.has(phone),
     };
   });
 
