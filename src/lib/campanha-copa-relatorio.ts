@@ -143,7 +143,7 @@ function timestampBefore(isoA: string, isoB: string): boolean {
   return isoA.slice(0, 10) < isoB.slice(0, 10);
 }
 
-const MAX_SUBMISSIONS = 5000;
+const MAX_SUBMISSIONS = 50000;
 
 function toIsoStart(dateStr: string | null | undefined): string | null {
   if (!dateStr) return null;
@@ -514,7 +514,7 @@ export async function fetchCampanhaCopaRelatorioMeta(): Promise<{
       .from("campanha_copa_submissions")
       .select("cidade, jogo, jogo_label")
       .order("created_at", { ascending: false })
-      .limit(2000),
+      .limit(MAX_SUBMISSIONS),
     supabase
       .from("campanha_copa_cidade_lojas" as never)
       .select("company_id"),

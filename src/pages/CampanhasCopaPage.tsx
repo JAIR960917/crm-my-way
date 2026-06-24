@@ -159,7 +159,7 @@ export default function CampanhasCopaPage() {
             .from("campanha_copa_submissions")
             .select("*")
             .order("created_at", { ascending: false })
-            .limit(2000),
+            .limit(50000),
           supabase
             .from("profiles")
             .select("user_id, full_name, email, company_id")
