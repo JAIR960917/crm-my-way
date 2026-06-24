@@ -98,6 +98,8 @@ type ConversationRow = {
   ai_active?: boolean;
   ai_enabled?: boolean;
   routed_to_company_id?: string | null;
+  instance_name?: string | null;
+  instance_display_phone?: string | null;
 };
 
 type MessageRow = {
@@ -139,6 +141,28 @@ function formatInstanceShort(inst: WaInstanceRow | undefined): string {
   const phone = inst.display_phone?.trim();
   if (phone && phone !== "—") return `${inst.name} · ${phone}`;
   return inst.name;
+}
+
+/**
+ * Quando a conversa foi encaminhada de outra empresa (ou pertence a uma
+ * instância de pool sem empresa), instancesById não tem o registro — só
+ * lista instâncias da PRÓPRIA empresa. Usa o nome/telefone que já vêm
+ * embutidos na própria conversa (via RPC) como fallback.
+ */
+function resolveInstanceForDisplay(
+  conversation: { instance_id: string | null; instance_name?: string | null; instance_display_phone?: string | null },
+  instancesById: Record<string, WaInstanceRow>,
+): WaInstanceRow | undefined {
+  if (!conversation.instance_id) return undefined;
+  const known = instancesById[conversation.instance_id];
+  if (known) return known;
+  if (!conversation.instance_name) return undefined;
+  return {
+    id: conversation.instance_id,
+    name: conversation.instance_name,
+    display_phone: conversation.instance_display_phone ?? null,
+    phone_number_id: null,
+  };
 }
 
 const MODULE_STYLES: Record<ModuleKey, { label: string; className: string }> = {
@@ -500,16 +524,10 @@ export default function WhatsAppInbox() {
     setCobrancaInstanceIds(ids);
   }, []);
 
-  const getInstance = useCallback(
-    (instanceId: string | null | undefined) =>
-      instanceId ? instancesById[instanceId] : undefined,
-    [instancesById],
-  );
-
   const conversationInstanceLabel = useMemo(() => {
     if (!conversation?.instance_id) return null;
-    return formatInstanceShort(getInstance(conversation.instance_id));
-  }, [conversation?.instance_id, getInstance]);
+    return formatInstanceShort(resolveInstanceForDisplay(conversation, instancesById));
+  }, [conversation, instancesById]);
 
   const loadConversations = useCallback(async () => {
     const extendedCols =
@@ -519,7 +537,7 @@ export default function WhatsAppInbox() {
 
     let rows: ConversationRow[] | null = null;
 
-    const rpc = await supabase.rpc("list_whatsapp_inbox_conversations", { p_limit: 200 });
+    const rpc = await supabase.rpc("list_whatsapp_inbox_conversations", { p_limit: 2000 });
     if (!rpc.error && rpc.data) {
       rows = rpc.data as ConversationRow[];
     }
@@ -1477,7 +1495,7 @@ export default function WhatsAppInbox() {
             <ul className="p-1">
               {filteredList.map((c) => {
                 const active = c.id === selectedId;
-                const inst = c.instance_id ? instancesById[c.instance_id] : undefined;
+                const inst = resolveInstanceForDisplay(c, instancesById);
                 const m = MODULE_STYLES[inboxDisplayModuleForConversation({
                   dedicatedCobrancaUser: cobrancaInboxMode,
                   storedModule: c.module,
