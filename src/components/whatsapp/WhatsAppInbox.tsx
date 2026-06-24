@@ -747,7 +747,7 @@ export default function WhatsAppInbox() {
 
   useEffect(() => {
     let cancelled = false;
-    void supabase.from("companies").select("id, name").order("name").then(({ data }) => {
+    void supabase.rpc("list_companies_for_whatsapp_routing").then(({ data }) => {
       if (!cancelled) setCompanies((data || []) as { id: string; name: string }[]);
     });
     return () => {
