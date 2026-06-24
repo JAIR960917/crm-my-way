@@ -242,6 +242,114 @@ export default function ImportLeadsPage() {
     }
   };
 
+  // Leads sem empresa mapeada (assigned_to/created_by não resolvem pra
+  // nenhuma empresa via profiles) — mesmo critério usado pelo envio de
+  // campanhas/gatilhos do WhatsApp para decidir qual número usar.
+  type UnmappedLead = {
+    leadId: string;
+    nome: string;
+    telefone: string;
+    cidade: string;
+    status: string;
+  };
+  const [unmappedScanning, setUnmappedScanning] = useState(false);
+  const [unmappedLeads, setUnmappedLeads] = useState<UnmappedLead[] | null>(null);
+  const [unmappedExported, setUnmappedExported] = useState(false);
+  const [unmappedDeletingAll, setUnmappedDeletingAll] = useState(false);
+
+  const scanUnmappedCompany = async () => {
+    setUnmappedScanning(true);
+    setUnmappedExported(false);
+    try {
+      const [leadsRes, profilesRes, leadFieldsRes, statusesRes] = await Promise.all([
+        supabase.from("crm_leads").select("id, data, assigned_to, created_by, status").limit(10000),
+        supabase.from("profiles").select("user_id, company_id"),
+        supabase.from("crm_form_fields").select("id, label, is_name_field, is_phone_field"),
+        supabase.from("crm_statuses").select("key, label"),
+      ]);
+      if (leadsRes.error) throw leadsRes.error;
+      if (profilesRes.error) throw profilesRes.error;
+
+      const companyByUser = new Map<string, string>();
+      (profilesRes.data || []).forEach((p: any) => {
+        if (p.user_id && p.company_id) companyByUser.set(p.user_id, p.company_id);
+      });
+      const leadFields = (leadFieldsRes.data || []) as any[];
+      const statusLabels = new Map<string, string>(
+        (statusesRes.data || []).map((s: any) => [s.key, s.label]),
+      );
+
+      const unmapped: UnmappedLead[] = [];
+      (leadsRes.data || []).forEach((l: any) => {
+        const hasCompany =
+          (l.assigned_to && companyByUser.has(l.assigned_to)) ||
+          (l.created_by && companyByUser.has(l.created_by));
+        if (hasCompany) return;
+
+        const data = (l.data || {}) as Record<string, any>;
+        const identity = resolveLeadIdentity(data, leadFields);
+        unmapped.push({
+          leadId: l.id,
+          nome: identity.nome || "Sem nome",
+          telefone: identity.telefone || "",
+          cidade: data.cidade || "",
+          status: statusLabels.get(l.status) || l.status || "",
+        });
+      });
+
+      setUnmappedLeads(unmapped);
+      toast.success(`${unmapped.length} lead(s) sem empresa mapeada.`);
+    } catch (err: any) {
+      toast.error(`Erro ao verificar: ${err.message || err}`);
+    } finally {
+      setUnmappedScanning(false);
+    }
+  };
+
+  const exportUnmappedCsv = () => {
+    if (!unmappedLeads || unmappedLeads.length === 0) return;
+    const header = ["Nome", "Telefone", "Cidade", "Status"];
+    const lines = unmappedLeads.map((l) =>
+      [l.nome, l.telefone, l.cidade, l.status]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(";"),
+    );
+    const csv = [header.join(";"), ...lines].join("\n");
+    const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `leads_sem_empresa_mapeada_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setUnmappedExported(true);
+    toast.success("CSV exportado. Agora você pode excluir esses leads.");
+  };
+
+  const deleteAllUnmappedCompany = async () => {
+    if (!unmappedLeads || unmappedLeads.length === 0) return;
+    setUnmappedDeletingAll(true);
+    let okCount = 0;
+    let errCount = 0;
+    const remaining: UnmappedLead[] = [];
+    for (const l of unmappedLeads) {
+      try {
+        await deleteLeadCascade(l.leadId);
+        okCount++;
+      } catch {
+        errCount++;
+        remaining.push(l);
+      }
+    }
+    setUnmappedLeads(remaining);
+    setUnmappedDeletingAll(false);
+    if (errCount === 0) {
+      toast.success(`${okCount} lead(s) sem empresa mapeada excluído(s).`);
+    } else {
+      toast.error(`${okCount} excluído(s), ${errCount} falharam. Tente novamente para os restantes.`);
+    }
+  };
+
   const { data: formFields = [] } = useQuery({
     queryKey: ["import-form-fields"],
     queryFn: async () => {
@@ -741,6 +849,112 @@ export default function ImportLeadsPage() {
                     </TableBody>
                   </Table>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Leads sem empresa mapeada */}
+        {step === "upload" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Leads sem empresa mapeada</CardTitle>
+              <CardDescription>
+                Leads cujo responsável/criador não está vinculado a nenhuma empresa (ex.: Campanha Copa
+                sem cidade mapeada para uma loja). Exporte em CSV antes de excluir.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Button onClick={scanUnmappedCompany} disabled={unmappedScanning} variant="secondary">
+                {unmappedScanning ? (
+                  <><RefreshCw className="mr-2 h-4 w-4 animate-spin" /> Verificando...</>
+                ) : (
+                  <><Search className="mr-2 h-4 w-4" /> Verificar agora</>
+                )}
+              </Button>
+
+              {unmappedLeads && unmappedLeads.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Nenhum lead sem empresa mapeada encontrado.
+                </p>
+              )}
+
+              {unmappedLeads && unmappedLeads.length > 0 && (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-muted-foreground">
+                      {unmappedLeads.length} lead(s) sem empresa mapeada.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={exportUnmappedCsv}>
+                        <FileSpreadsheet className="mr-1 h-3 w-3" />
+                        Exportar CSV
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={!unmappedExported || unmappedDeletingAll}
+                            title={!unmappedExported ? "Exporte o CSV primeiro" : undefined}
+                          >
+                            {unmappedDeletingAll ? (
+                              <><RefreshCw className="mr-1 h-3 w-3 animate-spin" /> Excluindo...</>
+                            ) : (
+                              <><Trash2 className="mr-1 h-3 w-3" /> Excluir todos</>
+                            )}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              Excluir todos os {unmappedLeads.length} leads sem empresa mapeada?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Essa ação não pode ser desfeita. Confirme que você já exportou e revisou o CSV.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => void deleteAllUnmappedCompany()}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              Sim, excluir todos
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
+                  {!unmappedExported && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Exporte o CSV antes de poder excluir.
+                    </p>
+                  )}
+                  <div className="max-h-[400px] overflow-auto rounded-lg border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nome</TableHead>
+                          <TableHead>Telefone</TableHead>
+                          <TableHead>Cidade</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {unmappedLeads.map((l) => (
+                          <TableRow key={l.leadId}>
+                            <TableCell className="text-xs">{l.nome}</TableCell>
+                            <TableCell className="text-xs">{l.telefone}</TableCell>
+                            <TableCell className="text-xs">{l.cidade || "—"}</TableCell>
+                            <TableCell className="text-xs">{l.status}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>

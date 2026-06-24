@@ -650,11 +650,16 @@ serve(async (req) => {
             rrIndex++;
           } else if (isGlobal && !fixedSession) {
             const cardCompanyId = resolveCardCompanyId(card, userToCompany);
-            if (!cardCompanyId) {
-              skippedNoCompany++;
-              continue;
+            session = cardCompanyId ? (companyToSession.get(cardCompanyId) || null) : null;
+            if (!session) {
+              // Sem empresa mapeada (ou empresa sem instância própria) — em
+              // vez de pular o lead silenciosamente, usa um número geral
+              // (instância sem empresa vinculada), igual já acontece para
+              // cobranças. Evita leads "perdidos" por falta de mapeamento
+              // cidade→loja (ex.: Campanha Copa).
+              session = pickRoundRobinSession(rrIndex);
+              rrIndex++;
             }
-            session = companyToSession.get(cardCompanyId) || null;
             if (!session) {
               skippedNoCompany++;
               continue;
@@ -925,11 +930,14 @@ serve(async (req) => {
             session = selectedSessions[rrIndex % selectedSessions.length];
           } else if (useCompanySessionFallback) {
             const cardCompanyId = resolveCardCompanyId(card, userToCompany);
-            if (!cardCompanyId) {
-              skippedNoCompany++;
-              continue;
+            session = cardCompanyId ? (companyToSession.get(cardCompanyId) || null) : null;
+            if (!session) {
+              // Sem empresa mapeada (ou empresa sem instância própria) — usa
+              // um número geral (instância sem empresa vinculada) em vez de
+              // pular o lead silenciosamente. Evita leads "perdidos" por
+              // falta de mapeamento cidade→loja (ex.: Campanha Copa).
+              session = pickRoundRobinSession(rrIndex);
             }
-            session = companyToSession.get(cardCompanyId) || null;
             if (!session) {
               skippedNoCompany++;
               continue;
