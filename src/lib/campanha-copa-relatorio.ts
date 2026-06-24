@@ -310,16 +310,20 @@ export function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRela
   // ser contado mais de uma vez nesses cards — mesma regra de "Leads
   // únicos (CPF)". Mantém a inscrição mais recente de cada pessoa.
   const uniquePeople = dedupeRowsByCpf(rows);
-  const em_renovacao = uniquePeople.filter((r) => r.renovacao_match === "sim").length;
-  const em_leads_externo = uniquePeople.filter((r) => r.em_leads_externo).length;
-  // "Entrou em Leads pela Campanha" e "Prospect" usam o MESMO critério: o
-  // lead só existe na tela de Leads por causa desta inscrição (não tinha
-  // lead externo) E a pessoa não está em Renovação em lugar nenhum (nem na
-  // própria loja, nem em outra). Quem já está em Renovação ou já tinha lead
-  // de outra origem não entra em nenhum dos dois — já estava sendo
-  // trabalhado em outro lugar antes da campanha.
+  // Os 3 buckets abaixo são MUTUAMENTE EXCLUSIVOS e cobrem todo mundo —
+  // a soma dos três sempre bate com "Leads únicos (CPF)". Prioridade:
+  // 1) Em Renovação (própria loja OU outra loja) — se está em Renovação em
+  //    qualquer lugar, conta aqui, mesmo que também tenha um lead antigo.
+  // 2) Já estava em Leads (só quem NÃO está em Renovação, senão dobraria).
+  // 3) Prospect — resto: nunca esteve em Renovação nem tinha lead externo.
+  const em_renovacao = uniquePeople.filter(
+    (r) => r.renovacao_match === "sim" || r.renovacao_match === "outra_loja",
+  ).length;
+  const em_leads_externo = uniquePeople.filter(
+    (r) => r.renovacao_match === "nao" && r.em_leads_externo,
+  ).length;
   const novoViaCampanha = uniquePeople.filter(
-    (r) => r.em_leads_via_copa && r.renovacao_match === "nao" && !r.em_leads_externo,
+    (r) => r.renovacao_match === "nao" && !r.em_leads_externo,
   );
   const em_leads_via_copa = novoViaCampanha.length;
   const prospect = novoViaCampanha.length;

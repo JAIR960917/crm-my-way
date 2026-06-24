@@ -629,7 +629,7 @@ export default function CampanhaCopaRelatorioPage() {
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-1">
                 <UserCheck className="h-3.5 w-3.5" />
-                Já em Renovação (loja)
+                Já em Renovação
               </CardDescription>
               <CardTitle className="text-3xl text-emerald-600">
                 {metrics.em_renovacao}
@@ -637,6 +637,9 @@ export default function CampanhaCopaRelatorioPage() {
                   ({metrics.pct_renovacao}%)
                 </span>
               </CardTitle>
+              <p className="text-xs text-muted-foreground pt-1">
+                Cliente ativo em Renovação, na própria loja ou em outra
+              </p>
             </CardHeader>
           </Card>
           <Card>
@@ -652,7 +655,7 @@ export default function CampanhaCopaRelatorioPage() {
                 </span>
               </CardTitle>
               <p className="text-xs text-muted-foreground pt-1">
-                Telefone já tinha card em Leads ANTES/independente da Campanha Copa
+                Telefone já tinha card em Leads ANTES/independente da Campanha Copa (e não está em Renovação)
               </p>
             </CardHeader>
           </Card>
