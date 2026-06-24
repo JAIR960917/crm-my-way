@@ -306,15 +306,19 @@ export function dedupeRowsByCpf(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaR
 
 export function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRelatorioMetrics {
   const total = rows.length;
-  const em_renovacao = rows.filter((r) => r.renovacao_match === "sim").length;
-  const em_leads_externo = rows.filter((r) => r.em_leads_externo).length;
+  // Quem participou de mais de uma campanha/jogo com o mesmo CPF não pode
+  // ser contado mais de uma vez nesses cards — mesma regra de "Leads
+  // únicos (CPF)". Mantém a inscrição mais recente de cada pessoa.
+  const uniquePeople = dedupeRowsByCpf(rows);
+  const em_renovacao = uniquePeople.filter((r) => r.renovacao_match === "sim").length;
+  const em_leads_externo = uniquePeople.filter((r) => r.em_leads_externo).length;
   // "Entrou em Leads pela Campanha" e "Prospect" usam o MESMO critério: o
   // lead só existe na tela de Leads por causa desta inscrição (não tinha
   // lead externo) E a pessoa não está em Renovação em lugar nenhum (nem na
   // própria loja, nem em outra). Quem já está em Renovação ou já tinha lead
   // de outra origem não entra em nenhum dos dois — já estava sendo
   // trabalhado em outro lugar antes da campanha.
-  const novoViaCampanha = rows.filter(
+  const novoViaCampanha = uniquePeople.filter(
     (r) => r.em_leads_via_copa && r.renovacao_match === "nao" && !r.em_leads_externo,
   );
   const em_leads_via_copa = novoViaCampanha.length;
