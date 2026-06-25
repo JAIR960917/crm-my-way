@@ -118,6 +118,9 @@ const ORDER_COLUMN_OVERRIDES = {
   system_settings: 'id',
   campanha_copa_round_robin: 'company_id', // PK é company_id, sem coluna id/created_at
   whatsapp_opt_ins: 'id', // tem opted_in_at, não created_at
+  role_page_permissions: 'role_key', // PK composta (role_key, page_key), sem id/created_at
+  site_web_config: 'updated_at', // tabela de config (1 linha), sem created_at
+  whatsapp_send_locks: 'name', // PK é name, sem id/created_at
 };
 
 async function fetchPage(table, from, to) {
