@@ -348,9 +348,13 @@ export function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRela
     (r) => r.cliente_novo_pos_campanha && r.converteu_apos_campanha,
   ).length;
 
+  // Distribuição por empresa/exame e os percentuais dos buckets usam "Leads
+  // únicos (CPF)" como base (100%), não o total bruto de inscrições — senão
+  // quem participou de várias campanhas contava mais de uma vez na distribuição.
+  const uniqueTotal = uniquePeople.length;
   const empresaMap = new Map<string, number>();
   const exameMap = new Map<string, number>();
-  for (const row of rows) {
+  for (const row of uniquePeople) {
     const empresa = row.company_name?.trim() || "Sem empresa mapeada";
     const exame = row.ultimo_exame_vista?.trim() || "Não informado";
     empresaMap.set(empresa, (empresaMap.get(empresa) ?? 0) + 1);
@@ -372,11 +376,11 @@ export function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRela
     em_leads_via_copa,
     prospect,
     outra_loja,
-    pct_renovacao: total > 0 ? Math.round((em_renovacao / total) * 1000) / 10 : 0,
-    pct_leads_externo: total > 0 ? Math.round((em_leads_externo / total) * 1000) / 10 : 0,
-    pct_leads_via_copa: total > 0 ? Math.round((em_leads_via_copa / total) * 1000) / 10 : 0,
-    pct_prospect: total > 0 ? Math.round((prospect / total) * 1000) / 10 : 0,
-    pct_outra_loja: total > 0 ? Math.round((outra_loja / total) * 1000) / 10 : 0,
+    pct_renovacao: uniqueTotal > 0 ? Math.round((em_renovacao / uniqueTotal) * 1000) / 10 : 0,
+    pct_leads_externo: uniqueTotal > 0 ? Math.round((em_leads_externo / uniqueTotal) * 1000) / 10 : 0,
+    pct_leads_via_copa: uniqueTotal > 0 ? Math.round((em_leads_via_copa / uniqueTotal) * 1000) / 10 : 0,
+    pct_prospect: uniqueTotal > 0 ? Math.round((prospect / uniqueTotal) * 1000) / 10 : 0,
+    pct_outra_loja: uniqueTotal > 0 ? Math.round((outra_loja / uniqueTotal) * 1000) / 10 : 0,
     consentimento_marketing,
     convertidos,
     prospect_convertidos,

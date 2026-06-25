@@ -388,8 +388,8 @@ export default function CampanhaCopaRelatorioPage() {
     }
   }, [renLeadsResults]);
 
-  const empresaBase = Math.max(1, metrics.total);
-  const exameBase = Math.max(1, metrics.total);
+  const empresaBase = Math.max(1, uniqueLeadsCount);
+  const exameBase = Math.max(1, uniqueLeadsCount);
 
   // ===== Seção "Geral" — despesas/investimento e métricas financeiras =====
   const [despesas, setDespesas] = useState<CampanhaCopaDespesa[]>([]);
@@ -702,9 +702,7 @@ export default function CampanhaCopaRelatorioPage() {
               </CardDescription>
               <CardTitle className="text-3xl">
                 {uniqueLeadsCount}
-                <span className="text-base font-normal text-muted-foreground ml-2">
-                  ({metrics.total > 0 ? Math.round((uniqueLeadsCount / metrics.total) * 100) : 0}%)
-                </span>
+                <span className="text-base font-normal text-muted-foreground ml-2">(100%)</span>
               </CardTitle>
               <p className="text-xs text-muted-foreground pt-1">
                 Pessoas distintas pelo CPF — conta uma vez mesmo participando de várias campanhas
