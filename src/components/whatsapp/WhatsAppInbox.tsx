@@ -1053,7 +1053,13 @@ export default function WhatsAppInbox() {
       if ((data as any)?.error) throw new Error((data as any).error);
       setDraft("");
       await loadMessages(conversation.id);
-      await loadConversations();
+      // Não recarrega a lista inteira de conversas aqui: whatsapp-chat já
+      // atualiza a linha em whatsapp_conversations no servidor, e o canal
+      // realtime já assinado (applyConversationPatch) reflete isso sozinho.
+      // Um loadConversations() completo a cada envio refaz a query pesada
+      // de até 2000 conversas (com JOIN LATERAL por linha) e re-ordena tudo
+      // no cliente — em contas com muitas conversas isso trava a tela
+      // quando o usuário manda mensagem rápido pra pessoas diferentes.
       setPinnedToBottom(true);
       queueMicrotask(() => scrollToBottom("smooth"));
     } catch (e: unknown) {
@@ -1082,7 +1088,7 @@ export default function WhatsAppInbox() {
       if (error) throw new Error(await parseSendError(data, error));
       if ((data as any)?.error) throw new Error((data as any).error);
       await loadMessages(conversation.id);
-      await loadConversations();
+      // Mesma razão do handleSendText: a lista já se atualiza via realtime.
       setPinnedToBottom(true);
       queueMicrotask(() => scrollToBottom("smooth"));
     } catch (e: unknown) {
@@ -1140,7 +1146,7 @@ export default function WhatsAppInbox() {
       if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
       setDraft("");
       await loadMessages(conversation.id);
-      await loadConversations();
+      // Mesma razão de handleSendText: a lista já se atualiza via realtime.
       setPinnedToBottom(true);
       queueMicrotask(() => scrollToBottom("smooth"));
     } catch (e: unknown) {
