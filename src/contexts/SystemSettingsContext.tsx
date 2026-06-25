@@ -30,6 +30,8 @@ const BRANDING_SETTING_KEYS = [
   "text_color",
   "button_color",
   "logo_url",
+  "pwa_icon_192_url",
+  "pwa_icon_512_url",
   "maintenance_mode",
   "maintenance_admin_1",
   "maintenance_admin_2",
@@ -45,6 +47,8 @@ type Settings = {
   text_color: string;
   button_color: string;
   logo_url: string;
+  pwa_icon_192_url: string;
+  pwa_icon_512_url: string;
   maintenance_mode: string;
   maintenance_admin_1: string;
   maintenance_admin_2: string;
@@ -60,6 +64,8 @@ const defaults: Settings = {
   text_color: "210 20% 92%",
   button_color: "220 72% 55%",
   logo_url: "",
+  pwa_icon_192_url: "",
+  pwa_icon_512_url: "",
   maintenance_mode: "false",
   maintenance_admin_1: "",
   maintenance_admin_2: "",
@@ -130,8 +136,53 @@ function applyCSS(s: Settings) {
     if (appleLink) appleLink.href = s.logo_url;
   }
 
+  // Ícone do PWA (tela inicial do celular) tem prioridade sobre a logo
+  // genérica pra esse fim específico — é quadrado/com respiro, a logo do
+  // cabeçalho normalmente não é.
+  if (s.pwa_icon_192_url) {
+    const appleLink = document.querySelector<HTMLLinkElement>("link[rel='apple-touch-icon']");
+    if (appleLink) appleLink.href = s.pwa_icon_192_url;
+  }
+
   // Título da aba do navegador.
   if (s.system_name) document.title = s.system_name;
+}
+
+/**
+ * manifest.webmanifest é um arquivo estático (não pode ser editado sem
+ * rebuild do app) — então, quando o admin troca o ícone do PWA, reconstrói o
+ * manifest em memória com os ícones customizados e troca o <link
+ * rel="manifest"> pra um Blob URL com esse conteúdo. Isso é o que o
+ * Android/Chrome usa pra gerar o ícone ao instalar o app na tela inicial.
+ */
+let lastManifestBlobUrl: string | null = null;
+async function applyManifestIcons(s: Settings) {
+  if (!s.pwa_icon_192_url && !s.pwa_icon_512_url) return;
+  try {
+    const link = document.querySelector<HTMLLinkElement>("link[rel='manifest']");
+    if (!link) return;
+    // Sempre busca o arquivo estático original (não o Blob URL que a gente
+    // mesmo já trocou aqui antes) pra ter uma base limpa pra reconstruir.
+    const res = await fetch("/manifest.webmanifest");
+    const manifest = await res.json();
+
+    const icon192 = s.pwa_icon_192_url || s.pwa_icon_512_url;
+    const icon512 = s.pwa_icon_512_url || s.pwa_icon_192_url;
+    manifest.icons = [
+      { src: icon192, sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: icon192, sizes: "192x192", type: "image/png", purpose: "maskable" },
+      { src: icon512, sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: icon512, sizes: "512x512", type: "image/png", purpose: "maskable" },
+    ];
+
+    const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
+    const blobUrl = URL.createObjectURL(blob);
+    link.href = blobUrl;
+    if (lastManifestBlobUrl) URL.revokeObjectURL(lastManifestBlobUrl);
+    lastManifestBlobUrl = blobUrl;
+  } catch {
+    // Sem internet/erro de fetch — mantém o manifest estático padrão.
+  }
 }
 
 /** Provider — envolva o app dentro de <AuthProvider> e antes das rotas. */
@@ -164,6 +215,8 @@ export function SystemSettingsProvider({ children }: { children: ReactNode }) {
     });
 
     merged.logo_url = resolveStoragePublicUrl(merged.logo_url);
+    merged.pwa_icon_192_url = resolveStoragePublicUrl(merged.pwa_icon_192_url);
+    merged.pwa_icon_512_url = resolveStoragePublicUrl(merged.pwa_icon_512_url);
 
     setSettings(merged);
     setLoading(false);
@@ -172,6 +225,7 @@ export function SystemSettingsProvider({ children }: { children: ReactNode }) {
   // Aplica CSS sempre que settings muda.
   useEffect(() => {
     applyCSS(settings);
+    void applyManifestIcons(settings);
   }, [settings]);
 
   // Busca settings quando a sessão fica disponível.
