@@ -256,6 +256,21 @@ ok "Caddy configurado para ${FRONTEND_DOMAIN} e ${API_DOMAIN}"
 # ---------------------------------------------------------------------------
 log "Subindo containers (pode demorar alguns minutos no primeiro pull)..."
 cd "$PROJECT_DIR"
+
+# public/runtime-config.js só é gerado de fato pelo deploy.sh (etapa 7), mas o
+# docker-compose monta esse caminho como bind mount para o crm-frontend. Se o
+# arquivo não existir ainda neste primeiro "up", o Docker cria um DIRETÓRIO no
+# lugar e o mount falha (container crm-frontend não sobe). Garantimos aqui que
+# já existe como arquivo antes do primeiro "docker compose up".
+RUNTIME_CONFIG_PATH="${PROJECT_DIR}/public/runtime-config.js"
+if [ -d "$RUNTIME_CONFIG_PATH" ]; then
+  rm -rf "$RUNTIME_CONFIG_PATH"
+fi
+if [ ! -f "$RUNTIME_CONFIG_PATH" ]; then
+  mkdir -p "${PROJECT_DIR}/public"
+  echo "window.__CRM_RUNTIME_CONFIG__ = window.__CRM_RUNTIME_CONFIG__ || {};" > "$RUNTIME_CONFIG_PATH"
+fi
+
 docker compose pull
 docker compose up -d --build
 
