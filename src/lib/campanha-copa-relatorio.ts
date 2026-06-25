@@ -890,10 +890,25 @@ export function buildGeralMetrics(
   leadsTotais: number,
   leadsNovos: number,
 ): CampanhaCopaGeralMetrics {
-  const uniquePeople = dedupeRowsByCpf(rows);
-  const novosClientesRows = uniquePeople.filter(
-    (r) => r.cliente_novo_pos_campanha && r.converteu_apos_campanha,
-  );
+  // cliente_novo_pos_campanha/converteu_apos_campanha são relativos à
+  // inscrição (comparam com a data DAQUELA submissão) — uma pessoa que se
+  // inscreveu mais de uma vez pode ter isso true numa inscrição antiga e
+  // false na mais recente. dedupeRowsByCpf só mantém a mais recente, então
+  // filtrar DEPOIS de deduplicar podia perder uma venda real (a inscrição
+  // que efetivamente qualificava ficava descartada). Por isso aqui agrupa
+  // por CPF e conta a pessoa se QUALQUER inscrição dela qualificar.
+  const bestPerCpf = new Map<string, CampanhaCopaRelatorioRow>();
+  const withoutCpfQualifying: CampanhaCopaRelatorioRow[] = [];
+  for (const row of rows) {
+    if (!(row.cliente_novo_pos_campanha && row.converteu_apos_campanha)) continue;
+    const cpf = cpfDigits(row.cpf);
+    if (cpf.length < 11) {
+      withoutCpfQualifying.push(row);
+      continue;
+    }
+    if (!bestPerCpf.has(cpf)) bestPerCpf.set(cpf, row);
+  }
+  const novosClientesRows = [...bestPerCpf.values(), ...withoutCpfQualifying];
   const vendas = novosClientesRows.length;
   const faturamento = novosClientesRows.reduce((acc, r) => acc + (r.valor_venda ?? 0), 0);
 
