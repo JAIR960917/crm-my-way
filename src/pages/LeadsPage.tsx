@@ -626,10 +626,12 @@ export default function LeadsPage() {
   // telefone resolvido (mesma lógica de is_phone_field/rótulo usada pra
   // exibir o card). NÃO varre todo o JSON procurando "qualquer string com
   // 8+ dígitos" — isso confunde datas guardadas como AAAAMMDD com telefone.
-  type DuplicateGroup = { phoneSuffix: string; phone: string; leads: Lead[] };
+  type DuplicateGroup = { phoneSuffix: string; phone: string; leads: Lead[]; samePhone: boolean };
   const [duplicatesDialogOpen, setDuplicatesDialogOpen] = useState(false);
   const [scanningDuplicates, setScanningDuplicates] = useState(false);
   const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[] | null>(null);
+  const [deletingAllDuplicates, setDeletingAllDuplicates] = useState(false);
+  const [deleteAllDuplicatesConfirmOpen, setDeleteAllDuplicatesConfirmOpen] = useState(false);
 
   const phoneSuffix = (telefone: string): string | null => {
     const digits = (telefone || "").replace(/\D/g, "");
@@ -659,11 +661,13 @@ export default function LeadsPage() {
 
       const result: DuplicateGroup[] = Array.from(groups.entries())
         .filter(([, g]) => g.leads.length >= 2)
-        .map(([suffix, g]) => ({
-          phoneSuffix: suffix,
-          phone: g.phone,
-          leads: g.leads.sort((a, b) => a.created_at.localeCompare(b.created_at)),
-        }))
+        .map(([suffix, g]) => {
+          const leads = g.leads.sort((a, b) => a.created_at.localeCompare(b.created_at));
+          const distinctPhones = new Set(
+            leads.map((l) => resolveLeadIdentity(l.data || {}, formFields).telefone.replace(/\D/g, "")),
+          );
+          return { phoneSuffix: suffix, phone: g.phone, leads, samePhone: distinctPhones.size <= 1 };
+        })
         .sort((a, b) => b.leads.length - a.leads.length);
 
       setDuplicateGroups(result);
@@ -677,6 +681,44 @@ export default function LeadsPage() {
       toast.error(`Erro ao verificar duplicados: ${err.message || err}`);
     } finally {
       setScanningDuplicates(false);
+    }
+  };
+
+  // Exclui (soft delete) todos os leads duplicados de cada grupo, mantendo
+  // só o mais RECENTE (created_at mais novo) por telefone. Só age em grupos
+  // onde os números completos são todos iguais de fato (samePhone) — grupos
+  // que só batem na terminação de 8 dígitos (DDD diferente, coincidência)
+  // nunca são tocados aqui, mesmo no "excluir todos".
+  const deleteAllDuplicates = async () => {
+    if (!duplicateGroups) return;
+    setDeletingAllDuplicates(true);
+    let deleted = 0;
+    let failed = 0;
+    try {
+      for (const group of duplicateGroups) {
+        if (!group.samePhone) continue;
+        const toDelete = group.leads.slice(0, -1); // mantém o último (mais recente)
+        for (const lead of toDelete) {
+          const isPermanentDelete = isAdmin && lead.status === "excluidos";
+          const { error } = isPermanentDelete
+            ? await supabase.rpc("hard_delete_lead", { _lead_id: lead.id })
+            : await supabase.rpc("soft_delete_lead", { _lead_id: lead.id });
+          if (error) {
+            failed += 1;
+          } else {
+            deleted += 1;
+            removePaginatedItem(lead.id);
+          }
+        }
+      }
+      if (deleted > 0) toast.success(`${deleted} lead(s) duplicado(s) excluído(s).`);
+      if (failed > 0) toast.error(`${failed} lead(s) não puderam ser excluídos.`);
+      if (deleted === 0 && failed === 0) toast.info("Nenhum lead duplicado seguro pra excluir automaticamente.");
+      setRefreshKey((k) => k + 1);
+      setDeleteAllDuplicatesConfirmOpen(false);
+      await scanDuplicateLeads();
+    } finally {
+      setDeletingAllDuplicates(false);
     }
   };
 
@@ -1441,24 +1483,36 @@ export default function LeadsPage() {
                 <><Search className="mr-2 h-4 w-4" />Verificar agora</>
               )}
             </Button>
-            {duplicateGroups && (
-              <span className="text-xs text-muted-foreground">
-                {duplicateGroups.length} telefone(s) duplicado(s)
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {duplicateGroups && (
+                <span className="text-xs text-muted-foreground">
+                  {duplicateGroups.length} telefone(s) duplicado(s)
+                </span>
+              )}
+              {!!duplicateGroups?.some((g) => g.samePhone && g.leads.length > 1) && (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setDeleteAllDuplicatesConfirmOpen(true)}
+                  disabled={deletingAllDuplicates}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Excluir duplicados
+                </Button>
+              )}
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto space-y-3 pr-1">
             {duplicateGroups && duplicateGroups.length === 0 && (
               <p className="text-sm text-muted-foreground py-6 text-center">Nenhum lead duplicado encontrado.</p>
             )}
             {duplicateGroups?.map((group) => {
-              const distinctPhones = new Set(group.leads.map((l) => leadDisplayPhone(l).replace(/\D/g, "")));
-              const samePhone = distinctPhones.size <= 1;
+              const keptId = group.samePhone ? group.leads[group.leads.length - 1].id : null;
               return (
               <div key={group.phoneSuffix} className="rounded-lg border p-3 space-y-2">
                 <p className="text-sm font-medium">
                   Termina em {group.phoneSuffix} <span className="text-muted-foreground">({group.leads.length} leads)</span>
-                  {!samePhone && (
+                  {!group.samePhone && (
                     <span className="ml-2 text-xs font-normal text-amber-500">
                       ⚠ números completos diferentes — só a terminação bate, confira antes de excluir
                     </span>
@@ -1468,7 +1522,12 @@ export default function LeadsPage() {
                   {group.leads.map((lead) => (
                     <div key={lead.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5">
                       <div className="min-w-0">
-                        <p className="text-sm truncate">{leadDisplayName(lead)} <span className="text-muted-foreground">· {leadDisplayPhone(lead)}</span></p>
+                        <p className="text-sm truncate">
+                          {leadDisplayName(lead)} <span className="text-muted-foreground">· {leadDisplayPhone(lead)}</span>
+                          {keptId === lead.id && (
+                            <span className="ml-1.5 text-[10px] font-normal text-emerald-500">mantido</span>
+                          )}
+                        </p>
                         <p className="text-xs text-muted-foreground">
                           {statuses.find((s) => s.key === lead.status)?.label || lead.status} ·{" "}
                           {profiles.find((p) => p.user_id === lead.assigned_to)?.full_name || "Sem responsável"} ·{" "}
@@ -1492,6 +1551,28 @@ export default function LeadsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteAllDuplicatesConfirmOpen} onOpenChange={(open) => !deletingAllDuplicates && setDeleteAllDuplicatesConfirmOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir leads duplicados?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Mantém o lead mais recente de cada telefone e move os demais pra "Excluídos" (não exclui de vez —
+              pode restaurar depois). Grupos marcados com ⚠ (números completos diferentes) não são tocados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingAllDuplicates}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); void deleteAllDuplicates(); }}
+              disabled={deletingAllDuplicates}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingAllDuplicates ? "Excluindo..." : "Excluir duplicados"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }
