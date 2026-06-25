@@ -685,6 +685,11 @@ export default function LeadsPage() {
     return identity.nome || "Sem nome";
   };
 
+  const leadDisplayPhone = (lead: Lead) => {
+    const identity = resolveLeadIdentity(lead.data || {}, formFields);
+    return identity.telefone || "—";
+  };
+
   const openRestore = (lead: Lead) => {
     setRestoreLead(lead);
     setRestoreAssignee(lead.assigned_to || "");
@@ -1446,14 +1451,24 @@ export default function LeadsPage() {
             {duplicateGroups && duplicateGroups.length === 0 && (
               <p className="text-sm text-muted-foreground py-6 text-center">Nenhum lead duplicado encontrado.</p>
             )}
-            {duplicateGroups?.map((group) => (
+            {duplicateGroups?.map((group) => {
+              const distinctPhones = new Set(group.leads.map((l) => leadDisplayPhone(l).replace(/\D/g, "")));
+              const samePhone = distinctPhones.size <= 1;
+              return (
               <div key={group.phoneSuffix} className="rounded-lg border p-3 space-y-2">
-                <p className="text-sm font-medium">{group.phone} <span className="text-muted-foreground">({group.leads.length} leads)</span></p>
+                <p className="text-sm font-medium">
+                  Termina em {group.phoneSuffix} <span className="text-muted-foreground">({group.leads.length} leads)</span>
+                  {!samePhone && (
+                    <span className="ml-2 text-xs font-normal text-amber-500">
+                      ⚠ números completos diferentes — só a terminação bate, confira antes de excluir
+                    </span>
+                  )}
+                </p>
                 <div className="space-y-1.5">
                   {group.leads.map((lead) => (
                     <div key={lead.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5">
                       <div className="min-w-0">
-                        <p className="text-sm truncate">{leadDisplayName(lead)}</p>
+                        <p className="text-sm truncate">{leadDisplayName(lead)} <span className="text-muted-foreground">· {leadDisplayPhone(lead)}</span></p>
                         <p className="text-xs text-muted-foreground">
                           {statuses.find((s) => s.key === lead.status)?.label || lead.status} ·{" "}
                           {profiles.find((p) => p.user_id === lead.assigned_to)?.full_name || "Sem responsável"} ·{" "}
@@ -1472,7 +1487,8 @@ export default function LeadsPage() {
                   ))}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </DialogContent>
       </Dialog>
