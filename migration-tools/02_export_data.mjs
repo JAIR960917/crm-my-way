@@ -169,7 +169,11 @@ async function dumpTable(table, out) {
   let total = 0;
   let written = 0;
 
+  // Cada tabela é sua própria transação: se uma linha der erro, só essa
+  // tabela é desfeita — as tabelas já confirmadas antes continuam valendo
+  // numa próxima tentativa (evita refazer o export inteiro a cada erro).
   out.write(`\n-- ============ ${table} ============\n`);
+  out.write(`BEGIN;\n`);
 
   while (true) {
     const to = from + PAGE_SIZE - 1;
@@ -192,6 +196,7 @@ async function dumpTable(table, out) {
     from += PAGE_SIZE;
   }
 
+  out.write(`COMMIT;\n`);
   console.log(`${written}/${total} linhas`);
   return { table, written, total };
 }
@@ -206,7 +211,6 @@ async function main() {
   out.write(`-- Dump gerado em ${new Date().toISOString()}\n`);
   out.write(`-- Origem: ${SOURCE_URL}\n\n`);
   out.write(`SET session_replication_role = 'replica'; -- desabilita triggers\n`);
-  out.write(`BEGIN;\n`);
 
   const summary = [];
   for (const table of TABLES) {
@@ -219,8 +223,7 @@ async function main() {
     }
   }
 
-  out.write(`\nCOMMIT;\n`);
-  out.write(`SET session_replication_role = 'origin';\n`);
+  out.write(`\nSET session_replication_role = 'origin';\n`);
   out.end();
 
   console.log(`\n✅ Concluído. Arquivo: ./data.sql`);
