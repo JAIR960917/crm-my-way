@@ -11,6 +11,10 @@ import {
   applyUltimoExameVistaToLeadData,
   loadLeadLastVisitFieldId,
 } from "../_shared/campanhaCopaExameVista.ts";
+import {
+  applyFormaCaptacaoToLeadData,
+  loadFormaCaptacaoFieldId,
+} from "../_shared/campanhaCopaFormaCaptacao.ts";
 
 const corsHeaders = internalCorsHeaders;
 
@@ -240,6 +244,7 @@ serve(async (req) => {
     }
 
     const lastVisitFieldId = await loadLeadLastVisitFieldId(supabase);
+    const formaCaptacaoFieldId = await loadFormaCaptacaoFieldId(supabase);
     const leadData: Record<string, unknown> = {
       origem_campanha: "copa",
       nome_lead: nome,
@@ -262,6 +267,7 @@ serve(async (req) => {
       consentimento_marketing: true,
     };
     applyUltimoExameVistaToLeadData(leadData, ultimoExame, lastVisitFieldId);
+    applyFormaCaptacaoToLeadData(leadData, formaCaptacaoFieldId);
 
     const { data: lead, error: leadErr } = await supabase
       .from("crm_leads")

@@ -8,6 +8,10 @@ import {
   applyUltimoExameVistaToLeadData,
   loadLeadLastVisitFieldId,
 } from "../_shared/campanhaCopaExameVista.ts";
+import {
+  applyFormaCaptacaoToLeadData,
+  loadFormaCaptacaoFieldId,
+} from "../_shared/campanhaCopaFormaCaptacao.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -93,6 +97,7 @@ Deno.serve(async (req) => {
 
     const jogoCfg = await loadCampanhaCopaJogoConfig(admin);
     const lastVisitFieldId = await loadLeadLastVisitFieldId(admin);
+    const formaCaptacaoFieldId = await loadFormaCaptacaoFieldId(admin);
 
     const results: { submissionId: string; status: "sent" | "already_sent" | "error"; leadId?: string; error?: string }[] = [];
 
@@ -170,6 +175,7 @@ Deno.serve(async (req) => {
         consentimento_marketing: !!sub.consentimento_marketing,
       };
       applyUltimoExameVistaToLeadData(leadData, sub.ultimo_exame_vista || "", lastVisitFieldId);
+      applyFormaCaptacaoToLeadData(leadData, formaCaptacaoFieldId);
 
       // Inscrições do jogo ATUAL entram na coluna "Participando da campanha
       // atual"; as de jogos anteriores caem direto na coluna geral

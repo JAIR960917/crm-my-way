@@ -135,6 +135,13 @@ Deno.serve(async (req) => {
         const v = lead.data?.[`field_${fid}`];
         if (typeof v === "string" && v.trim()) { cidadeValor = v; break; }
       }
+      // Leads vindos da Campanha Copa gravam a cidade na chave plana
+      // "cidade" (não no campo dinâmico do tipo cidade_estado) — sem esse
+      // fallback, nenhum lead da Copa era roteado por cidade.
+      if (!cidadeValor) {
+        const plain = lead.data?.cidade;
+        if (typeof plain === "string" && plain.trim()) cidadeValor = plain;
+      }
       if (!cidadeValor) { semCidade++; continue; }
       const route = resolveRouteForCity(cidadeValor, routesAllowed);
       if (!route) { semEmpresaMapeada++; continue; }
