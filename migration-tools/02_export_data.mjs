@@ -123,6 +123,13 @@ const ORDER_COLUMN_OVERRIDES = {
   whatsapp_send_locks: 'name', // PK é name, sem id/created_at
 };
 
+// Colunas GERADAS (GENERATED ALWAYS AS ... STORED) — não podem ser inseridas
+// diretamente, o Postgres calcula sozinho a partir de outra coluna da linha.
+const GENERATED_COLUMNS = {
+  crm_renovacoes: new Set(['telefone_digits']),
+  crm_appointments: new Set(['telefone_digits']),
+};
+
 async function fetchPage(table, from, to) {
   const orderCol = ORDER_COLUMN_OVERRIDES[table] || 'created_at';
   const url = `${SOURCE_URL}/rest/v1/${table}?select=*&order=${orderCol}.asc.nullslast`;
@@ -158,8 +165,9 @@ async function dumpTable(table, out) {
     total = t;
     if (rows.length === 0) break;
 
+    const skipCols = GENERATED_COLUMNS[table];
     for (const row of rows) {
-      const cols = Object.keys(row);
+      const cols = Object.keys(row).filter((c) => !skipCols?.has(c));
       const vals = cols.map((c) => sqlEscape(row[c]));
       out.write(
         `INSERT INTO public.${table} (${cols.map((c) => `"${c}"`).join(',')}) VALUES (${vals.join(',')}) ON CONFLICT DO NOTHING;\n`
