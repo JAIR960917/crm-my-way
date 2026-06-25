@@ -65,7 +65,8 @@ Deno.serve(async (req) => {
   });
 
   if (error) {
-    return new Response(JSON.stringify({ error: "Falha ao criar usuário" }), {
+    console.error("seed-admin createUser error:", error);
+    return new Response(JSON.stringify({ error: "Falha ao criar usuário", detail: error.message }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
