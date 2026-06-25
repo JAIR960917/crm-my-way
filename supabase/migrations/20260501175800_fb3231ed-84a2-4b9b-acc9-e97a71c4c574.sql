@@ -11,15 +11,19 @@ RETURNS TABLE(
 )
 LANGUAGE sql SECURITY DEFINER SET search_path = public, auth
 AS $$
-  -- email_confirmed_at acessado via to_jsonb: em algumas versões do GoTrue
-  -- essa coluna não existe em auth.users (referência direta quebraria a
-  -- criação desta função em versões sem a coluna).
+  -- Colunas "legado"/opcionais acessadas via to_jsonb: a presença delas em
+  -- auth.users varia entre versões do GoTrue self-hosted. Referência direta
+  -- a uma coluna ausente quebraria a CREATE FUNCTION inteira. Só as colunas
+  -- básicas (id, email, created_at etc.) são acessadas diretamente.
   SELECT u.instance_id, u.id, u.aud::text, u.role::text, u.email::text,
-    u.encrypted_password, NULLIF(to_jsonb(u)->>'email_confirmed_at', '')::timestamptz,
+    u.encrypted_password,
+    NULLIF(to_jsonb(u)->>'email_confirmed_at', '')::timestamptz,
     u.raw_app_meta_data, u.raw_user_meta_data,
     u.created_at, u.updated_at,
-    coalesce(u.confirmation_token,''), coalesce(u.recovery_token,''),
-    coalesce(u.email_change_token_new,''), coalesce(u.email_change,''),
+    coalesce(to_jsonb(u)->>'confirmation_token', ''),
+    coalesce(to_jsonb(u)->>'recovery_token', ''),
+    coalesce(to_jsonb(u)->>'email_change_token_new', ''),
+    coalesce(to_jsonb(u)->>'email_change', ''),
     coalesce((to_jsonb(u)->>'is_sso_user')::boolean, false),
     coalesce((to_jsonb(u)->>'is_anonymous')::boolean, false)
   FROM auth.users u;
@@ -33,7 +37,8 @@ RETURNS TABLE(
 LANGUAGE sql SECURITY DEFINER SET search_path = public, auth
 AS $$
   SELECT i.provider_id, i.user_id, i.identity_data, i.provider,
-    i.last_sign_in_at, i.created_at, i.updated_at, coalesce(i.email,'')
+    i.last_sign_in_at, i.created_at, i.updated_at,
+    coalesce(to_jsonb(i)->>'email', '')
   FROM auth.identities i;
 $$;
 
