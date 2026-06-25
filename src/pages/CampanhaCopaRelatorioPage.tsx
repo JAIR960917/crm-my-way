@@ -1007,7 +1007,7 @@ export default function CampanhaCopaRelatorioPage() {
               <div>
                 <CardTitle className="text-base">Inscrições detalhadas</CardTitle>
                 <CardDescription>
-                  Até 5.000 registros. &quot;Em Renovação&quot; = CPF ou telefone encontrado em{" "}
+                  Até 5.000 registros. &quot;Em Renovação&quot; = CPF e telefone (os dois) encontrados na mesma pessoa em{" "}
                   <code className="text-xs">crm_renovacoes</code> da loja mapeada pela cidade informada.
                 </CardDescription>
               </div>

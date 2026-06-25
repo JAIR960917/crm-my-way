@@ -207,28 +207,24 @@ function parsePlacarScores(placar: string | null | undefined): { home: number; a
   return { home, away };
 }
 
-function isBetterRenovacao(a: RenovacaoLite, b: RenovacaoLite, preferCpf: boolean): boolean {
-  const aCpf = preferCpf && a.cpf_digits.length >= 11;
-  const bCpf = preferCpf && b.cpf_digits.length >= 11;
-  if (aCpf !== bCpf) return bCpf;
-  return b.updated_at > a.updated_at;
-}
-
+/**
+ * Match exige CPF E telefone batendo ao MESMO TEMPO — número de telefone é
+ * frequentemente compartilhado entre pessoas da mesma casa/família no
+ * Brasil, então confiar só no telefone já causou caso real de atribuir a
+ * compra de uma pessoa (ex.: marido) a outra (ex.: esposa) que nunca comprou,
+ * só porque usam o mesmo número. CPF isolado também não basta (CPF errado
+ * digitado no formulário é possível) — exige os dois pra reduzir falsos
+ * positivos nas duas direções.
+ */
 function findSameStoreRenovacao(
   companyId: string,
   cpf: string,
   phone: string,
   byCompanyCpf: Map<string, RenovacaoLite>,
-  byCompanyPhone: Map<string, RenovacaoLite>,
 ): { ren: RenovacaoLite | null; matchType: string | null } {
-  if (cpf.length >= 11) {
-    const hit = byCompanyCpf.get(`${companyId}|${cpf}`);
-    if (hit) return { ren: hit, matchType: "cpf" };
-  }
-  if (phone.length >= 10) {
-    const hit = byCompanyPhone.get(`${companyId}|${phone}`);
-    if (hit) return { ren: hit, matchType: "telefone" };
-  }
+  if (cpf.length < 11 || phone.length < 10) return { ren: null, matchType: null };
+  const hit = byCompanyCpf.get(`${companyId}|${cpf}`);
+  if (hit && hit.phone_digits === phone) return { ren: hit, matchType: "cpf e telefone" };
   return { ren: null, matchType: null };
 }
 
@@ -238,35 +234,20 @@ function findOtherStoreRenovacao(
   phone: string,
   all: RenovacaoLite[],
 ): { ren: RenovacaoLite | null; matchType: string | null } {
+  if (cpf.length < 11 || phone.length < 10) return { ren: null, matchType: null };
   let best: RenovacaoLite | null = null;
-  let matchType: string | null = null;
 
   for (const ren of all) {
     if (companyId && ren.ssotica_company_id === companyId) continue;
-
-    const cpfHit = cpf.length >= 11 && ren.cpf_digits === cpf;
-    const phoneHit = phone.length >= 10 && ren.phone_digits === phone;
-    if (!cpfHit && !phoneHit) continue;
-
-    const type = cpfHit ? "cpf" : "telefone";
-    if (!best) {
-      best = ren;
-      matchType = type;
-      continue;
-    }
-    const preferCpf = type === "cpf";
-    if (isBetterRenovacao(best, ren, preferCpf) || (type === "cpf" && matchType !== "cpf")) {
-      best = ren;
-      matchType = type;
-    }
+    if (ren.cpf_digits !== cpf || ren.phone_digits !== phone) continue;
+    if (!best || ren.updated_at > best.updated_at) best = ren;
   }
 
-  return { ren: best, matchType };
+  return { ren: best, matchType: best ? "cpf e telefone" : null };
 }
 
 function buildRenovacaoIndexes(renovacoes: RenovacaoLite[]) {
   const byCompanyCpf = new Map<string, RenovacaoLite>();
-  const byCompanyPhone = new Map<string, RenovacaoLite>();
 
   for (const ren of renovacoes) {
     if (ren.cpf_digits.length >= 11) {
@@ -274,14 +255,9 @@ function buildRenovacaoIndexes(renovacoes: RenovacaoLite[]) {
       const cur = byCompanyCpf.get(key);
       if (!cur || ren.updated_at > cur.updated_at) byCompanyCpf.set(key, ren);
     }
-    if (ren.phone_digits.length >= 10) {
-      const key = `${ren.ssotica_company_id}|${ren.phone_digits}`;
-      const cur = byCompanyPhone.get(key);
-      if (!cur || ren.updated_at > cur.updated_at) byCompanyPhone.set(key, ren);
-    }
   }
 
-  return { byCompanyCpf, byCompanyPhone };
+  return { byCompanyCpf };
 }
 
 /**
@@ -514,7 +490,7 @@ export async function fetchCampanhaCopaRelatorio(
     lookupRenovacoes([...cpfSet], [...phoneSet]),
     lookupLeadsPhones([...phoneSet]),
   ]);
-  const { byCompanyCpf, byCompanyPhone } = buildRenovacaoIndexes(renovacoes);
+  const { byCompanyCpf } = buildRenovacaoIndexes(renovacoes);
 
   const companyIds = new Set<string>();
   for (const route of routes) companyIds.add(route.company_id);
@@ -540,7 +516,7 @@ export async function fetchCampanhaCopaRelatorio(
     let matched: RenovacaoLite | null = null;
 
     if (companyId) {
-      const same = findSameStoreRenovacao(companyId, cpf, phone, byCompanyCpf, byCompanyPhone);
+      const same = findSameStoreRenovacao(companyId, cpf, phone, byCompanyCpf);
       if (same.ren) {
         renovacao_match = "sim";
         renovacao_match_type = same.matchType;
