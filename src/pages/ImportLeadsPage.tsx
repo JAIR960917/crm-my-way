@@ -102,6 +102,19 @@ const parseCsvText = (text: string, separator = ";") => {
   return rows;
 };
 
+/**
+ * Detecta se o CSV usa ";" ou "," como separador, olhando só a primeira
+ * linha (cabeçalho). Sem isso, um arquivo exportado com "," (comum em
+ * planilhas do Google/Excel fora do padrão BR) ficava com a linha inteira
+ * sendo lida como UMA única coluna, já que o parser estava fixo em ";".
+ */
+const detectCsvSeparator = (text: string): string => {
+  const firstLine = text.split(/\r\n|\r|\n/, 1)[0] || "";
+  const semicolons = (firstLine.match(/;/g) || []).length;
+  const commas = (firstLine.match(/,/g) || []).length;
+  return commas > semicolons ? "," : ";";
+};
+
 export default function ImportLeadsPage() {
   const { isAdmin, user } = useAuth();
   const navigate = useNavigate();
@@ -436,7 +449,7 @@ export default function ImportLeadsPage() {
       const text = ev.target?.result as string;
       if (!text) return;
 
-      const parsedRows = parseCsvText(text, ";");
+      const parsedRows = parseCsvText(text, detectCsvSeparator(text));
       if (parsedRows.length < 2) { toast.error("Arquivo vazio ou inválido"); return; }
 
       const headers = parsedRows[0];
