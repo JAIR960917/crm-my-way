@@ -97,17 +97,29 @@ const TABLES = [
 
 // ----------- helpers -----------
 
-function sqlEscape(v) {
+function sqlEscape(v, isPgArrayCol = false) {
   if (v === null || v === undefined) return 'NULL';
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
   if (typeof v === 'number') return Number.isFinite(v) ? String(v) : 'NULL';
+  if (isPgArrayCol && Array.isArray(v)) {
+    // Coluna text[]/uuid[] de verdade (não jsonb) — literal de array do Postgres,
+    // sem cast explícito (deixa o tipo da própria coluna decidir no INSERT).
+    const items = v.map((el) => `"${String(el).replace(/"/g, '\\"').replace(/'/g, "''")}"`).join(',');
+    return `'{${items}}'`;
+  }
   if (typeof v === 'object') {
-    // jsonb / array
+    // jsonb / array genérico
     return `'${JSON.stringify(v).replace(/'/g, "''")}'::jsonb`;
   }
   // string
   return `'${String(v).replace(/'/g, "''")}'`;
 }
+
+// Colunas text[]/uuid[] reais (não jsonb) — PostgREST devolve como array JS,
+// mas não podem ser inseridas com ::jsonb.
+const PG_ARRAY_COLUMNS = {
+  campanha_copa_submissions: new Set(['sintomas', 'doencas']),
+};
 
 // Tabelas que NÃO têm coluna created_at — usar outra coluna para ordenar a paginação
 const ORDER_COLUMN_OVERRIDES = {
@@ -166,9 +178,10 @@ async function dumpTable(table, out) {
     if (rows.length === 0) break;
 
     const skipCols = GENERATED_COLUMNS[table];
+    const arrayCols = PG_ARRAY_COLUMNS[table];
     for (const row of rows) {
       const cols = Object.keys(row).filter((c) => !skipCols?.has(c));
-      const vals = cols.map((c) => sqlEscape(row[c]));
+      const vals = cols.map((c) => sqlEscape(row[c], arrayCols?.has(c)));
       out.write(
         `INSERT INTO public.${table} (${cols.map((c) => `"${c}"`).join(',')}) VALUES (${vals.join(',')}) ON CONFLICT DO NOTHING;\n`
       );
