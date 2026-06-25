@@ -11,13 +11,17 @@ RETURNS TABLE(
 )
 LANGUAGE sql SECURITY DEFINER SET search_path = public, auth
 AS $$
+  -- email_confirmed_at acessado via to_jsonb: em algumas versões do GoTrue
+  -- essa coluna não existe em auth.users (referência direta quebraria a
+  -- criação desta função em versões sem a coluna).
   SELECT u.instance_id, u.id, u.aud::text, u.role::text, u.email::text,
-    u.encrypted_password, u.email_confirmed_at,
+    u.encrypted_password, NULLIF(to_jsonb(u)->>'email_confirmed_at', '')::timestamptz,
     u.raw_app_meta_data, u.raw_user_meta_data,
     u.created_at, u.updated_at,
     coalesce(u.confirmation_token,''), coalesce(u.recovery_token,''),
     coalesce(u.email_change_token_new,''), coalesce(u.email_change,''),
-    coalesce(u.is_sso_user,false), coalesce(u.is_anonymous,false)
+    coalesce((to_jsonb(u)->>'is_sso_user')::boolean, false),
+    coalesce((to_jsonb(u)->>'is_anonymous')::boolean, false)
   FROM auth.users u;
 $$;
 
