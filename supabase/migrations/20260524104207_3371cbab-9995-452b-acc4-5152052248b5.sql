@@ -54,21 +54,45 @@ END;
 $do$;
 
 -- 4) Revogar EXECUTE público de funções SECURITY DEFINER administrativas
-REVOKE EXECUTE ON FUNCTION public.delete_all_leads_cascade() FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.delete_duplicate_leads(uuid[]) FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.admin_decrypt_license(uuid) FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.get_ssotica_credentials(uuid) FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.encrypt_secret(text) FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.decrypt_secret(text) FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public._get_encryption_key() FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public._export_auth_users_full() FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public._export_auth_identities_full() FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public._export_auth_password_hashes() FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.reclassify_cobrancas_by_situacao() FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.ssotica_enqueue_sync(text, text, uuid, boolean) FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.manage_whatsapp_cron() FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.manage_ssotica_cron() FROM anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.get_profile_names() FROM anon;
-REVOKE EXECUTE ON FUNCTION public.find_lead_by_phone(text) FROM anon;
-REVOKE EXECUTE ON FUNCTION public.soft_delete_lead(uuid) FROM anon;
-REVOKE EXECUTE ON FUNCTION public.soft_delete_renovacao(uuid) FROM anon;
+-- Algumas dessas funções podem não existir ainda (ex: helpers de export que
+-- só são criados condicionalmente em certas versões do GoTrue self-hosted).
+-- REVOKE numa função inexistente quebraria a migration inteira, então cada
+-- uma só é revogada se to_regprocedure() encontrar a assinatura exata.
+DO $do$
+DECLARE
+  fn text;
+  fns text[] := ARRAY[
+    'public.delete_all_leads_cascade()',
+    'public.delete_duplicate_leads(uuid[])',
+    'public.admin_decrypt_license(uuid)',
+    'public.get_ssotica_credentials(uuid)',
+    'public.encrypt_secret(text)',
+    'public.decrypt_secret(text)',
+    'public._get_encryption_key()',
+    'public._export_auth_users_full()',
+    'public._export_auth_identities_full()',
+    'public._export_auth_password_hashes()',
+    'public.reclassify_cobrancas_by_situacao()',
+    'public.ssotica_enqueue_sync(text, text, uuid, boolean)',
+    'public.manage_whatsapp_cron()',
+    'public.manage_ssotica_cron()'
+  ];
+  fns_anon_only text[] := ARRAY[
+    'public.get_profile_names()',
+    'public.find_lead_by_phone(text)',
+    'public.soft_delete_lead(uuid)',
+    'public.soft_delete_renovacao(uuid)'
+  ];
+BEGIN
+  FOREACH fn IN ARRAY fns LOOP
+    IF to_regprocedure(fn) IS NOT NULL THEN
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM anon, authenticated', fn);
+    END IF;
+  END LOOP;
+  FOREACH fn IN ARRAY fns_anon_only LOOP
+    IF to_regprocedure(fn) IS NOT NULL THEN
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM anon', fn);
+    END IF;
+  END LOOP;
+END;
+$do$;
