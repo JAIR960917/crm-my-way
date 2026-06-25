@@ -32,17 +32,26 @@ WITH CHECK (
 );
 
 -- 3) Realtime: bloquear inscrições não autorizadas em canais
-ALTER TABLE IF EXISTS realtime.messages ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Authenticated can subscribe to own scoped topics" ON realtime.messages;
-
--- Bloqueia tudo por padrão. Quem precisa de realtime escuta via REST/polling
--- ou cria políticas específicas por tópico depois.
-CREATE POLICY "Block realtime by default for authenticated"
-ON realtime.messages
-FOR SELECT
-TO authenticated
-USING (false);
+-- realtime.messages não existe em todas as versões do servidor Realtime
+-- self-hosted (esquema interno dele) — só aplica se a tabela existir.
+DO $do$
+BEGIN
+  IF to_regclass('realtime.messages') IS NOT NULL THEN
+    EXECUTE 'ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY';
+    EXECUTE 'DROP POLICY IF EXISTS "Authenticated can subscribe to own scoped topics" ON realtime.messages';
+    EXECUTE 'DROP POLICY IF EXISTS "Block realtime by default for authenticated" ON realtime.messages';
+    -- Bloqueia tudo por padrão. Quem precisa de realtime escuta via REST/polling
+    -- ou cria políticas específicas por tópico depois.
+    EXECUTE $sql$
+      CREATE POLICY "Block realtime by default for authenticated"
+      ON realtime.messages
+      FOR SELECT
+      TO authenticated
+      USING (false)
+    $sql$;
+  END IF;
+END;
+$do$;
 
 -- 4) Revogar EXECUTE público de funções SECURITY DEFINER administrativas
 REVOKE EXECUTE ON FUNCTION public.delete_all_leads_cascade() FROM anon, authenticated;
