@@ -9,6 +9,7 @@ import {
   FORMAS_PAGAMENTO_CONSULTA,
   formatRescheduleNote,
   getAppointmentRowColor,
+  getAppointmentRowColorSolid,
   glassesPaymentLabel,
 } from "@/lib/appointmentUtils";
 
@@ -140,6 +141,7 @@ export default function AppointmentsListTable({
               const dtFormatted = formatApptDateTime(appt.scheduled_datetime);
               const cpaga = appt.consulta_paga;
               const rowColor = getAppointmentRowColor(appt);
+              const rowColorSolid = getAppointmentRowColorSolid(appt);
               const consultaPagaLocked = cpaga === true && !isAdmin;
               const rescheduleNote = formatRescheduleNote(appt);
               const isSnapshot = !!appt.is_reschedule_snapshot;
@@ -169,8 +171,8 @@ export default function AppointmentsListTable({
                 >
                   <td
                     className={cn(
-                      "px-2 py-1.5 align-middle whitespace-nowrap sticky left-0 z-10 border-r",
-                      rowColor,
+                      "px-2 py-1.5 align-middle whitespace-nowrap sticky left-0 z-10 border-r text-white",
+                      rowColorSolid,
                     )}
                     title={nameTitle}
                   >
