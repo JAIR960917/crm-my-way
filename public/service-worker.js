@@ -51,35 +51,61 @@ async function pruneOrphanedAssets(cache, html) {
   );
 }
 
+// Internet lenta (não offline de verdade) faz o fetch ficar pendente pra
+// sempre — sem nunca cair no catch(), o app trava na tela de carregamento.
+// Por isso a estratégia agora é "network-first com prazo": se a rede não
+// responder em NETWORK_TIMEOUT_MS, serve a versão em cache imediatamente
+// (deixando o fetch real continuar em segundo plano pra atualizar o cache).
+const NETWORK_TIMEOUT_MS = 4000;
+
+function timeout(ms) {
+  return new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms));
+}
+
 async function networkFirstShell(request) {
   const cache = await caches.open(SHELL_CACHE);
-  try {
-    const response = await fetch(request);
+  const networkPromise = fetch(request).then(async (response) => {
     if (response && response.ok) {
       const html = await response.clone().text();
       await cache.put(APP_SHELL_URL, response.clone());
       await pruneOrphanedAssets(cache, html);
     }
     return response;
+  });
+
+  try {
+    return await Promise.race([networkPromise, timeout(NETWORK_TIMEOUT_MS)]);
   } catch {
     const cached = await cache.match(APP_SHELL_URL);
     if (cached) return cached;
-    throw new Error("offline-no-shell");
+    // Sem cache ainda (primeiro acesso) — só resta esperar a rede de verdade.
+    try {
+      return await networkPromise;
+    } catch {
+      throw new Error("offline-no-shell");
+    }
   }
 }
 
 async function networkFirstAsset(request) {
   const cache = await caches.open(SHELL_CACHE);
-  try {
-    const response = await fetch(request);
+  const networkPromise = fetch(request).then(async (response) => {
     if (response && response.ok) {
       await cache.put(request, response.clone());
     }
     return response;
+  });
+
+  try {
+    return await Promise.race([networkPromise, timeout(NETWORK_TIMEOUT_MS)]);
   } catch {
     const cached = await cache.match(request);
     if (cached) return cached;
-    throw new Error("offline-no-asset");
+    try {
+      return await networkPromise;
+    } catch {
+      throw new Error("offline-no-asset");
+    }
   }
 }
 
