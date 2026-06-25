@@ -52,9 +52,17 @@ function markGenerationAndDeferRegister() {
 
 /**
  * Roda ANTES do React montar. Limpa SW/cache legado e adia registro do SW nesta sessão.
+ *
+ * NUNCA limpa cache/SW quando está OFFLINE: isso é o que serve o app shell
+ * (index.html + assets) abrindo sem internet. Se o dispositivo abriu offline
+ * justamente na sessão em que uma geração nova foi publicada, limpar agora
+ * apagaria a única cópia que poderia abrir o app — sem rede pra buscar a
+ * nova, sobra tela em branco/erro "offline" e nenhuma forma de recuperar
+ * sem reinstalar. A limpeza é só adiada: roda no próximo boot com internet.
  */
 export async function preparePwaBeforeBoot(): Promise<void> {
   if (typeof window === "undefined") return;
+  if (!navigator.onLine) return;
 
   const needsCleanup = readSwGeneration() !== SW_CACHE_GENERATION;
   if (!needsCleanup) return;
