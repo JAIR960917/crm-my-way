@@ -611,7 +611,7 @@ export default function CrediarioContratoDetalhePage() {
             <Button
               onClick={handleStartSignature}
               disabled={signing}
-              className="bg-gradient-primary"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
               size="lg"
             >
               {signing ? <Loader2 className="h-4 w-4 animate-spin" /> : <><PenLine className="mr-2 h-4 w-4" /> Assinar contrato</>}
@@ -922,7 +922,7 @@ export default function CrediarioContratoDetalhePage() {
             <Button
               onClick={submitSignature}
               disabled={signing}
-              className="bg-gradient-primary"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {signing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PenLine className="mr-2 h-4 w-4" />}
               Gerar link

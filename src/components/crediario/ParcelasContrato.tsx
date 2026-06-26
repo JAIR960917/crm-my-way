@@ -193,7 +193,7 @@ export function ParcelasContrato({ contratoId, contratoAssinado, vendaAutorizada
             </>
           )}
           {contratoAssinado && vendaAutorizada && !todasEmitidas && (
-            <Button onClick={emitir} disabled={emitindo} className="bg-gradient-primary">
+            <Button onClick={emitir} disabled={emitindo} className="bg-primary text-primary-foreground hover:bg-primary/90">
               {emitindo ? (
                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Emitindo...</>
               ) : (

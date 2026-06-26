@@ -497,7 +497,7 @@ export default function CrediarioConsultaPage() {
                 onChange={(e) => setCpf(maskCpf(e.target.value))} />
             </div>
             <Button onClick={consultar} disabled={busy || cpf.replace(/\D/g, "").length !== 11}
-              size="lg" className="bg-gradient-primary">
+              size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Search className="mr-2 h-4 w-4" />{modoSimulacao ? "Simular" : "Consultar"}</>}
             </Button>
           </div>
