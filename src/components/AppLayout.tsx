@@ -17,10 +17,12 @@
  * ============================================================================
  */
 import { ReactNode, useState } from "react";
+import { useLocation } from "react-router-dom";
 import AppSidebar from "./AppSidebar";
 import PwaInstallBanner from "./PwaInstallBanner";
 import NotificationBell from "./NotificationBell";
 import { useSystemSettings } from "@/contexts/SystemSettingsContext";
+import { useCrediarioTheme } from "@/contexts/CrediarioThemeContext";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 
@@ -31,6 +33,32 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   // Controla a abertura do drawer no mobile.
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { settings } = useSystemSettings();
+  const { theme: crediarioTheme, hasCustomTheme } = useCrediarioTheme();
+  const location = useLocation();
+
+  // Cores do Crediário (Configurações → Crediário → Cores) valem só dentro de
+  // /crediario/* e só na área de conteúdo — a sidebar segue o tema geral do CRM.
+  const isCrediarioRoute = location.pathname.startsWith("/crediario");
+  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  const contentStyle: React.CSSProperties | undefined =
+    isCrediarioRoute && hasCustomTheme
+      ? {
+          ...(crediarioTheme.primary_color || crediarioTheme.button_color
+            ? {
+                "--primary": crediarioTheme.button_color || crediarioTheme.primary_color,
+                "--ring": crediarioTheme.primary_color || crediarioTheme.button_color,
+              }
+            : {}),
+          ...(isDark && crediarioTheme.background_color ? { "--background": crediarioTheme.background_color } : {}),
+          ...(isDark && crediarioTheme.text_color
+            ? {
+                "--foreground": crediarioTheme.text_color,
+                "--card-foreground": crediarioTheme.text_color,
+                "--popover-foreground": crediarioTheme.text_color,
+              }
+            : {}),
+        } as React.CSSProperties
+      : undefined;
 
   return (
     <div className="flex h-[100dvh] overflow-hidden">
@@ -52,7 +80,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       )}
 
       {/* Área principal de conteúdo */}
-      <main className="flex-1 overflow-auto min-w-0">
+      <main className="flex-1 overflow-auto min-w-0" style={contentStyle}>
         <PwaInstallBanner />
         {/* Header mobile: botão de menu + nome + sino */}
         <div className="sticky top-0 z-30 flex items-center gap-3 border-b bg-background px-4 py-3 lg:hidden">

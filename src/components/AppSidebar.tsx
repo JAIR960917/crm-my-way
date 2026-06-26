@@ -160,7 +160,7 @@ export default function AppSidebar({ onNavigate }: Props) {
 
   const [signingOut, setSigningOut] = useState(false);
   const [updating, setUpdating] = useState(false);
-  const [crmOpen, setCrmOpen] = useState(true);
+  const [crmOpen, setCrmOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [estoqueFiscalOpen, setEstoqueFiscalOpen] = useState(false);
   const [financeiroOpen, setFinanceiroOpen] = useState(false);

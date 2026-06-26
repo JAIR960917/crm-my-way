@@ -24,6 +24,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import OfflineBanner from "@/components/OfflineBanner";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { SystemSettingsProvider, useSystemSettings } from "@/contexts/SystemSettingsContext";
+import { CrediarioThemeProvider } from "@/contexts/CrediarioThemeContext";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { useWhatsAppInboxNotifications } from "@/hooks/use-whatsapp-inbox-notifications";
 
@@ -249,7 +250,9 @@ const App = () => (
           <PushNotificationsBootstrap />
           <WhatsAppInboxNotificationsBootstrap />
           <SystemSettingsProvider>
-            <AppRoutes />
+            <CrediarioThemeProvider>
+              <AppRoutes />
+            </CrediarioThemeProvider>
           </SystemSettingsProvider>
         </AuthProvider>
       </BrowserRouter>

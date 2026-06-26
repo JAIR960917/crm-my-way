@@ -779,6 +779,10 @@ export type Database = {
           renegociacao_juros_percent: number
           renegociacao_max_parcelas: number
           score_tiers: Json
+          theme_background_color: string | null
+          theme_button_color: string | null
+          theme_primary_color: string | null
+          theme_text_color: string | null
           updated_at: string
         }
         Insert: {
@@ -797,6 +801,10 @@ export type Database = {
           renegociacao_juros_percent?: number
           renegociacao_max_parcelas?: number
           score_tiers?: Json
+          theme_background_color?: string | null
+          theme_button_color?: string | null
+          theme_primary_color?: string | null
+          theme_text_color?: string | null
           updated_at?: string
         }
         Update: {
@@ -815,6 +823,10 @@ export type Database = {
           renegociacao_juros_percent?: number
           renegociacao_max_parcelas?: number
           score_tiers?: Json
+          theme_background_color?: string | null
+          theme_button_color?: string | null
+          theme_primary_color?: string | null
+          theme_text_color?: string | null
           updated_at?: string
         }
         Relationships: []
