@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
-  Search, Loader2, User2, CheckCircle2, XCircle, Calculator, Printer, AlertTriangle, History, FlaskConical,
+  Search, Loader2, User2, CheckCircle2, XCircle, Calculator, Printer, AlertTriangle, History,
 } from "lucide-react";
 import {
   maskCpf, brl, pricePmt, suggestedEntry, availableInstallments,
@@ -87,25 +87,6 @@ export default function CrediarioConsultaPage() {
   const [settings, setSettings] = useState<SettingsLite | null>(null);
   const [empresasDisponiveis, setEmpresasDisponiveis] = useState<EmpresaOption[]>([]);
   const [historico, setHistorico] = useState<HistoricoItem[]>([]);
-
-  // Testes de homologação Serasa
-  const [homologBusy, setHomologBusy] = useState(false);
-  const [homologResults, setHomologResults] = useState<Array<{
-    cpf: string;
-    cenario: string;
-    ok: boolean;
-    nome?: string;
-    score?: number;
-    totalPendencias?: number;
-    somaPendencias?: number;
-    error?: string;
-  }> | null>(null);
-
-  // Simulação
-  const [modoSimulacao, setModoSimulacao] = useState(false);
-  const [simNome, setSimNome] = useState("");
-  const [simNascimento, setSimNascimento] = useState("");
-  const [simScore, setSimScore] = useState<string>("850");
 
   // Venda
   const [valorTotal, setValorTotal] = useState<string>("");
@@ -199,13 +180,6 @@ export default function CrediarioConsultaPage() {
       setValorTotal(""); setValorEntrada(""); setValorEntradaEntrega(""); setParcelas(null);
     try {
       const payload: Record<string, unknown> = { cpf: cpf.replace(/\D/g, "") };
-      if (modoSimulacao) {
-        payload.simulacao = true;
-        payload.nome = simNome.trim() || "Cliente Simulado";
-        payload.dataNascimento = simNascimento || null;
-        const s = parseInt(simScore, 10);
-        payload.score = Number.isFinite(s) ? s : 850;
-      }
       const { data, error } = await supabase.functions.invoke("consulta-cpf", { body: payload });
       if (error) throw new Error(await getFunctionErrorMessage(error));
       const resp = data as { error?: string; notFound?: boolean; serasaUnauthorized?: boolean } & ConsultaResult;
@@ -236,70 +210,11 @@ export default function CrediarioConsultaPage() {
         .limit(20);
       if (hist) setHistorico(hist as HistoricoItem[]);
 
-      toast.success(modoSimulacao ? "Simulação carregada" : "Consulta concluída");
+      toast.success("Consulta concluída");
     } catch (e: unknown) {
       toast.error("Falha na consulta", { description: e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(false);
-    }
-  };
-
-  /** Roda os 3 CPFs de homologação Serasa em sequência e monta um resumo. */
-  const rodarTestesHomologacao = async () => {
-    const casos = [
-      { cpf: "00000000353", cenario: "CPF de homologação 1" },
-      { cpf: "00000001163", cenario: "CPF de homologação 2" },
-      { cpf: "00000001244", cenario: "CPF de homologação 3" },
-    ];
-    setHomologBusy(true);
-    setHomologResults(null);
-    const acumulado: NonNullable<typeof homologResults> = [];
-    try {
-      for (const caso of casos) {
-        try {
-          const { data, error } = await supabase.functions.invoke("consulta-cpf", {
-            body: { cpf: caso.cpf },
-          });
-          if (error) throw new Error(await getFunctionErrorMessage(error));
-          const resp = data as {
-            error?: string;
-            notFound?: boolean;
-            serasaUnauthorized?: boolean;
-            nome?: string;
-            score?: number;
-            totalPendencias?: number;
-            somaPendencias?: number;
-          };
-          if (resp?.error && !resp?.notFound && !resp?.serasaUnauthorized) throw new Error(resp.error);
-          acumulado.push({
-            cpf: caso.cpf,
-            cenario: caso.cenario,
-            ok: !resp?.notFound && !resp?.serasaUnauthorized,
-            nome: resp?.nome,
-            score: resp?.score,
-            totalPendencias: resp?.totalPendencias,
-            somaPendencias: resp?.somaPendencias,
-            error: resp?.notFound ? "CPF não encontrado na base" : resp?.serasaUnauthorized ? resp.error : undefined,
-          });
-        } catch (e) {
-          acumulado.push({
-            cpf: caso.cpf,
-            cenario: caso.cenario,
-            ok: false,
-            error: e instanceof Error ? e.message : String(e),
-          });
-        }
-        await new Promise((r) => setTimeout(r, 400));
-      }
-      setHomologResults(acumulado);
-      const sucesso = acumulado.filter((r) => r.ok).length;
-      if (sucesso === casos.length) {
-        toast.success(`Homologação OK — ${sucesso}/${casos.length} CPFs respondidos`);
-      } else {
-        toast.warning(`Homologação parcial — ${sucesso}/${casos.length} CPFs OK`);
-      }
-    } finally {
-      setHomologBusy(false);
     }
   };
 
@@ -498,126 +413,12 @@ export default function CrediarioConsultaPage() {
             </div>
             <Button onClick={consultar} disabled={busy || cpf.replace(/\D/g, "").length !== 11}
               size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Search className="mr-2 h-4 w-4" />{modoSimulacao ? "Simular" : "Consultar"}</>}
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Search className="mr-2 h-4 w-4" />Consultar</>}
             </Button>
-          </div>
-
-          {modoSimulacao && (
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="sim-nome">Nome completo</Label>
-                <Input id="sim-nome" placeholder="Nome do cliente" value={simNome}
-                  onChange={(e) => setSimNome(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="sim-nasc">Data de nascimento</Label>
-                <Input id="sim-nasc" type="date" value={simNascimento}
-                  onChange={(e) => setSimNascimento(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="sim-score">Score (0–1000)</Label>
-                <Input id="sim-score" inputMode="numeric" value={simScore}
-                  onChange={(e) => setSimScore(e.target.value.replace(/\D/g, ""))} />
-              </div>
-              <div className="sm:col-span-2 flex items-end">
-                <p className="text-xs text-muted-foreground">
-                  Modo de simulação ativo — não consulta a Serasa de verdade.
-                </p>
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-4 pt-2">
-            <div className="flex items-center gap-2">
-              <Switch checked={modoSimulacao} onCheckedChange={setModoSimulacao} />
-              <Label className="text-sm">Modo simulação</Label>
-            </div>
-            {isAdmin && (
-              <Button variant="ghost" size="sm" onClick={rodarTestesHomologacao} disabled={homologBusy}>
-                {homologBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FlaskConical className="mr-2 h-4 w-4" />}
-                Rodar testes de homologação Serasa
-              </Button>
-            )}
           </div>
 
         </CardContent>
       </Card>
-
-      {/* Resumo dos testes de homologação */}
-      {homologResults && (
-        <Card className="mt-6 shadow-card overflow-hidden print:hidden">
-          <div className="h-1 bg-primary" />
-          <CardContent className="p-6">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <FlaskConical className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-semibold">Resumo da homologação Serasa</h2>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => window.print()}>
-                <Printer className="mr-2 h-4 w-4" />Imprimir
-              </Button>
-            </div>
-            <div className="rounded-lg border overflow-hidden">
-              <Table>
-                <TableHeader className="bg-muted/60">
-                  <TableRow>
-                    <TableHead>CPF</TableHead>
-                    <TableHead>Cenário</TableHead>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead className="text-right">Score</TableHead>
-                    <TableHead className="text-right">Pendências</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {homologResults.map((r) => (
-                    <TableRow key={r.cpf}>
-                      <TableCell className="font-mono text-xs">{maskCpf(r.cpf)}</TableCell>
-                      <TableCell className="text-sm">{r.cenario}</TableCell>
-                      <TableCell className="text-sm">{r.nome ?? "—"}</TableCell>
-                      <TableCell className="text-right font-semibold">
-                        {typeof r.score === "number" ? r.score : "—"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {typeof r.totalPendencias === "number" ? (
-                          <span>
-                            {r.totalPendencias}
-                            {r.somaPendencias && r.somaPendencias > 0 ? (
-                              <span className="ml-1 text-xs text-muted-foreground">
-                                ({brl(r.somaPendencias)})
-                              </span>
-                            ) : null}
-                          </span>
-                        ) : "—"}
-                      </TableCell>
-                      <TableCell>
-                        {r.ok ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-500">
-                            <CheckCircle2 className="h-3 w-3" />OK
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive" title={r.error}>
-                            <XCircle className="h-3 w-3" />Falhou
-                          </span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            {homologResults.some((r) => !r.ok) && (
-              <div className="mt-3 space-y-1">
-                {homologResults.filter((r) => !r.ok).map((r) => (
-                  <p key={r.cpf} className="text-xs text-destructive">
-                    <span className="font-mono">{maskCpf(r.cpf)}</span>: {r.error}
-                  </p>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       {result && settings && (
         <>
