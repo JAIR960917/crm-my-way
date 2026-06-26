@@ -119,6 +119,7 @@ function sqlEscape(v, isPgArrayCol = false) {
 // mas não podem ser inseridas com ::jsonb.
 const PG_ARRAY_COLUMNS = {
   campanha_copa_submissions: new Set(['sintomas', 'doencas']),
+  site_form_fields: new Set(['options']),
 };
 
 // Tabelas que NÃO têm coluna created_at — usar outra coluna para ordenar a paginação
