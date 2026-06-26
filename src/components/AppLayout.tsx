@@ -40,25 +40,34 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   // /crediario/* e só na área de conteúdo — a sidebar segue o tema geral do CRM.
   const isCrediarioRoute = location.pathname.startsWith("/crediario");
   const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
-  const contentStyle: React.CSSProperties | undefined =
-    isCrediarioRoute && hasCustomTheme
-      ? {
-          ...(crediarioTheme.primary_color || crediarioTheme.button_color
-            ? {
-                "--primary": crediarioTheme.button_color || crediarioTheme.primary_color,
-                "--ring": crediarioTheme.primary_color || crediarioTheme.button_color,
-              }
-            : {}),
-          ...(isDark && crediarioTheme.background_color ? { "--background": crediarioTheme.background_color } : {}),
-          ...(isDark && crediarioTheme.text_color
-            ? {
-                "--foreground": crediarioTheme.text_color,
-                "--card-foreground": crediarioTheme.text_color,
-                "--popover-foreground": crediarioTheme.text_color,
-              }
-            : {}),
-        } as React.CSSProperties
-      : undefined;
+  // O app original do Crediário usa vermelho até para os estados de "sucesso"
+  // (Assinado, Baixar contrato assinado) — --success era 0 84% 45/50%, não o
+  // verde convencional do CRM. Aplica esse padrão sempre, mesmo sem cores
+  // customizadas em Configurações.
+  const contentStyle: React.CSSProperties | undefined = isCrediarioRoute
+    ? {
+        "--success": isDark ? "0 84% 50%" : "0 84% 45%",
+        "--success-foreground": "0 0% 100%",
+        ...(hasCustomTheme
+          ? {
+              ...(crediarioTheme.primary_color || crediarioTheme.button_color
+                ? {
+                    "--primary": crediarioTheme.button_color || crediarioTheme.primary_color,
+                    "--ring": crediarioTheme.primary_color || crediarioTheme.button_color,
+                  }
+                : {}),
+              ...(isDark && crediarioTheme.background_color ? { "--background": crediarioTheme.background_color } : {}),
+              ...(isDark && crediarioTheme.text_color
+                ? {
+                    "--foreground": crediarioTheme.text_color,
+                    "--card-foreground": crediarioTheme.text_color,
+                    "--popover-foreground": crediarioTheme.text_color,
+                  }
+                : {}),
+            }
+          : {}),
+      } as React.CSSProperties
+    : undefined;
 
   return (
     <div className="flex h-[100dvh] overflow-hidden">
