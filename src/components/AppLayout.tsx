@@ -25,6 +25,7 @@ import { useSystemSettings } from "@/contexts/SystemSettingsContext";
 import { useCrediarioTheme } from "@/contexts/CrediarioThemeContext";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 /**
  * @param children Conteúdo da página renderizado à direita da sidebar.
@@ -105,8 +106,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <NotificationBell />
         </div>
 
-        {/* Conteúdo da página com padding responsivo */}
-        <div className="p-3 sm:p-4 lg:p-6 min-w-0 max-w-full">{children}</div>
+        {/* Conteúdo da página com padding responsivo.
+            O app original do Crediário limitava todo o conteúdo a max-w-6xl
+            centralizado (mesmo padrão aqui, só dentro de /crediario/*). */}
+        <div className={cn("p-3 sm:p-4 lg:p-6 min-w-0 max-w-full", isCrediarioRoute && "mx-auto max-w-6xl")}>
+          {children}
+        </div>
       </main>
     </div>
   );

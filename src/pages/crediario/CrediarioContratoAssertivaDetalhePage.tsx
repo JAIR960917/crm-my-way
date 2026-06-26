@@ -166,7 +166,6 @@ export default function CrediarioContratoAssertivaDetalhePage() {
 
   return (
     <AppLayout>
-      <div className="mx-auto max-w-4xl">
       <header className="mb-6 flex items-start justify-between gap-4 flex-wrap">
         <div>
           <Button variant="ghost" size="sm" className="mb-2 -ml-2" onClick={() => nav("/crediario/contratos-importados")}>
@@ -272,7 +271,6 @@ export default function CrediarioContratoAssertivaDetalhePage() {
           </CardContent>
         </Card>
       )}
-      </div>
     </AppLayout>
   );
 }
