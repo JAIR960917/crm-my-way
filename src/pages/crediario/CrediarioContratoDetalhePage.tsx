@@ -543,6 +543,7 @@ export default function CrediarioContratoDetalhePage() {
 
   return (
     <AppLayout>
+      <div className="mx-auto max-w-4xl">
       <header className="mb-6 flex items-start justify-between gap-4 print:hidden">
         <div>
           <Button variant="ghost" size="sm" className="-ml-2 mb-2" onClick={() => nav(-1)}>
@@ -815,6 +816,7 @@ export default function CrediarioContratoDetalhePage() {
       {(!venda || venda.parcelas > 1) && (
         <ParcelasContrato contratoId={c.id} contratoAssinado={assinado} vendaAutorizada={vendaAutorizada} />
       )}
+      </div>
 
       <SignatureMockDialog
         open={signDialog}
