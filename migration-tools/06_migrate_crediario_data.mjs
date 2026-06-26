@@ -117,23 +117,57 @@ async function main() {
   }
 
   // ---------- 2) Mapear profiles (usuários) por e-mail ----------
-  const srcProfiles = await restSelect(SOURCE_URL, SOURCE_KEY, 'profiles', 'user_id,email,full_name');
-  const tgtProfiles = await restSelect(TARGET_URL, TARGET_KEY, 'profiles', 'user_id,email');
+  const srcProfiles = await restSelect(SOURCE_URL, SOURCE_KEY, 'profiles', 'user_id,email,full_name,empresa_id');
+  const tgtProfiles = await restSelect(TARGET_URL, TARGET_KEY, 'profiles', 'user_id,email,company_id');
+  const tgtUserRoles = await restSelect(TARGET_URL, TARGET_KEY, 'user_roles', 'user_id,role');
 
   const tgtByEmail = new Map();
   for (const p of tgtProfiles) tgtByEmail.set(normEmail(p.email), p.user_id);
 
+  const tgtRoleByUser = new Map();
+  for (const r of tgtUserRoles) tgtRoleByUser.set(r.user_id, r.role);
+
+  // Responsável por empresa (destino): prefere gerente da própria loja,
+  // senão qualquer profile daquela empresa, senão o admin geral do sistema.
+  const responsibleByCompany = new Map();
+  for (const p of tgtProfiles) {
+    if (!p.company_id) continue;
+    const role = tgtRoleByUser.get(p.user_id);
+    const current = responsibleByCompany.get(p.company_id);
+    if (!current || (role === 'gerente' && tgtRoleByUser.get(current) !== 'gerente')) {
+      responsibleByCompany.set(p.company_id, p.user_id);
+    }
+  }
+  const fallbackAdmin = tgtUserRoles.find((r) => r.role === 'admin')?.user_id ?? null;
+
   const userMap = new Map(); // user_id (origem) -> user_id (destino)
   const usuariosNaoBatidos = [];
+  const usuariosRemapeadosPorLoja = [];
   for (const p of srcProfiles) {
     const match = tgtByEmail.get(normEmail(p.email));
-    if (match) userMap.set(p.user_id, match);
-    else usuariosNaoBatidos.push(p);
+    if (match) {
+      userMap.set(p.user_id, match);
+      continue;
+    }
+    // Login compartilhado por loja/setor (ex.: caico@joonker.com) — atribui
+    // ao responsável da mesma empresa no destino, em vez de descartar.
+    const tgtCompanyId = p.empresa_id ? companyMap.get(p.empresa_id) : null;
+    const responsible = (tgtCompanyId && responsibleByCompany.get(tgtCompanyId)) || fallbackAdmin;
+    if (responsible) {
+      userMap.set(p.user_id, responsible);
+      usuariosRemapeadosPorLoja.push({ ...p, responsible });
+    } else {
+      usuariosNaoBatidos.push(p);
+    }
   }
 
-  console.log(`\n👤 Usuários: ${userMap.size}/${srcProfiles.length} casados por e-mail com profiles do destino.`);
+  console.log(`\n👤 Usuários: ${userMap.size - usuariosRemapeadosPorLoja.length}/${srcProfiles.length} casados por e-mail com profiles do destino.`);
+  if (usuariosRemapeadosPorLoja.length) {
+    console.log(`   ↪️  ${usuariosRemapeadosPorLoja.length} login(s) compartilhado(s) de loja/setor — atribuídos ao responsável da empresa (ou admin geral):`);
+    for (const p of usuariosRemapeadosPorLoja) console.log(`      - ${p.email} (${p.full_name || 'sem nome'}) → user_id destino ${p.responsible}`);
+  }
   if (usuariosNaoBatidos.length) {
-    console.log(`   ⚠️  Não bateram (registros desses usuários serão IGNORADOS):`);
+    console.log(`   ⚠️  Sem responsável possível (registros desses usuários serão IGNORADOS):`);
     for (const p of usuariosNaoBatidos) console.log(`      - ${p.email} (${p.full_name || 'sem nome'})`);
   }
 
