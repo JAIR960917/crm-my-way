@@ -89,7 +89,6 @@ import CrediarioCredenciaisPage from "./pages/crediario/CrediarioCredenciaisPage
 import CrediarioContratosImportadosPage from "./pages/crediario/CrediarioContratosImportadosPage";
 import CrediarioContratoAssertivaDetalhePage from "./pages/crediario/CrediarioContratoAssertivaDetalhePage";
 import CrediarioCodigosAutorizacaoPage from "./pages/crediario/CrediarioCodigosAutorizacaoPage";
-import CrediarioConfiguracoesPage from "./pages/crediario/CrediarioConfiguracoesPage";
 
 /** Cliente React Query — cache compartilhado de chamadas ao backend. */
 const queryClient = new QueryClient();
@@ -224,7 +223,6 @@ const AppRoutes = () => {
       <Route path="/crediario/contratos-importados" element={<RoleGate><CrediarioContratosImportadosPage /></RoleGate>} />
       <Route path="/crediario/contratos-importados/:id" element={<RoleGate><CrediarioContratoAssertivaDetalhePage /></RoleGate>} />
       <Route path="/crediario/codigos-autorizacao" element={<RoleGate><CrediarioCodigosAutorizacaoPage /></RoleGate>} />
-      <Route path="/crediario/configuracoes" element={<RoleGate><CrediarioConfiguracoesPage /></RoleGate>} />
 
       {/* /instalar é semipública (orienta a instalar PWA) */}
       <Route path="/instalar" element={<InstallPage />} />

@@ -60,6 +60,12 @@ const mainNavItems: NavItem[] = [
   { path: "/whatsapp-inbox",       label: "Inbox WhatsApp",         icon: MessageSquare },
 ];
 
+const CRM_PATHS = new Set(mainNavItems.map((i) => i.path));
+
+function isCrmPath(path: string) {
+  return CRM_PATHS.has(path);
+}
+
 /** Submenu Configuração (cadastros, formulários, integrações). */
 const configNavItems: NavItem[] = [
   { path: "/usuarios",             label: "Usuários",               icon: Users },
@@ -135,7 +141,6 @@ const crediarioNavItems: NavItem[] = [
   { path: "/crediario/credenciais",              label: "Credenciais",                icon: KeyRound },
   { path: "/crediario/contratos-importados",     label: "Contratos Assertiva",        icon: ShieldCheck },
   { path: "/crediario/codigos-autorizacao",      label: "Códigos de Autorização",     icon: FileText },
-  { path: "/crediario/configuracoes",            label: "Configurações",              icon: Settings },
 ];
 
 const CREDIARIO_PATHS = new Set(crediarioNavItems.map((i) => i.path));
@@ -155,6 +160,7 @@ export default function AppSidebar({ onNavigate }: Props) {
 
   const [signingOut, setSigningOut] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [crmOpen, setCrmOpen] = useState(true);
   const [configOpen, setConfigOpen] = useState(false);
   const [estoqueFiscalOpen, setEstoqueFiscalOpen] = useState(false);
   const [financeiroOpen, setFinanceiroOpen] = useState(false);
@@ -173,6 +179,9 @@ export default function AppSidebar({ onNavigate }: Props) {
     return canAccessPath(item.path);
   };
 
+  const visibleCrmItems = mainNavItems.filter(canSee);
+  const crmSectionActive = visibleCrmItems.some((i) => location.pathname === i.path);
+
   const visibleConfigItems = configNavItems.filter(canSee);
   const configSectionActive = visibleConfigItems.some((i) => location.pathname === i.path);
 
@@ -189,6 +198,7 @@ export default function AppSidebar({ onNavigate }: Props) {
   const crediarioSectionActive = visibleCrediarioItems.some((i) => location.pathname === i.path) || isCrediarioPath(location.pathname);
 
   useEffect(() => {
+    if (isCrmPath(location.pathname)) setCrmOpen(true);
     if (isConfigPath(location.pathname)) setConfigOpen(true);
     if (isEstoqueFiscalPath(location.pathname)) setEstoqueFiscalOpen(true);
     if (isFinanceiroPath(location.pathname)) setFinanceiroOpen(true);
@@ -265,21 +275,44 @@ export default function AppSidebar({ onNavigate }: Props) {
 
       {/* ===== Menu principal (rolável) ===== */}
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2 min-h-0">
-        {mainNavItems.filter(canSee).map((item) => (
-          <button
-            key={item.path}
-            onClick={() => handleNav(item.path)}
-            className={cn(
-              "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-              location.pathname === item.path
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "hover:bg-sidebar-accent/50"
-            )}
-          >
-            <item.icon className="h-4 w-4 shrink-0" />
-            {item.label}
-          </button>
-        ))}
+        {visibleCrmItems.length > 0 && (
+          <Collapsible open={crmOpen} onOpenChange={setCrmOpen}>
+            <CollapsibleTrigger
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                crmSectionActive && !crmOpen
+                  ? "bg-sidebar-accent/70 text-sidebar-accent-foreground"
+                  : "hover:bg-sidebar-accent/50"
+              )}
+            >
+              <LayoutDashboard className="h-4 w-4 shrink-0" />
+              <span className="flex-1 text-left">CRM</span>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 opacity-70 transition-transform duration-200",
+                  crmOpen && "rotate-180"
+                )}
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-0.5 pt-0.5 pl-2">
+              {visibleCrmItems.map((item) => (
+                <button
+                  key={item.path}
+                  onClick={() => handleNav(item.path)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-lg py-2 pl-5 pr-3 text-sm font-medium transition-colors",
+                    location.pathname === item.path
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-sidebar-foreground/90 hover:bg-sidebar-accent/50"
+                  )}
+                >
+                  <item.icon className="h-4 w-4 shrink-0 opacity-90" />
+                  {item.label}
+                </button>
+              ))}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
 
         {visibleSiteOficialItems.length > 0 && (
           <Collapsible open={siteOficialOpen} onOpenChange={setSiteOficialOpen} className="pt-1">
@@ -302,6 +335,45 @@ export default function AppSidebar({ onNavigate }: Props) {
             </CollapsibleTrigger>
             <CollapsibleContent className="space-y-0.5 pt-0.5 pl-2">
               {visibleSiteOficialItems.map((item) => (
+                <button
+                  key={item.path}
+                  onClick={() => handleNav(item.path)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-lg py-2 pl-5 pr-3 text-sm font-medium transition-colors",
+                    location.pathname === item.path
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-sidebar-foreground/90 hover:bg-sidebar-accent/50"
+                  )}
+                >
+                  <item.icon className="h-4 w-4 shrink-0 opacity-90" />
+                  {item.label}
+                </button>
+              ))}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+
+        {visibleCrediarioItems.length > 0 && (
+          <Collapsible open={crediarioOpen} onOpenChange={setCrediarioOpen} className="pt-1">
+            <CollapsibleTrigger
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                crediarioSectionActive && !crediarioOpen
+                  ? "bg-sidebar-accent/70 text-sidebar-accent-foreground"
+                  : "hover:bg-sidebar-accent/50"
+              )}
+            >
+              <Wallet className="h-4 w-4 shrink-0" />
+              <span className="flex-1 text-left">Crediário</span>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 opacity-70 transition-transform duration-200",
+                  crediarioOpen && "rotate-180"
+                )}
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-0.5 pt-0.5 pl-2">
+              {visibleCrediarioItems.map((item) => (
                 <button
                   key={item.path}
                   onClick={() => handleNav(item.path)}
@@ -419,45 +491,6 @@ export default function AppSidebar({ onNavigate }: Props) {
             </CollapsibleTrigger>
             <CollapsibleContent className="space-y-0.5 pt-0.5 pl-2">
               {visibleFinanceiroItems.map((item) => (
-                <button
-                  key={item.path}
-                  onClick={() => handleNav(item.path)}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-lg py-2 pl-5 pr-3 text-sm font-medium transition-colors",
-                    location.pathname === item.path
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground/90 hover:bg-sidebar-accent/50"
-                  )}
-                >
-                  <item.icon className="h-4 w-4 shrink-0 opacity-90" />
-                  {item.label}
-                </button>
-              ))}
-            </CollapsibleContent>
-          </Collapsible>
-        )}
-
-        {visibleCrediarioItems.length > 0 && (
-          <Collapsible open={crediarioOpen} onOpenChange={setCrediarioOpen} className="pt-1">
-            <CollapsibleTrigger
-              className={cn(
-                "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                crediarioSectionActive && !crediarioOpen
-                  ? "bg-sidebar-accent/70 text-sidebar-accent-foreground"
-                  : "hover:bg-sidebar-accent/50"
-              )}
-            >
-              <Wallet className="h-4 w-4 shrink-0" />
-              <span className="flex-1 text-left">Crediário</span>
-              <ChevronDown
-                className={cn(
-                  "h-4 w-4 shrink-0 opacity-70 transition-transform duration-200",
-                  crediarioOpen && "rotate-180"
-                )}
-              />
-            </CollapsibleTrigger>
-            <CollapsibleContent className="space-y-0.5 pt-0.5 pl-2">
-              {visibleCrediarioItems.map((item) => (
                 <button
                   key={item.path}
                   onClick={() => handleNav(item.path)}

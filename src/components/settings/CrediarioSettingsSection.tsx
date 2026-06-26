@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import AppLayout from "@/components/AppLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, EyeOff, Settings as SettingsIcon } from "lucide-react";
+import { Loader2, Plus, Trash2, EyeOff, Wallet } from "lucide-react";
 import type { ScoreTier } from "@/lib/crediarioFinance";
 
 interface Settings {
@@ -39,7 +38,8 @@ function normalizeTier(t: Partial<ScoreTier>): ScoreTier {
   };
 }
 
-export default function CrediarioConfiguracoesPage() {
+/** Regras de negócio do Crediário (score, faixas de entrada/juros, renegociação) — seção da tela única de Configurações. */
+export default function CrediarioSettingsSection() {
   const [s, setS] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -78,7 +78,7 @@ export default function CrediarioConfiguracoesPage() {
     })();
   }, []);
 
-  if (!s) return <AppLayout><Loader2 className="h-6 w-6 animate-spin" /></AppLayout>;
+  if (!s) return <Loader2 className="h-6 w-6 animate-spin" />;
 
   const setField = <K extends keyof Settings>(k: K, v: Settings[K]) => setS({ ...s, [k]: v });
 
@@ -127,27 +127,25 @@ export default function CrediarioConfiguracoesPage() {
     setSaving(false);
     if (error) toast.error("Erro ao salvar", { description: error.message });
     else {
-      toast.success("Configurações salvas");
+      toast.success("Configurações do Crediário salvas");
       setField("score_tiers", tiersSorted);
     }
   };
 
   return (
-    <AppLayout>
-      <header className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <SettingsIcon className="h-7 w-7 text-primary" /> Configurações do Crediário
-        </h1>
-        <p className="text-muted-foreground">
-          Regras de negócio (score, taxas, renegociação). Marca/template de contrato, Cora, ZapSign e papéis seguem
-          as configurações gerais do sistema — ainda não portados para esta tela.
-        </p>
-      </header>
+    <div>
+      <h2 className="text-lg font-semibold flex items-center gap-2">
+        <Wallet className="h-5 w-5 text-primary" /> Crediário — Regras de negócio
+      </h2>
+      <p className="text-sm text-muted-foreground mt-1">
+        Score mínimo, faixas de entrada/juros e regras de renegociação. Marca, modelo de contrato, Cora e ZapSign
+        usam as credenciais por empresa em Crediário → Credenciais.
+      </p>
 
-      <div className="grid gap-6">
+      <div className="grid gap-6 mt-4">
         <Card>
           <CardContent className="p-6 space-y-4">
-            <h2 className="text-lg font-semibold">Critérios gerais</h2>
+            <h3 className="text-base font-semibold">Critérios gerais</h3>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Score mínimo para financiar</Label>
@@ -176,7 +174,7 @@ export default function CrediarioConfiguracoesPage() {
           <CardContent className="p-6 space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-lg font-semibold">Faixas de score</h2>
+                <h3 className="text-base font-semibold">Faixas de score</h3>
                 <p className="text-sm text-muted-foreground">
                   Para cada faixa: entrada <strong>sugerida</strong> (mostrada ao vendedor),
                   entrada <strong>mínima</strong> (oculta — vendas abaixo exigem autorização do administrador)
@@ -248,7 +246,7 @@ export default function CrediarioConfiguracoesPage() {
 
         <Card>
           <CardContent className="p-6 space-y-4">
-            <h2 className="text-lg font-semibold">Renegociação</h2>
+            <h3 className="text-base font-semibold">Renegociação</h3>
             <p className="text-sm text-muted-foreground">
               Regras aplicadas na tela de renegociação. Se a taxa de juros for <strong>0</strong>, as parcelas serão sem juros.
             </p>
@@ -279,10 +277,10 @@ export default function CrediarioConfiguracoesPage() {
       </div>
 
       <div className="mt-6 flex justify-end">
-        <Button onClick={save} disabled={saving} size="lg">
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar configurações"}
+        <Button onClick={save} disabled={saving}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar regras do Crediário"}
         </Button>
       </div>
-    </AppLayout>
+    </div>
   );
 }

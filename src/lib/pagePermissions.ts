@@ -65,7 +65,6 @@ export const APP_PAGES: AppPage[] = [
   { key: "crediario_credenciais",          label: "Credenciais",                 path: "/crediario/credenciais" },
   { key: "crediario_contratos_importados", label: "Contratos Assertiva",         path: "/crediario/contratos-importados" },
   { key: "crediario_codigos_autorizacao",  label: "Códigos de Autorização",      path: "/crediario/codigos-autorizacao" },
-  { key: "crediario_configuracoes",        label: "Configurações do Crediário",  path: "/crediario/configuracoes" },
 ];
 
 /** Prefixo usado para separar as páginas do Crediário na tela de permissões. */
