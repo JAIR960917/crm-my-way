@@ -204,6 +204,20 @@ serve(async (req) => {
       return jsonResponse({ error: "O CPF já registrou um Palpite." }, 409);
     }
 
+    // Mesma regra do CPF, mas pelo telefone — evita que a mesma pessoa
+    // participe mais de uma vez no mesmo jogo só trocando o CPF informado
+    // (ou vice-versa).
+    const { data: existingByPhone } = await supabase
+      .from("campanha_copa_submissions")
+      .select("id")
+      .eq("telefone", telefone)
+      .eq("jogo", jogoKey)
+      .maybeSingle();
+
+    if (existingByPhone?.id) {
+      return jsonResponse({ error: "Esse telefone já registrou um Palpite." }, 409);
+    }
+
     const palpiteTexto = `${palpiteHome} x ${palpiteAway}`;
     const usaOculosNorm = usaOculos.toLowerCase().startsWith("s") ? "sim" : "nao";
 
@@ -237,7 +251,7 @@ serve(async (req) => {
 
     if (subError) {
       if (subError.code === "23505") {
-        return jsonResponse({ error: "O CPF já registrou um Palpite." }, 409);
+        return jsonResponse({ error: "Esse CPF ou telefone já registrou um Palpite." }, 409);
       }
       console.error("[submit-campanha-copa] submission insert:", subError);
       return jsonResponse({ error: "Inscrição parcial — contate o suporte." }, 500);
