@@ -180,13 +180,19 @@ async function main() {
   let skippedNoCompany = 0;
   let skippedNoUser = 0;
 
-  function remapRow(row, { userCols = [], companyCols = [], renameCompanyCol } = {}) {
+  function remapRow(row, { userCols = [], optionalUserCols = [], companyCols = [], renameCompanyCol } = {}) {
     const r = { ...row };
     for (const col of userCols) {
       if (r[col] == null) continue;
       const mapped = userMap.get(r[col]);
       if (!mapped) return null; // sem usuário correspondente — pula a linha
       r[col] = mapped;
+    }
+    for (const col of optionalUserCols) {
+      // Coluna secundária (ex.: quem aprovou) — se não mapear, só zera o
+      // campo em vez de descartar a linha inteira.
+      if (r[col] == null) continue;
+      r[col] = userMap.get(r[col]) ?? null;
     }
     for (const col of companyCols) {
       if (r[col] == null) continue;
@@ -259,6 +265,7 @@ async function main() {
 
   await safe('vendas', () => dumpRemapped('vendas', 'crediario_vendas', '*', {
     userCols: ['user_id'],
+    optionalUserCols: ['aprovacao_por'],
     companyCols: ['empresa_id'],
     renameCompanyCol: { from: 'empresa_id', to: 'company_id' },
   }));
@@ -285,6 +292,7 @@ async function main() {
   }));
 
   await safe('relatorios_diarios', () => dumpRemapped('relatorios_diarios', 'crediario_relatorios_diarios', '*', {
+    optionalUserCols: ['concluido_por'],
     companyCols: ['empresa_id'],
     renameCompanyCol: { from: 'empresa_id', to: 'company_id' },
   }));
