@@ -65,6 +65,8 @@ export default function SettingsPage() {
         text_color: settings.text_color,
         button_color: settings.button_color,
         logo_url: settings.logo_url,
+        pwa_icon_url: settings.pwa_icon_url,
+        pwa_splash_url: settings.pwa_splash_url,
         twilio_whatsapp_number: extra.twilio_whatsapp_number || "",
         whatsapp_cron_interval: extra.whatsapp_cron_interval || "5",
         maintenance_mode: extra.maintenance_mode || "false",
@@ -191,6 +193,57 @@ export default function SettingsPage() {
     toast.success("Logo removida");
   };
 
+  /** Upload genérico de imagem do PWA (ícone do app ou imagem de abertura/splash). */
+  const handlePwaImageUpload = async (
+    settingKey: "pwa_icon_url" | "pwa_splash_url",
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Arquivo muito grande (máx. 5 MB)");
+      e.target.value = "";
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+      const fileName = `${settingKey}_${Date.now()}.${ext}`;
+      const data = await fileToBase64(file);
+      const contentType = file.type || "image/png";
+
+      const { data: result, error } = await supabase.functions.invoke("upload-system-logo", {
+        body: { fileName, contentType, data, settingKey },
+      });
+
+      if (error) throw new Error(error.message);
+      if (result?.error) throw new Error(result.error);
+
+      const publicUrl = resolveStoragePublicUrl(result.publicUrl as string);
+      setValues((prev) => ({ ...prev, [settingKey]: publicUrl }));
+      await refresh();
+      toast.success(settingKey === "pwa_icon_url" ? "Ícone do PWA atualizado!" : "Imagem de abertura atualizada!");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao enviar imagem";
+      toast.error(msg);
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleRemovePwaImage = async (settingKey: "pwa_icon_url" | "pwa_splash_url") => {
+    setValues((prev) => ({ ...prev, [settingKey]: "" }));
+    await supabase
+      .from("system_settings")
+      .update({ setting_value: "", updated_at: new Date().toISOString() })
+      .eq("setting_key", settingKey);
+    await refresh();
+    toast.success("Imagem removida");
+  };
+
   // Convert HSL string "H S% L%" to hex for native color input
   const hslToHex = (hsl: string): string => {
     try {
@@ -300,6 +353,100 @@ export default function SettingsPage() {
                 />
               </label>
               <p className="text-[11px] text-muted-foreground mt-1">PNG, JPG ou SVG</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Ícone do PWA */}
+        <div className="space-y-2">
+          <Label>Ícone do PWA (atalho/app instalado)</Label>
+          <div className="flex items-center gap-4">
+            {values.pwa_icon_url ? (
+              <div className="relative">
+                <img
+                  src={resolveStoragePublicUrl(values.pwa_icon_url)}
+                  alt="Ícone do PWA"
+                  className="h-16 w-16 rounded-lg object-contain border bg-card"
+                />
+                <Button
+                  variant="destructive"
+                  size="icon"
+                  className="absolute -top-2 -right-2 h-6 w-6"
+                  onClick={() => handleRemovePwaImage("pwa_icon_url")}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            ) : (
+              <div className="h-16 w-16 rounded-lg border-2 border-dashed border-muted-foreground/30 flex items-center justify-center">
+                <Upload className="h-5 w-5 text-muted-foreground/50" />
+              </div>
+            )}
+            <div>
+              <label className="cursor-pointer">
+                <Button variant="outline" size="sm" asChild disabled={uploading}>
+                  <span>
+                    <Upload className="mr-1.5 h-3.5 w-3.5" />
+                    {uploading ? "Enviando..." : "Enviar Ícone"}
+                  </span>
+                </Button>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => handlePwaImageUpload("pwa_icon_url", e)}
+                />
+              </label>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Imagem quadrada (ideal 512×512). Vira o ícone do app quando instalado no celular.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Imagem de abertura (splash) do PWA */}
+        <div className="space-y-2">
+          <Label>Imagem de abertura do PWA</Label>
+          <div className="flex items-center gap-4">
+            {values.pwa_splash_url ? (
+              <div className="relative">
+                <img
+                  src={resolveStoragePublicUrl(values.pwa_splash_url)}
+                  alt="Imagem de abertura"
+                  className="h-16 w-16 rounded-lg object-contain border bg-card"
+                />
+                <Button
+                  variant="destructive"
+                  size="icon"
+                  className="absolute -top-2 -right-2 h-6 w-6"
+                  onClick={() => handleRemovePwaImage("pwa_splash_url")}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            ) : (
+              <div className="h-16 w-16 rounded-lg border-2 border-dashed border-muted-foreground/30 flex items-center justify-center">
+                <Upload className="h-5 w-5 text-muted-foreground/50" />
+              </div>
+            )}
+            <div>
+              <label className="cursor-pointer">
+                <Button variant="outline" size="sm" asChild disabled={uploading}>
+                  <span>
+                    <Upload className="mr-1.5 h-3.5 w-3.5" />
+                    {uploading ? "Enviando..." : "Enviar Imagem"}
+                  </span>
+                </Button>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => handlePwaImageUpload("pwa_splash_url", e)}
+                />
+              </label>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Exibida em tela cheia por um instante ao abrir o app (PWA instalado). Some sozinha assim que o sistema carrega.
+              </p>
             </div>
           </div>
         </div>

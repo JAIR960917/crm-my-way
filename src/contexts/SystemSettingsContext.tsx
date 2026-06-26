@@ -30,6 +30,8 @@ const BRANDING_SETTING_KEYS = [
   "text_color",
   "button_color",
   "logo_url",
+  "pwa_icon_url",
+  "pwa_splash_url",
   "maintenance_mode",
   "maintenance_admin_1",
   "maintenance_admin_2",
@@ -45,6 +47,8 @@ type Settings = {
   text_color: string;
   button_color: string;
   logo_url: string;
+  pwa_icon_url: string;
+  pwa_splash_url: string;
   maintenance_mode: string;
   maintenance_admin_1: string;
   maintenance_admin_2: string;
@@ -60,6 +64,8 @@ const defaults: Settings = {
   text_color: "210 20% 92%",
   button_color: "220 72% 55%",
   logo_url: "",
+  pwa_icon_url: "",
+  pwa_splash_url: "",
   maintenance_mode: "false",
   maintenance_admin_1: "",
   maintenance_admin_2: "",
@@ -125,13 +131,66 @@ function applyCSS(s: Settings) {
     }
     link.type = "image/png";
     link.href = s.logo_url;
+  }
 
-    const appleLink = document.querySelector<HTMLLinkElement>("link[rel='apple-touch-icon']");
-    if (appleLink) appleLink.href = s.logo_url;
+  // Ícone do PWA: troca o apple-touch-icon e reescreve o manifest.webmanifest
+  // (estático em /manifest.webmanifest) por uma versão em memória (blob URL)
+  // apontando pro ícone customizado — não dá pra editar o arquivo estático
+  // a partir do navegador.
+  const appleLink = document.querySelector<HTMLLinkElement>("link[rel='apple-touch-icon']");
+  if (appleLink) appleLink.href = s.pwa_icon_url || "/pwa-192x192.png";
+  void applyPwaManifest(s.pwa_icon_url, s.system_name);
+
+  // Cacheia localmente pra exibir a splash no próximo boot sem esperar a
+  // sessão carregar (ver index.html).
+  try {
+    if (s.pwa_splash_url) localStorage.setItem("crm_pwa_splash_url", s.pwa_splash_url);
+    else localStorage.removeItem("crm_pwa_splash_url");
+    if (s.background_color) localStorage.setItem("crm_pwa_splash_bg", s.background_color);
+  } catch {
+    // Safari modo privado / restrição de storage
   }
 
   // Título da aba do navegador.
   if (s.system_name) document.title = s.system_name;
+}
+
+let lastManifestIconUrl: string | undefined;
+
+/** Reescreve o <link rel="manifest"> com o ícone customizado (blob URL). Idempotente. */
+async function applyPwaManifest(iconUrl: string, systemName: string) {
+  if (iconUrl === lastManifestIconUrl) return;
+  lastManifestIconUrl = iconUrl;
+
+  const link = document.querySelector<HTMLLinkElement>("link[rel='manifest']");
+  if (!link) return;
+
+  try {
+    const res = await fetch("/manifest.webmanifest");
+    const manifest = await res.json();
+
+    if (systemName) {
+      manifest.name = systemName;
+      manifest.short_name = systemName.slice(0, 30);
+    }
+
+    if (iconUrl) {
+      manifest.icons = [
+        { src: iconUrl, sizes: "192x192", type: "image/png", purpose: "any" },
+        { src: iconUrl, sizes: "192x192", type: "image/png", purpose: "maskable" },
+        { src: iconUrl, sizes: "512x512", type: "image/png", purpose: "any" },
+        { src: iconUrl, sizes: "512x512", type: "image/png", purpose: "maskable" },
+      ];
+    }
+
+    const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
+    const blobUrl = URL.createObjectURL(blob);
+    const previousBlobUrl = link.href.startsWith("blob:") ? link.href : null;
+    link.href = blobUrl;
+    if (previousBlobUrl) URL.revokeObjectURL(previousBlobUrl);
+  } catch {
+    // Sem manifest customizado — mantém o estático padrão.
+  }
 }
 
 /** Provider — envolva o app dentro de <AuthProvider> e antes das rotas. */
@@ -164,6 +223,8 @@ export function SystemSettingsProvider({ children }: { children: ReactNode }) {
     });
 
     merged.logo_url = resolveStoragePublicUrl(merged.logo_url);
+    merged.pwa_icon_url = resolveStoragePublicUrl(merged.pwa_icon_url);
+    merged.pwa_splash_url = resolveStoragePublicUrl(merged.pwa_splash_url);
 
     setSettings(merged);
     setLoading(false);

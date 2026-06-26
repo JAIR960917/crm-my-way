@@ -16,6 +16,10 @@ const ALLOWED_TYPES = new Set([
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
+// Chaves de system_settings que este endpoint pode atualizar — evita que o
+// body injete uma settingKey arbitrária.
+const ALLOWED_SETTING_KEYS = new Set(["logo_url", "pwa_icon_url", "pwa_splash_url"]);
+
 function decodeBase64(data: string): Uint8Array {
   const binary = atob(data);
   const bytes = new Uint8Array(binary.length);
@@ -62,7 +66,7 @@ serve(async (req) => {
 
     const isAdmin = (roleRows || []).some((r) => r.role === "admin");
     if (!isAdmin) {
-      return new Response(JSON.stringify({ error: "Apenas administradores podem alterar a logo" }), {
+      return new Response(JSON.stringify({ error: "Apenas administradores podem alterar essa imagem" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -72,6 +76,7 @@ serve(async (req) => {
     const rawFileName = typeof body?.fileName === "string" ? body.fileName : "";
     const contentType = typeof body?.contentType === "string" ? body.contentType : "image/png";
     const dataB64 = typeof body?.data === "string" ? body.data : "";
+    const settingKey = ALLOWED_SETTING_KEYS.has(body?.settingKey) ? body.settingKey as string : "logo_url";
 
     // Sanitiza: apenas alfanuméricos, ponto, hífen e underscore; sem path traversal
     const fileName = rawFileName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 128);
@@ -115,16 +120,21 @@ serve(async (req) => {
     }
 
     const { data: urlData } = supabaseAdmin.storage.from("logos").getPublicUrl(fileName);
-    const publicUrl = urlData.publicUrl;
+    // getPublicUrl() usa o SUPABASE_URL do client (URL interna do Kong dentro
+    // do Docker), inacessível pelo navegador. Troca pelo host público.
+    const PUBLIC_URL = Deno.env.get("SUPABASE_PUBLIC_URL") || SUPABASE_URL;
+    const publicUrl = urlData.publicUrl.replace(SUPABASE_URL, PUBLIC_URL);
 
     const { error: settingsError } = await supabaseAdmin
       .from("system_settings")
-      .update({ setting_value: publicUrl, updated_at: new Date().toISOString() })
-      .eq("setting_key", "logo_url");
+      .upsert(
+        { setting_key: settingKey, setting_value: publicUrl, updated_at: new Date().toISOString() },
+        { onConflict: "setting_key" },
+      );
 
     if (settingsError) {
       console.error("[upload-system-logo] settings update:", settingsError);
-      return new Response(JSON.stringify({ error: "Erro ao salvar configuração de logo." }), {
+      return new Response(JSON.stringify({ error: "Erro ao salvar a configuração." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

@@ -36,6 +36,34 @@
     <script>
       (function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})();
     </script>
+    <script>
+      // Splash de abertura do PWA — imagem customizada em Configurações.
+      // Lida do localStorage (sem esperar sessão/rede) pra aparecer já no boot.
+      (function () {
+        try {
+          var splashUrl = localStorage.getItem('crm_pwa_splash_url');
+          if (!splashUrl) return;
+          var bg = localStorage.getItem('crm_pwa_splash_bg') || '222 47% 6%';
+          var el = document.createElement('div');
+          el.id = 'pwa-splash';
+          el.style.cssText =
+            'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;' +
+            'background:hsl(' + bg + ');transition:opacity .25s ease;';
+          var img = document.createElement('img');
+          img.src = splashUrl;
+          img.alt = '';
+          img.style.cssText = 'max-width:60vw;max-height:40vh;object-fit:contain;';
+          el.appendChild(img);
+          document.body.appendChild(el);
+          window.__hidePwaSplash__ = function () {
+            var node = document.getElementById('pwa-splash');
+            if (!node) return;
+            node.style.opacity = '0';
+            setTimeout(function () { node.remove(); }, 250);
+          };
+        } catch (e) { /* Safari privado / storage indisponível */ }
+      })();
+    </script>
     <div id="root" class="notranslate" translate="no"></div>
     <script>
       window.addEventListener('error', function (e) {

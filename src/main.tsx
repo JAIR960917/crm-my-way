@@ -86,6 +86,7 @@ function mountApp() {
       <App />
     </RootErrorBoundary>,
   );
+  (window as Window & { __hidePwaSplash__?: () => void }).__hidePwaSplash__?.();
 }
 
 async function setupServiceWorkerInBackground() {
