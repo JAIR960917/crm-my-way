@@ -195,55 +195,65 @@ async function main() {
     return dumpRemapped(srcTable, targetTable, columns, {});
   }
 
-  await dumpDirect('consultas_cache', 'crediario_consultas_cache', '*');
-  await dumpDirect('cora_webhook_logs', 'crediario_cora_webhook_logs', '*');
-  await dumpDirect('contratos_assertiva', 'crediario_contratos_assertiva', '*');
+  // Roda um dump sem deixar uma tabela faltante/quebrada (ex.: feature nunca
+  // usada nessa instalação) abortar o resto da exportação.
+  async function safe(label, fn) {
+    try {
+      await fn();
+    } catch (e) {
+      console.log(`  ⚠️  ${label}: ${e.message} — pulando esta tabela`);
+    }
+  }
 
-  await dumpRemapped('consultas', 'crediario_consultas', '*', { userCols: ['user_id'] });
+  await safe('consultas_cache', () => dumpDirect('consultas_cache', 'crediario_consultas_cache', '*'));
+  await safe('cora_webhook_logs', () => dumpDirect('cora_webhook_logs', 'crediario_cora_webhook_logs', '*'));
+  await safe('contratos_assertiva', () => dumpDirect('contratos_assertiva', 'crediario_contratos_assertiva', '*'));
 
-  await dumpRemapped('consultas_pg_entrega', 'crediario_consultas_pg_entrega', '*', {
+  await safe('consultas', () => dumpRemapped('consultas', 'crediario_consultas', '*', { userCols: ['user_id'] }));
+
+  await safe('consultas_pg_entrega', () => dumpRemapped('consultas_pg_entrega', 'crediario_consultas_pg_entrega', '*', {
     userCols: ['user_id'],
     companyCols: ['empresa_id'],
     renameCompanyCol: { from: 'empresa_id', to: 'company_id' },
-  });
+  }));
 
-  await dumpRemapped('consultas_renegociacao', 'crediario_consultas_renegociacao', '*', {
+  await safe('consultas_renegociacao', () => dumpRemapped('consultas_renegociacao', 'crediario_consultas_renegociacao', '*', {
     userCols: ['user_id'],
     companyCols: ['empresa_id'],
     renameCompanyCol: { from: 'empresa_id', to: 'company_id' },
-  });
+  }));
 
-  await dumpRemapped('vendas', 'crediario_vendas', '*', {
+  await safe('vendas', () => dumpRemapped('vendas', 'crediario_vendas', '*', {
     userCols: ['user_id'],
     companyCols: ['empresa_id'],
     renameCompanyCol: { from: 'empresa_id', to: 'company_id' },
-  });
+  }));
 
-  await dumpRemapped('contracts', 'crediario_contracts', '*', {
+  await safe('contracts', () => dumpRemapped('contracts', 'crediario_contracts', '*', {
     userCols: ['user_id'],
     companyCols: ['empresa_id'],
     renameCompanyCol: { from: 'empresa_id', to: 'company_id' },
-  });
+  }));
 
-  await dumpRemapped('parcelas', 'crediario_parcelas', '*', {
+  await safe('parcelas', () => dumpRemapped('parcelas', 'crediario_parcelas', '*', {
     userCols: ['user_id'],
     companyCols: ['empresa_id'],
     renameCompanyCol: { from: 'empresa_id', to: 'company_id' },
-  });
+  }));
 
-  await dumpRemapped('codigos_autorizacao', 'crediario_codigos_autorizacao', '*', {
+  await safe('codigos_autorizacao', () => dumpRemapped('codigos_autorizacao', 'crediario_codigos_autorizacao', '*', {
     userCols: ['criado_por', 'usado_por'],
-  });
+  }));
 
-  await dumpRemapped('empresa_credenciais', 'crediario_company_credentials', '*', {
+  await safe('empresa_credenciais', () => dumpRemapped('empresa_credenciais', 'crediario_company_credentials', '*', {
     companyCols: ['empresa_id'],
     renameCompanyCol: { from: 'empresa_id', to: 'company_id' },
-  });
+  }));
 
-  await dumpRemapped('relatorios_diarios', 'crediario_relatorios_diarios', '*', {
+  await safe('relatorios_diarios', () => dumpRemapped('relatorios_diarios', 'crediario_relatorios_diarios', '*', {
     companyCols: ['empresa_id'],
     renameCompanyCol: { from: 'empresa_id', to: 'company_id' },
-  });
+  }));
 
   // Tabelas de configuração única (1 linha) — só migra se o destino ainda
   // estiver vazio, pra não duplicar/disputar com configuração já feita
@@ -257,9 +267,9 @@ async function main() {
     return dumpDirect(srcTable, targetTable, columns);
   }
 
-  await dumpSingletonIfEmpty('credenciais_globais', 'crediario_global_credentials', '*');
-  await dumpSingletonIfEmpty('contract_template', 'crediario_contract_template', '*');
-  await dumpSingletonIfEmpty('settings', 'crediario_settings', '*');
+  await safe('credenciais_globais', () => dumpSingletonIfEmpty('credenciais_globais', 'crediario_global_credentials', '*'));
+  await safe('contract_template', () => dumpSingletonIfEmpty('contract_template', 'crediario_contract_template', '*'));
+  await safe('settings', () => dumpSingletonIfEmpty('settings', 'crediario_settings', '*'));
 
   out.write(`\nSET session_replication_role = 'origin';\n`);
   out.end();
