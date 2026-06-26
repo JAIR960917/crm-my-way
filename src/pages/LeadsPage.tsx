@@ -695,6 +695,63 @@ export default function LeadsPage() {
   // onde os números completos são todos iguais de fato (samePhone) — grupos
   // que só batem na terminação de 8 dígitos (DDD diferente, coincidência)
   // nunca são tocados aqui, mesmo no "excluir todos".
+  // Mesma lógica de deleteAllDuplicates, mas escopada aos resultados da
+  // busca atual (ex.: usuário pesquisou um telefone e viu vários cards da
+  // mesma pessoa) — evita ter que abrir o painel "Duplicados" e re-varrer
+  // a base inteira só pra resolver um caso pontual já visível na tela.
+  const [deletingSearchDuplicates, setDeletingSearchDuplicates] = useState(false);
+  const [searchDuplicatesConfirmOpen, setSearchDuplicatesConfirmOpen] = useState(false);
+
+  const searchDuplicateGroups = useMemo((): DuplicateGroup[] => {
+    if (!isSearching || !searchResults || searchResults.length < 2) return [];
+    const byPhone = new Map<string, Lead[]>();
+    for (const lead of searchResults) {
+      const identity = resolveLeadIdentity(lead.data || {}, formFields);
+      const digits = identity.telefone.replace(/\D/g, "");
+      if (digits.length < 8) continue;
+      const arr = byPhone.get(digits) || [];
+      arr.push(lead);
+      byPhone.set(digits, arr);
+    }
+    return Array.from(byPhone.entries())
+      .filter(([, leads]) => leads.length >= 2)
+      .map(([digits, leads]) => ({
+        phoneSuffix: digits.slice(-8),
+        phone: digits,
+        leads: leads.sort((a, b) => a.created_at.localeCompare(b.created_at)),
+        samePhone: true,
+      }));
+  }, [isSearching, searchResults, formFields]);
+
+  const deleteSearchDuplicates = async () => {
+    setDeletingSearchDuplicates(true);
+    let deleted = 0;
+    let failed = 0;
+    try {
+      for (const group of searchDuplicateGroups) {
+        const toDelete = group.leads.slice(0, -1); // mantém o mais recente
+        for (const lead of toDelete) {
+          const isPermanentDelete = isAdmin && lead.status === "excluidos";
+          const { error } = isPermanentDelete
+            ? await supabase.rpc("hard_delete_lead", { _lead_id: lead.id })
+            : await supabase.rpc("soft_delete_lead", { _lead_id: lead.id });
+          if (error) {
+            failed += 1;
+          } else {
+            deleted += 1;
+            removePaginatedItem(lead.id);
+          }
+        }
+      }
+      if (deleted > 0) toast.success(`${deleted} lead(s) duplicado(s) excluído(s).`);
+      if (failed > 0) toast.error(`${failed} lead(s) não puderam ser excluídos.`);
+      setRefreshKey((k) => k + 1);
+      setSearchDuplicatesConfirmOpen(false);
+    } finally {
+      setDeletingSearchDuplicates(false);
+    }
+  };
+
   const deleteAllDuplicates = async () => {
     if (!duplicateGroups) return;
     setDeletingAllDuplicates(true);
@@ -1152,6 +1209,24 @@ export default function LeadsPage() {
           </button>
         )}
       </div>
+
+      {searchDuplicateGroups.length > 0 && (
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-sm">
+          <span className="text-amber-700 dark:text-amber-400">
+            {searchDuplicateGroups.reduce((acc, g) => acc + g.leads.length, 0)} card(s) duplicado(s) nessa busca
+            (mesmo telefone).
+          </span>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => setSearchDuplicatesConfirmOpen(true)}
+            disabled={deletingSearchDuplicates}
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Excluir duplicados
+          </Button>
+        </div>
+      )}
 
       {/* Filter bar */}
       {(isAdmin || isGerente) && showFilters && (
@@ -1613,6 +1688,28 @@ export default function LeadsPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deletingAllDuplicates ? "Excluindo..." : "Excluir duplicados"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={searchDuplicatesConfirmOpen} onOpenChange={(open) => !deletingSearchDuplicates && setSearchDuplicatesConfirmOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir cards duplicados desta busca?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Mantém o card mais recente de cada telefone encontrado nesta busca e move os demais pra "Excluídos"
+              (não exclui de vez — pode restaurar depois).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingSearchDuplicates}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); void deleteSearchDuplicates(); }}
+              disabled={deletingSearchDuplicates}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingSearchDuplicates ? "Excluindo..." : "Excluir duplicados"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
