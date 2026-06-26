@@ -81,12 +81,61 @@ serve(async (req) => {
       });
     }
 
-    const isPrivileged = roles.some((r) => r === "admin" || r === "gerente");
+    // Só admin tem bypass total de empresa pra ACESSAR/responder uma
+    // conversa. "gerente" entrou aqui numa correção anterior e isso deixava
+    // ele mandar mensagem em QUALQUER conversa do sistema (inclusive em
+    // números de Marketing sem relação com a empresa dele) — o controle por
+    // empresa (hasInboxAccess/isMyCompany) já cobre o caso de gerente de
+    // verdade. Gerente continua podendo excluir qualquer mensagem (moderação),
+    // isso é independente do acesso à conversa.
+    const isPrivileged = roles.some((r) => r === "admin");
+    const canModerateMessages = roles.some((r) => r === "admin" || r === "gerente");
+
+    async function isMyCompany(companyId: string): Promise<boolean> {
+      const { data: profile } = await admin
+        .from("profiles")
+        .select("company_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (profile?.company_id === companyId) return true;
+
+      const { data: mgr } = await admin
+        .from("manager_companies")
+        .select("company_id")
+        .eq("user_id", user.id)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      return !!mgr?.company_id;
+    }
+
+    // Mesma regra de public.user_has_whatsapp_inbox_access(): vínculo manual,
+    // OU empresa da instância igual à do usuário. NÃO inclui "já foi
+    // responsável por alguma conversa nessa instância" — isso vazava acesso
+    // à instância INTEIRA pra sempre por causa de uma única conversa antiga
+    // (até fechada), mesmo depois do usuário mudar de empresa. O acesso à
+    // conversa ESPECÍFICA que é (ou foi) atribuída ao usuário já é coberto
+    // direto em assertConversationAccess via conv.assigned_to === user.id.
+    async function hasInboxAccess(instanceId: string): Promise<boolean> {
+      const { data: assignment } = await admin
+        .from("whatsapp_instance_assignments")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("instance_id", instanceId)
+        .maybeSingle();
+      if (assignment?.id) return true;
+
+      const { data: instance } = await admin
+        .from("whatsapp_instances")
+        .select("company_id")
+        .eq("id", instanceId)
+        .maybeSingle();
+      return !!(instance?.company_id && (await isMyCompany(instance.company_id)));
+    }
 
     async function assertConversationAccess(conversationId: string) {
       const { data: conv, error: convErr } = await admin
         .from("whatsapp_conversations")
-        .select("id, instance_id, wa_id")
+        .select("id, instance_id, wa_id, contact_name, status, assigned_to, routed_to_company_id")
         .eq("id", conversationId.trim())
         .maybeSingle();
       if (convErr) throw convErr;
@@ -94,13 +143,17 @@ serve(async (req) => {
         return { error: "Conversa não encontrada", status: 404, conv: null as null };
       }
       if (!isPrivileged && conv.instance_id) {
-        const { data: allowed, error: aErr } = await admin
-          .from("whatsapp_instance_assignments")
-          .select("id")
-          .eq("user_id", user.id)
-          .eq("instance_id", conv.instance_id)
-          .maybeSingle();
-        if (!aErr && !allowed?.id) {
+        let allowed: boolean;
+        if (conv.assigned_to === user.id) {
+          // Já é o responsável (inclusive após transferência entre empresas).
+          allowed = true;
+        } else if (conv.status === "pending" && conv.routed_to_company_id) {
+          // Encaminhada para outra empresa — só essa empresa (ou admin) age nela.
+          allowed = await isMyCompany(conv.routed_to_company_id);
+        } else {
+          allowed = await hasInboxAccess(conv.instance_id);
+        }
+        if (!allowed) {
           return { error: "Você não tem acesso a este número WhatsApp", status: 403, conv: null as null };
         }
       }
@@ -243,7 +296,7 @@ serve(async (req) => {
         });
       }
 
-      const canDelete = isPrivileged || msg.sent_by === user.id;
+      const canDelete = canModerateMessages || msg.sent_by === user.id;
       if (!canDelete) {
         return new Response(JSON.stringify({ error: "Você só pode excluir suas próprias mensagens" }), {
           status: 403,
@@ -593,12 +646,20 @@ serve(async (req) => {
         });
       }
       isTemplate = true;
-      text = `[Template] ${metaTemplateName}`;
+      text = `📄 Template enviado: ${metaTemplateName}`;
     }
 
     const textForWhatsApp = action === "send-text"
       ? formatOutboundWhatsAppBody(sender.sent_by_name, text)
       : "";
+
+    // Envio manual de template pelo Inbox não tem um texto de origem no CRM
+    // para extrair variáveis ({nome}, etc.) — usamos o nome do contato salvo
+    // na conversa para que a Meta receba os parâmetros esperados e não rejeite
+    // o template com "Number of parameters does not match" (#132000).
+    const templateVars: Record<string, string> = isTemplate
+      ? { nome: (conv.contact_name || "").trim() || "Cliente" }
+      : {};
 
     console.log(
       `[whatsapp-chat] send ${action} provider=${target.provider} instance=${conv.instance_id} to=${to} pid=${target.phoneNumberId ?? "—"}`,
@@ -612,9 +673,11 @@ serve(async (req) => {
       metaAccessToken: accessToken,
       metaTemplateName,
       metaTemplateLanguage,
-      metaTemplateBodyParams: [],
+      metaTemplateVars: templateVars,
+      metaTemplateMessageSource: isTemplate ? "{nome}" : null,
       supabase: admin as any,
       conversationId: conv.id,
+      forceTemplate: isTemplate,
     });
 
     if (!result.ok) {
@@ -629,7 +692,7 @@ serve(async (req) => {
     const saved = await insertWhatsAppMessageRow(admin, {
       conversation_id: conv.id,
       direction: "out",
-      body: action === "send-text" ? text : null,
+      body: text,
       wa_message_id: result.metaMessageId || null,
       status: "sent",
       is_template: isTemplate,
@@ -643,7 +706,7 @@ serve(async (req) => {
     }
     const convPatch: Record<string, unknown> = {
       last_message_at: now,
-      last_preview: (action === "send-text" ? text : `[Template] ${metaTemplateName}`).slice(0, 200),
+      last_preview: text.slice(0, 200),
       updated_at: now,
     };
     if (target.instanceId && !conv.instance_id) {

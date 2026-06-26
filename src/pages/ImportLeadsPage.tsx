@@ -102,6 +102,19 @@ const parseCsvText = (text: string, separator = ";") => {
   return rows;
 };
 
+/**
+ * Detecta se o CSV usa ";" ou "," como separador, olhando só a primeira
+ * linha (cabeçalho). Sem isso, um arquivo exportado com "," (comum em
+ * planilhas do Google/Excel fora do padrão BR) ficava com a linha inteira
+ * sendo lida como UMA única coluna, já que o parser estava fixo em ";".
+ */
+const detectCsvSeparator = (text: string): string => {
+  const firstLine = text.split(/\r\n|\r|\n/, 1)[0] || "";
+  const semicolons = (firstLine.match(/;/g) || []).length;
+  const commas = (firstLine.match(/,/g) || []).length;
+  return commas > semicolons ? "," : ";";
+};
+
 export default function ImportLeadsPage() {
   const { isAdmin, user } = useAuth();
   const navigate = useNavigate();
@@ -127,22 +140,17 @@ export default function ImportLeadsPage() {
   const [scanning, setScanning] = useState(false);
   const [duplicates, setDuplicates] = useState<DuplicateMatch[] | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingAll, setDeletingAll] = useState(false);
 
-  const extractPhones = (data: Record<string, any>): string[] => {
-    const phones: string[] = [];
-    const walk = (v: any) => {
-      if (v == null) return;
-      if (typeof v === "string" || typeof v === "number") {
-        const digits = String(v).replace(/\D/g, "");
-        if (digits.length >= 8) phones.push(digits.slice(-8));
-      } else if (Array.isArray(v)) {
-        v.forEach(walk);
-      } else if (typeof v === "object") {
-        Object.values(v).forEach(walk);
-      }
-    };
-    walk(data);
-    return phones;
+  // ATENÇÃO: NÃO percorrer todos os campos do JSON procurando "qualquer string
+  // com 8+ dígitos" — isso confundia datas guardadas como AAAAMMDD (ex.:
+  // "20230623") com telefone e gerava falsos duplicados. Usamos só o
+  // telefone já resolvido (mesma lógica de is_phone_field/rótulo usada para
+  // exibir o lead), que é o único campo que legitimamente representa um
+  // telefone.
+  const phoneSuffix = (telefone: string): string | null => {
+    const digits = (telefone || "").replace(/\D/g, "");
+    return digits.length >= 8 ? digits.slice(-8) : null;
   };
 
   const scanDuplicates = async () => {
@@ -165,33 +173,26 @@ export default function ImportLeadsPage() {
       (renovsRes.data || []).forEach((r: any) => {
         const data = (r.data || {}) as Record<string, any>;
         const identity = resolveLeadIdentity(data, renovFields);
-        const phones = extractPhones(data);
-        phones.forEach((suffix) => {
-          if (!renovIndex.has(suffix)) {
-            renovIndex.set(suffix, { id: r.id, name: identity.nome || "Sem nome" });
-          }
-        });
+        const suffix = phoneSuffix(identity.telefone);
+        if (suffix && !renovIndex.has(suffix)) {
+          renovIndex.set(suffix, { id: r.id, name: identity.nome || "Sem nome" });
+        }
       });
 
       const matches: DuplicateMatch[] = [];
-      const seen = new Set<string>();
       (leadsRes.data || []).forEach((l: any) => {
         const data = (l.data || {}) as Record<string, any>;
         const identity = resolveLeadIdentity(data, leadFields);
-        const phones = extractPhones(data);
-        for (const suffix of phones) {
-          const ren = renovIndex.get(suffix);
-          if (ren && !seen.has(l.id)) {
-            seen.add(l.id);
-            matches.push({
-              leadId: l.id,
-              leadName: identity.nome || "Sem nome",
-              leadPhone: identity.telefone || suffix,
-              renovacaoId: ren.id,
-              renovacaoName: ren.name,
-            });
-            break;
-          }
+        const suffix = phoneSuffix(identity.telefone);
+        const ren = suffix ? renovIndex.get(suffix) : undefined;
+        if (ren) {
+          matches.push({
+            leadId: l.id,
+            leadName: identity.nome || "Sem nome",
+            leadPhone: identity.telefone || suffix || "",
+            renovacaoId: ren.id,
+            renovacaoName: ren.name,
+          });
         }
       });
 
@@ -204,25 +205,161 @@ export default function ImportLeadsPage() {
     }
   };
 
+  const deleteLeadCascade = async (leadId: string) => {
+    // Cascade-clean dependent tables first
+    await Promise.all([
+      supabase.from("crm_lead_notes").delete().eq("lead_id", leadId),
+      supabase.from("lead_activities").delete().eq("lead_id", leadId),
+      supabase.from("crm_appointments").delete().eq("lead_id", leadId),
+      supabase.from("notifications").delete().eq("lead_id", leadId),
+      supabase.from("scheduled_whatsapp_messages").delete().eq("lead_id", leadId),
+    ]);
+    const { error } = await supabase.from("crm_leads").delete().eq("id", leadId);
+    if (error) throw error;
+  };
+
   const deleteLeadById = async (leadId: string) => {
     setDeletingId(leadId);
     try {
-      // Cascade-clean dependent tables first
-      await Promise.all([
-        supabase.from("crm_lead_notes").delete().eq("lead_id", leadId),
-        supabase.from("lead_activities").delete().eq("lead_id", leadId),
-        supabase.from("crm_appointments").delete().eq("lead_id", leadId),
-        supabase.from("notifications").delete().eq("lead_id", leadId),
-        supabase.from("scheduled_whatsapp_messages").delete().eq("lead_id", leadId),
-      ]);
-      const { error } = await supabase.from("crm_leads").delete().eq("id", leadId);
-      if (error) throw error;
+      await deleteLeadCascade(leadId);
       setDuplicates((prev) => (prev ? prev.filter((d) => d.leadId !== leadId) : prev));
       toast.success("Lead excluído.");
     } catch (err: any) {
       toast.error(`Erro ao excluir: ${err.message || err}`);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const deleteAllDuplicates = async () => {
+    if (!duplicates || duplicates.length === 0) return;
+    setDeletingAll(true);
+    let okCount = 0;
+    let errCount = 0;
+    const remaining: DuplicateMatch[] = [];
+    for (const d of duplicates) {
+      try {
+        await deleteLeadCascade(d.leadId);
+        okCount++;
+      } catch {
+        errCount++;
+        remaining.push(d);
+      }
+    }
+    setDuplicates(remaining);
+    setDeletingAll(false);
+    if (errCount === 0) {
+      toast.success(`${okCount} lead(s) duplicado(s) excluído(s).`);
+    } else {
+      toast.error(`${okCount} excluído(s), ${errCount} falharam. Tente novamente para os restantes.`);
+    }
+  };
+
+  // Leads sem empresa mapeada (assigned_to/created_by não resolvem pra
+  // nenhuma empresa via profiles) — mesmo critério usado pelo envio de
+  // campanhas/gatilhos do WhatsApp para decidir qual número usar.
+  type UnmappedLead = {
+    leadId: string;
+    nome: string;
+    telefone: string;
+    cidade: string;
+    status: string;
+  };
+  const [unmappedScanning, setUnmappedScanning] = useState(false);
+  const [unmappedLeads, setUnmappedLeads] = useState<UnmappedLead[] | null>(null);
+  const [unmappedExported, setUnmappedExported] = useState(false);
+  const [unmappedDeletingAll, setUnmappedDeletingAll] = useState(false);
+
+  const scanUnmappedCompany = async () => {
+    setUnmappedScanning(true);
+    setUnmappedExported(false);
+    try {
+      const [leadsRes, profilesRes, leadFieldsRes, statusesRes] = await Promise.all([
+        supabase.from("crm_leads").select("id, data, assigned_to, created_by, status").limit(10000),
+        supabase.from("profiles").select("user_id, company_id"),
+        supabase.from("crm_form_fields").select("id, label, is_name_field, is_phone_field"),
+        supabase.from("crm_statuses").select("key, label"),
+      ]);
+      if (leadsRes.error) throw leadsRes.error;
+      if (profilesRes.error) throw profilesRes.error;
+
+      const companyByUser = new Map<string, string>();
+      (profilesRes.data || []).forEach((p: any) => {
+        if (p.user_id && p.company_id) companyByUser.set(p.user_id, p.company_id);
+      });
+      const leadFields = (leadFieldsRes.data || []) as any[];
+      const statusLabels = new Map<string, string>(
+        (statusesRes.data || []).map((s: any) => [s.key, s.label]),
+      );
+
+      const unmapped: UnmappedLead[] = [];
+      (leadsRes.data || []).forEach((l: any) => {
+        const hasCompany =
+          (l.assigned_to && companyByUser.has(l.assigned_to)) ||
+          (l.created_by && companyByUser.has(l.created_by));
+        if (hasCompany) return;
+
+        const data = (l.data || {}) as Record<string, any>;
+        const identity = resolveLeadIdentity(data, leadFields);
+        unmapped.push({
+          leadId: l.id,
+          nome: identity.nome || "Sem nome",
+          telefone: identity.telefone || "",
+          cidade: data.cidade || "",
+          status: statusLabels.get(l.status) || l.status || "",
+        });
+      });
+
+      setUnmappedLeads(unmapped);
+      toast.success(`${unmapped.length} lead(s) sem empresa mapeada.`);
+    } catch (err: any) {
+      toast.error(`Erro ao verificar: ${err.message || err}`);
+    } finally {
+      setUnmappedScanning(false);
+    }
+  };
+
+  const exportUnmappedCsv = () => {
+    if (!unmappedLeads || unmappedLeads.length === 0) return;
+    const header = ["Nome", "Telefone", "Cidade", "Status"];
+    const lines = unmappedLeads.map((l) =>
+      [l.nome, l.telefone, l.cidade, l.status]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(";"),
+    );
+    const csv = [header.join(";"), ...lines].join("\n");
+    const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `leads_sem_empresa_mapeada_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setUnmappedExported(true);
+    toast.success("CSV exportado. Agora você pode excluir esses leads.");
+  };
+
+  const deleteAllUnmappedCompany = async () => {
+    if (!unmappedLeads || unmappedLeads.length === 0) return;
+    setUnmappedDeletingAll(true);
+    let okCount = 0;
+    let errCount = 0;
+    const remaining: UnmappedLead[] = [];
+    for (const l of unmappedLeads) {
+      try {
+        await deleteLeadCascade(l.leadId);
+        okCount++;
+      } catch {
+        errCount++;
+        remaining.push(l);
+      }
+    }
+    setUnmappedLeads(remaining);
+    setUnmappedDeletingAll(false);
+    if (errCount === 0) {
+      toast.success(`${okCount} lead(s) sem empresa mapeada excluído(s).`);
+    } else {
+      toast.error(`${okCount} excluído(s), ${errCount} falharam. Tente novamente para os restantes.`);
     }
   };
 
@@ -255,6 +392,43 @@ export default function ImportLeadsPage() {
     queryFn: async () => {
       const { data } = await supabase.from("profiles").select("user_id, full_name, email");
       return data || [];
+    },
+  });
+
+  const { data: companies = [] } = useQuery({
+    queryKey: ["import-companies"],
+    queryFn: async () => {
+      const { data } = await supabase.from("companies").select("id, name").order("name");
+      return data || [];
+    },
+  });
+
+  // Empresa de destino pros leads importados — como crm_leads não tem coluna
+  // de empresa própria, "pertencer a uma empresa" é feito atribuindo o lead
+  // a um usuário (vendedor, com fallback gerente) daquela empresa em
+  // round-robin — mesma lógica já usada em "Alocar leads sem usuário".
+  const [importCompanyId, setImportCompanyId] = useState("");
+
+  const { data: companyUserPool = [] } = useQuery({
+    queryKey: ["import-company-user-pool", importCompanyId],
+    enabled: !!importCompanyId,
+    queryFn: async () => {
+      const { data: roleRows } = await supabase
+        .from("user_roles")
+        .select("user_id, role")
+        .in("role", ["vendedor", "gerente"]);
+      const vendedorIds = new Set((roleRows || []).filter((r) => r.role === "vendedor").map((r) => r.user_id));
+      const gerenteIds = new Set((roleRows || []).filter((r) => r.role === "gerente").map((r) => r.user_id));
+
+      const { data: profileRows } = await supabase
+        .from("profiles")
+        .select("user_id, full_name")
+        .eq("company_id", importCompanyId)
+        .order("full_name");
+
+      const vendedores = (profileRows || []).filter((p) => vendedorIds.has(p.user_id));
+      if (vendedores.length > 0) return vendedores;
+      return (profileRows || []).filter((p) => gerenteIds.has(p.user_id));
     },
   });
 
@@ -312,7 +486,7 @@ export default function ImportLeadsPage() {
       const text = ev.target?.result as string;
       if (!text) return;
 
-      const parsedRows = parseCsvText(text, ";");
+      const parsedRows = parseCsvText(text, detectCsvSeparator(text));
       if (parsedRows.length < 2) { toast.error("Arquivo vazio ou inválido"); return; }
 
       const headers = parsedRows[0];
@@ -440,7 +614,10 @@ export default function ImportLeadsPage() {
     ];
   }, [formFields, crmColumns, profiles, statuses, nameField, phoneField]);
 
-  // Validation: detect missing essential mappings (Name, Phone, Status, Assigned)
+  // Validation: só Nome e Telefone são obrigatórios. Status/Etapa sem
+  // mapear cai em "novo" e Responsável sem mapear fica sem usuário (ou
+  // round-robin pela empresa escolhida, se houver) — nenhum dos dois
+  // impede a importação.
   const validation = useMemo(() => {
     const mappedTargets = new Set(Object.values(columnMap));
     const hasName = nameField ? mappedTargets.has(nameField.id) : false;
@@ -451,8 +628,6 @@ export default function ImportLeadsPage() {
     const issues: string[] = [];
     if (!hasName) issues.push("Nome do Lead");
     if (!hasPhone) issues.push("Telefone");
-    if (!hasStatus) issues.push("Status/Etapa");
-    if (!hasAssigned) issues.push("Responsável");
 
     return { hasName, hasPhone, hasStatus, hasAssigned, issues, valid: issues.length === 0 };
   }, [columnMap, nameField, phoneField]);
@@ -467,6 +642,7 @@ export default function ImportLeadsPage() {
     const BATCH_SIZE = 50;
     const errors: string[] = [];
     let imported = 0;
+    let companyRrIndex = 0; // round-robin entre os usuários da empresa escolhida
 
     // Build reverse maps
     const formFieldIds = new Set(formFields.map((field) => field.id));
@@ -523,7 +699,11 @@ export default function ImportLeadsPage() {
         const csvStatus = row[statusCol] || "";
         const status = statusMap[csvStatus] || "novo";
         const csvUser = row[assignedCol] || "";
-        const assignedTo = userMap[csvUser] || null;
+        let assignedTo = userMap[csvUser] || null;
+        if (!assignedTo && companyUserPool.length > 0) {
+          assignedTo = companyUserPool[companyRrIndex % companyUserPool.length].user_id;
+          companyRrIndex += 1;
+        }
 
         // Parse created_at
         let createdAt: string = new Date().toISOString();
@@ -639,9 +819,41 @@ export default function ImportLeadsPage() {
               )}
 
               {duplicates && duplicates.length > 0 && (
-                <p className="text-sm text-muted-foreground">
-                  {duplicates.length} lead(s) com telefone também em Renovações. Use o botão individual ao lado de cada lead para excluí-lo da tela de Leads.
-                </p>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    {duplicates.length} lead(s) com telefone também em Renovações. Use o botão individual ao lado
+                    de cada lead, ou exclua todos de uma vez.
+                  </p>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button size="sm" variant="destructive" disabled={deletingAll || deletingId !== null}>
+                        {deletingAll ? (
+                          <><RefreshCw className="mr-1 h-3 w-3 animate-spin" /> Excluindo...</>
+                        ) : (
+                          <><Trash2 className="mr-1 h-3 w-3" /> Excluir todos os duplicados</>
+                        )}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir todos os {duplicates.length} leads duplicados?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Todos os cards listados abaixo serão removidos da tela de Leads. As renovações
+                          correspondentes NÃO serão afetadas. Essa ação não pode ser desfeita.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => void deleteAllDuplicates()}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                          Sim, excluir todos
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               )}
 
               {duplicates && duplicates.length > 0 && (
@@ -698,6 +910,112 @@ export default function ImportLeadsPage() {
           </Card>
         )}
 
+        {/* Leads sem empresa mapeada */}
+        {step === "upload" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Leads sem empresa mapeada</CardTitle>
+              <CardDescription>
+                Leads cujo responsável/criador não está vinculado a nenhuma empresa (ex.: Campanha Copa
+                sem cidade mapeada para uma loja). Exporte em CSV antes de excluir.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Button onClick={scanUnmappedCompany} disabled={unmappedScanning} variant="secondary">
+                {unmappedScanning ? (
+                  <><RefreshCw className="mr-2 h-4 w-4 animate-spin" /> Verificando...</>
+                ) : (
+                  <><Search className="mr-2 h-4 w-4" /> Verificar agora</>
+                )}
+              </Button>
+
+              {unmappedLeads && unmappedLeads.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Nenhum lead sem empresa mapeada encontrado.
+                </p>
+              )}
+
+              {unmappedLeads && unmappedLeads.length > 0 && (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-muted-foreground">
+                      {unmappedLeads.length} lead(s) sem empresa mapeada.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={exportUnmappedCsv}>
+                        <FileSpreadsheet className="mr-1 h-3 w-3" />
+                        Exportar CSV
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={!unmappedExported || unmappedDeletingAll}
+                            title={!unmappedExported ? "Exporte o CSV primeiro" : undefined}
+                          >
+                            {unmappedDeletingAll ? (
+                              <><RefreshCw className="mr-1 h-3 w-3 animate-spin" /> Excluindo...</>
+                            ) : (
+                              <><Trash2 className="mr-1 h-3 w-3" /> Excluir todos</>
+                            )}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              Excluir todos os {unmappedLeads.length} leads sem empresa mapeada?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Essa ação não pode ser desfeita. Confirme que você já exportou e revisou o CSV.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => void deleteAllUnmappedCompany()}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              Sim, excluir todos
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
+                  {!unmappedExported && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Exporte o CSV antes de poder excluir.
+                    </p>
+                  )}
+                  <div className="max-h-[400px] overflow-auto rounded-lg border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nome</TableHead>
+                          <TableHead>Telefone</TableHead>
+                          <TableHead>Cidade</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {unmappedLeads.map((l) => (
+                          <TableRow key={l.leadId}>
+                            <TableCell className="text-xs">{l.nome}</TableCell>
+                            <TableCell className="text-xs">{l.telefone}</TableCell>
+                            <TableCell className="text-xs">{l.cidade || "—"}</TableCell>
+                            <TableCell className="text-xs">{l.status}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* STEP: Column mapping */}
         {step === "columns" && (
           <Card>
@@ -714,14 +1032,25 @@ export default function ImportLeadsPage() {
                   {validation.valid ? <Check className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
                   <div className="space-y-1">
                     {validation.valid ? (
-                      <p className="font-medium">Todos os campos essenciais estão mapeados.</p>
+                      <>
+                        <p className="font-medium">Nome e Telefone estão mapeados.</p>
+                        {!validation.hasStatus && (
+                          <p className="text-xs opacity-80">Sem Status/Etapa mapeado, os leads entram na coluna "Novo".</p>
+                        )}
+                        {!validation.hasAssigned && (
+                          <p className="text-xs opacity-80">
+                            {importCompanyId
+                              ? "Sem Responsável mapeado, os leads são distribuídos entre os usuários da empresa escolhida abaixo."
+                              : "Sem Responsável mapeado e sem empresa escolhida, os leads ficam sem usuário (apareça em \"Alocar sem usuário\")."}
+                          </p>
+                        )}
+                      </>
                     ) : (
                       <>
                         <p className="font-medium">Mapeie os campos essenciais antes de continuar:</p>
                         <ul className="list-disc pl-5">
                           {validation.issues.map((i) => (<li key={i}>{i}</li>))}
                         </ul>
-                        <p className="text-xs opacity-80">Sem esses mapeamentos os leads aparecerão sem nome, telefone ou responsável na tela de Leads.</p>
                       </>
                     )}
                   </div>
@@ -804,6 +1133,25 @@ export default function ImportLeadsPage() {
                   )}
                 </div>
               )}
+
+              <div className="space-y-2 rounded-lg border p-3">
+                <p className="text-sm font-medium">Empresa de destino (opcional)</p>
+                <Select value={importCompanyId || IGNORE_VALUE} onValueChange={(v) => setImportCompanyId(v === IGNORE_VALUE ? "" : v)}>
+                  <SelectTrigger className="text-xs">
+                    <SelectValue placeholder="Selecione a empresa" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={IGNORE_VALUE}>Nenhuma — manter sem usuário</SelectItem>
+                    {companies.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Leads cuja linha do CSV não tem um Responsável mapeado são distribuídos (round-robin) entre
+                  os vendedores dessa empresa{importCompanyId && companyUserPool.length === 0 ? " — nenhum vendedor/gerente encontrado para ela ainda" : ""}.
+                </p>
+              </div>
 
               <div className="max-h-[55vh] overflow-y-auto">
                 <Table>

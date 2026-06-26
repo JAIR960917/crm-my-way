@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Plus, Search, Pencil, Trash2, Phone, Building2, AlertTriangle, CalendarClock, CheckCircle2, Clock, Loader2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -153,8 +155,33 @@ export default function CobrancasPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  
+
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Auditoria: cards de cobrança sem nenhuma parcela em situação que
+  // realmente justifique estar nesta tela (Em atraso / Negativado Serasa /
+  // Ajuizado Návide/Saniely). Cobre o caso de a SSótica ter renegociado a
+  // dívida sem devolver a parcela antiga marcada como tal — o card fica
+  // "preso" mesmo o cliente estando em dia.
+  type AuditedCobranca = {
+    id: string;
+    nome: string;
+    telefone: string;
+    valor: number;
+    situacoesEncontradas: string;
+    assignedTo: string | null;
+    ssoticaClienteId: number | null;
+    ssoticaCompanyId: string | null;
+    companyId: string | null;
+    dataUltimaReceita: string | null;
+    dataUltimaVenda: string | null;
+    dataUltimaCompra: string | null;
+  };
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditScanning, setAuditScanning] = useState(false);
+  const [auditResults, setAuditResults] = useState<AuditedCobranca[] | null>(null);
+  const [auditResolvingId, setAuditResolvingId] = useState<string | null>(null);
+  const [auditResolvingAll, setAuditResolvingAll] = useState(false);
 
   const statusKeys = useMemo(() => statuses.map((s) => s.key), [statuses]);
 
@@ -332,6 +359,202 @@ export default function CobrancasPage() {
       toast.success("Cobranças excluídas");
       setRefreshKey((k) => k + 1);
     }
+  };
+
+  const normalizeSituacaoLabel = (value: unknown): string =>
+    String(value ?? "")
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase()
+      .replace(/[\s_-]+/g, " ")
+      .trim();
+
+  // Mesmo critério usado no sync (parseParcelaCobrancaAtiva): só essas
+  // situações justificam o card continuar na tela de Cobrança. Para
+  // negativado/ajuizado, uma baixa/cancelamento/estorno feito por um
+  // FUNCIONÁRIO de verdade (ex.: "cancelado_por": "Brenda") conta como
+  // resolvido mesmo que a SSótica não tenha atualizado o campo "situacao"
+  // (ela não atualiza esse campo ao cancelar uma parcela negativada).
+  const isParcelaAtiva = (parcela: any): boolean => {
+    const s = normalizeSituacaoLabel(parcela?.situacao);
+    if (!s) return false;
+    const isNegativadoOuAjuizado =
+      (s.startsWith("negativado") && s.includes("serasa")) ||
+      s.startsWith("ajuizado") ||
+      s.startsWith("cobranca dr") ||
+      s.startsWith("cobranca dra") ||
+      s.startsWith("escritorio de cobranca") ||
+      s.startsWith("escritorio cobranca");
+    if (!isNegativadoOuAjuizado) {
+      return s === "em atraso" || s === "atrasado" || s === "atrasada";
+    }
+    const raw = parcela?.ssotica_raw || {};
+    const resolvidoManualmente =
+      (!!raw.cancelado_em && !!raw.cancelado_por) ||
+      (!!raw.baixado_em && !!raw.baixado_por) ||
+      (!!raw.estornado_em && !!raw.estornado_por);
+    return !resolvidoManualmente;
+  };
+
+  const scanCobrancasSemDividaAtiva = async () => {
+    setAuditScanning(true);
+    try {
+      const { data, error } = await supabase
+        .from("crm_cobrancas")
+        .select("id, data, valor, assigned_to, ssotica_cliente_id, ssotica_company_id, company_id")
+        .limit(10000);
+      if (error) throw error;
+
+      const flagged: AuditedCobranca[] = [];
+      (data || []).forEach((row: any) => {
+        const cobData = (row.data || {}) as Record<string, any>;
+        const parcelas: any[] = Array.isArray(cobData.parcelas_atrasadas) ? cobData.parcelas_atrasadas : [];
+        const temDividaAtiva = parcelas.some((p) => isParcelaAtiva(p));
+        if (temDividaAtiva) return;
+
+        const situacoes = Array.from(
+          new Set(
+            parcelas.map((p) => {
+              const base = String(p?.situacao ?? "").trim();
+              const raw = p?.ssotica_raw || {};
+              const resolvidoPor = raw.cancelado_por || raw.baixado_por || raw.estornado_por;
+              return resolvidoPor && base ? `${base} (resolvido por ${resolvidoPor})` : base;
+            }).filter(Boolean),
+          ),
+        );
+        flagged.push({
+          id: row.id,
+          nome: cobData.nome || "Cliente",
+          telefone: cobData.telefone || "",
+          valor: Number(row.valor || 0),
+          situacoesEncontradas: situacoes.length > 0 ? situacoes.join(", ") : "Nenhuma parcela registrada",
+          assignedTo: row.assigned_to || null,
+          ssoticaClienteId: row.ssotica_cliente_id ?? null,
+          ssoticaCompanyId: row.ssotica_company_id ?? null,
+          companyId: row.company_id ?? null,
+          dataUltimaReceita: cobData.data_ultima_receita || null,
+          dataUltimaVenda: cobData.data_ultima_venda || null,
+          dataUltimaCompra: cobData.data_ultima_compra || null,
+        });
+      });
+
+      setAuditResults(flagged);
+      toast.success(`${flagged.length} cobrança(s) sem dívida ativa encontrada(s).`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao auditar cobranças");
+    } finally {
+      setAuditScanning(false);
+    }
+  };
+
+  const resolveAuditedCobranca = async (cob: AuditedCobranca) => {
+    setAuditResolvingId(cob.id);
+    try {
+      let renovacaoCriada = false;
+      if (cob.ssoticaClienteId && cob.ssoticaCompanyId) {
+        const { data: jaTemRen } = await supabase
+          .from("crm_renovacoes")
+          .select("id")
+          .eq("ssotica_cliente_id", cob.ssoticaClienteId)
+          .eq("ssotica_company_id", cob.ssoticaCompanyId)
+          .maybeSingle();
+
+        if (!jaTemRen) {
+          const dataReferencia = cob.dataUltimaReceita ?? cob.dataUltimaVenda ?? cob.dataUltimaCompra ?? null;
+          let renStatusKey = "fazer_direcionamento_para_o_vendedor";
+          if (cob.assignedTo) {
+            if (!dataReferencia) {
+              renStatusKey = "novo";
+            } else {
+              const dias = Math.floor(
+                (Date.now() - new Date(`${dataReferencia}T00:00:00Z`).getTime()) / 86400000,
+              );
+              renStatusKey =
+                dias < 365 ? "em_contato" : dias < 730 ? "agendado" : dias < 1095 ? "renovado" : "mais_de_3_anos";
+            }
+          }
+
+          const { data: insertedRen, error: renErr } = await supabase
+            .from("crm_renovacoes")
+            .insert({
+              ssotica_cliente_id: cob.ssoticaClienteId,
+              ssotica_company_id: cob.ssoticaCompanyId,
+              assigned_to: cob.assignedTo,
+              data: {
+                nome: cob.nome,
+                telefone: cob.telefone,
+                data_ultima_receita: cob.dataUltimaReceita,
+                data_ultima_venda: cob.dataUltimaVenda,
+                data_ultima_compra: dataReferencia,
+                origem_transicao: "cobranca_sem_divida_ativa_auditoria",
+              },
+              status: renStatusKey,
+              data_ultima_compra: dataReferencia,
+              scheduled_date: dataReferencia,
+            })
+            .select("id")
+            .maybeSingle();
+          if (renErr) throw renErr;
+          renovacaoCriada = !!insertedRen?.id;
+
+          await supabase.from("crm_module_transition_logs").insert({
+            cliente_nome: cob.nome,
+            from_module: "cobranca",
+            to_module: "renovacao",
+            to_status_key: renStatusKey,
+            to_status_label: null,
+            source_record_id: cob.id,
+            target_record_id: insertedRen?.id ?? null,
+            ssotica_cliente_id: cob.ssoticaClienteId,
+            company_id: cob.ssoticaCompanyId,
+            triggered_by: user?.id ?? null,
+            trigger_source: "auditoria_sem_divida_ativa",
+          });
+        }
+      }
+
+      if (!renovacaoCriada) {
+        await supabase.from("crm_module_transition_logs").insert({
+          cliente_nome: cob.nome,
+          from_module: "cobranca",
+          to_module: "none",
+          to_status_key: null,
+          to_status_label: null,
+          source_record_id: cob.id,
+          ssotica_cliente_id: cob.ssoticaClienteId,
+          company_id: cob.ssoticaCompanyId ?? cob.companyId,
+          triggered_by: user?.id ?? null,
+          trigger_source: "auditoria_sem_divida_ativa",
+        });
+      }
+
+      const { error } = await supabase.from("crm_cobrancas").delete().eq("id", cob.id);
+      if (error) throw error;
+
+      setAuditResults((prev) => (prev ? prev.filter((c) => c.id !== cob.id) : prev));
+      setRefreshKey((k) => k + 1);
+      return true;
+    } catch (e) {
+      toast.error(`Erro ao resolver "${cob.nome}": ${e instanceof Error ? e.message : "erro desconhecido"}`);
+      return false;
+    } finally {
+      setAuditResolvingId(null);
+    }
+  };
+
+  const resolveAllAudited = async () => {
+    if (!auditResults || auditResults.length === 0) return;
+    setAuditResolvingAll(true);
+    let ok = 0;
+    let fail = 0;
+    for (const cob of [...auditResults]) {
+      const success = await resolveAuditedCobranca(cob);
+      if (success) ok++;
+      else fail++;
+    }
+    setAuditResolvingAll(false);
+    if (fail === 0) toast.success(`${ok} cobrança(s) resolvida(s).`);
+    else toast.error(`${ok} resolvida(s), ${fail} falharam.`);
   };
 
   const confirmDelete = async () => {
@@ -754,6 +977,18 @@ export default function CobrancasPage() {
               <Plus className="mr-2 h-4 w-4" />Nova Cobrança
             </Button>
           )}
+          {(isAdmin || isGerente) && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setAuditOpen(true);
+                if (!auditResults) void scanCobrancasSemDividaAtiva();
+              }}
+            >
+              <Search className="mr-2 h-4 w-4" />Auditar sem dívida ativa
+            </Button>
+          )}
           {isAdmin && (
             <Button size="sm" variant="destructive" onClick={() => setBulkDeleteOpen(true)}>
               <Trash2 className="mr-2 h-4 w-4" />Excluir todos
@@ -961,6 +1196,71 @@ export default function CobrancasPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={auditOpen} onOpenChange={setAuditOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Cobranças sem dívida ativa</DialogTitle>
+            <DialogDescription>
+              Cards sem nenhuma parcela em "Em atraso", "Negativado Serasa" ou "Ajuizado" (Návide/Saniely).
+              Geralmente acontece quando a dívida já foi paga ou renegociada na SSótica, mas a API ainda não
+              refletiu isso. Resolver move o cliente para Renovação (se aplicável) e remove o card daqui.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <Button size="sm" variant="secondary" onClick={() => void scanCobrancasSemDividaAtiva()} disabled={auditScanning}>
+                {auditScanning ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Verificando...</> : <><Search className="mr-2 h-4 w-4" />Verificar agora</>}
+              </Button>
+              {auditResults && auditResults.length > 0 && (
+                <Button size="sm" onClick={() => void resolveAllAudited()} disabled={auditResolvingAll || auditResolvingId !== null}>
+                  {auditResolvingAll ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Resolvendo...</> : `Resolver todos (${auditResults.length})`}
+                </Button>
+              )}
+            </div>
+            {auditResults && auditResults.length === 0 && (
+              <p className="text-sm text-muted-foreground">Nenhuma cobrança sem dívida ativa encontrada.</p>
+            )}
+            {auditResults && auditResults.length > 0 && (
+              <div className="max-h-[400px] overflow-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>Telefone</TableHead>
+                      <TableHead>Valor</TableHead>
+                      <TableHead>Situações encontradas</TableHead>
+                      <TableHead className="text-right">Ação</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {auditResults.map((cob) => (
+                      <TableRow key={cob.id}>
+                        <TableCell className="text-xs">{cob.nome}</TableCell>
+                        <TableCell className="text-xs">{cob.telefone}</TableCell>
+                        <TableCell className="text-xs">
+                          {cob.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{cob.situacoesEncontradas}</TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={auditResolvingId === cob.id || auditResolvingAll}
+                            onClick={() => void resolveAuditedCobranca(cob)}
+                          >
+                            {auditResolvingId === cob.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Resolver"}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </AppLayout>
   );

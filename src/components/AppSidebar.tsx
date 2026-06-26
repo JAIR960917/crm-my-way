@@ -49,8 +49,6 @@ const mainNavItems: NavItem[] = [
   { path: "/meu-dashboard-cobranca", label: "Dashboard Cobrança",   icon: LayoutDashboard },
   { path: "/relatorio-vendas",     label: "Relatório de Vendas",    icon: FileBarChart },
   { path: "/",                     label: "Leads",                  icon: LayoutDashboard },
-  { path: "/campanhas-copa",       label: "Campanhas Copa",         icon: Trophy },
-  { path: "/campanha-copa-relatorio", label: "Relatório Campanha Copa", icon: BarChart3 },
   { path: "/cobrancas",            label: "Cobranças",              icon: Receipt },
   { path: "/tarefas-crediario",    label: "Tarefas",               icon: CalendarClock },
   { path: "/agendamentos",         label: "Agendamentos",           icon: CalendarCheck },
@@ -86,6 +84,18 @@ const CONFIG_PATHS = new Set(configNavItems.map((i) => i.path));
 
 function isConfigPath(path: string) {
   return CONFIG_PATHS.has(path);
+}
+
+/** Submenu Campanha Copa (campanhas e relatório). */
+const campanhaCopaNavItems: NavItem[] = [
+  { path: "/campanhas-copa",          label: "Campanhas Copa",          icon: Trophy },
+  { path: "/campanha-copa-relatorio", label: "Relatório Campanha Copa", icon: BarChart3 },
+];
+
+const CAMPANHA_COPA_PATHS = new Set(campanhaCopaNavItems.map((i) => i.path));
+
+function isCampanhaCopaPath(path: string) {
+  return CAMPANHA_COPA_PATHS.has(path);
 }
 
 /** Submenu Estoque/Fiscal (controle de estoque via SSótica). */
@@ -162,6 +172,7 @@ export default function AppSidebar({ onNavigate }: Props) {
   const [updating, setUpdating] = useState(false);
   const [crmOpen, setCrmOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [campanhaCopaOpen, setCampanhaCopaOpen] = useState(false);
   const [estoqueFiscalOpen, setEstoqueFiscalOpen] = useState(false);
   const [financeiroOpen, setFinanceiroOpen] = useState(false);
   const [siteOficialOpen, setSiteOficialOpen] = useState(false);
@@ -185,6 +196,9 @@ export default function AppSidebar({ onNavigate }: Props) {
   const visibleConfigItems = configNavItems.filter(canSee);
   const configSectionActive = visibleConfigItems.some((i) => location.pathname === i.path);
 
+  const visibleCampanhaCopaItems = campanhaCopaNavItems.filter(canSee);
+  const campanhaCopaSectionActive = visibleCampanhaCopaItems.some((i) => location.pathname === i.path);
+
   const visibleEstoqueFiscalItems = estoqueFiscalNavItems.filter(canSee);
   const estoqueFiscalSectionActive = visibleEstoqueFiscalItems.some((i) => location.pathname === i.path);
 
@@ -200,6 +214,7 @@ export default function AppSidebar({ onNavigate }: Props) {
   useEffect(() => {
     if (isCrmPath(location.pathname)) setCrmOpen(true);
     if (isConfigPath(location.pathname)) setConfigOpen(true);
+    if (isCampanhaCopaPath(location.pathname)) setCampanhaCopaOpen(true);
     if (isEstoqueFiscalPath(location.pathname)) setEstoqueFiscalOpen(true);
     if (isFinanceiroPath(location.pathname)) setFinanceiroOpen(true);
     if (isSiteOficialPath(location.pathname)) setSiteOficialOpen(true);
@@ -296,6 +311,45 @@ export default function AppSidebar({ onNavigate }: Props) {
             </CollapsibleTrigger>
             <CollapsibleContent className="space-y-0.5 pt-0.5 pl-2">
               {visibleCrmItems.map((item) => (
+                <button
+                  key={item.path}
+                  onClick={() => handleNav(item.path)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-lg py-2 pl-5 pr-3 text-sm font-medium transition-colors",
+                    location.pathname === item.path
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-sidebar-foreground/90 hover:bg-sidebar-accent/50"
+                  )}
+                >
+                  <item.icon className="h-4 w-4 shrink-0 opacity-90" />
+                  {item.label}
+                </button>
+              ))}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+
+        {visibleCampanhaCopaItems.length > 0 && (
+          <Collapsible open={campanhaCopaOpen} onOpenChange={setCampanhaCopaOpen} className="pt-1">
+            <CollapsibleTrigger
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                campanhaCopaSectionActive && !campanhaCopaOpen
+                  ? "bg-sidebar-accent/70 text-sidebar-accent-foreground"
+                  : "hover:bg-sidebar-accent/50"
+              )}
+            >
+              <Trophy className="h-4 w-4 shrink-0" />
+              <span className="flex-1 text-left">Campanha Copa</span>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 opacity-70 transition-transform duration-200",
+                  campanhaCopaOpen && "rotate-180"
+                )}
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-0.5 pt-0.5 pl-2">
+              {visibleCampanhaCopaItems.map((item) => (
                 <button
                   key={item.path}
                   onClick={() => handleNav(item.path)}

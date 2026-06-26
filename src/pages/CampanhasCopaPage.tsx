@@ -85,6 +85,8 @@ export default function CampanhasCopaPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [cityFilter, setCityFilter] = useState(ALL);
+  const [page, setPage] = useState(0);
+  const SUBMISSIONS_PAGE_SIZE = 40;
   const [reassigning, setReassigning] = useState<string | null>(null);
   const [distributing, setDistributing] = useState(false);
   const [sendingIds, setSendingIds] = useState<Set<string>>(new Set());
@@ -157,7 +159,7 @@ export default function CampanhasCopaPage() {
             .from("campanha_copa_submissions")
             .select("*")
             .order("created_at", { ascending: false })
-            .limit(2000),
+            .limit(50000),
           supabase
             .from("profiles")
             .select("user_id, full_name, email, company_id")
@@ -275,6 +277,23 @@ export default function CampanhasCopaPage() {
       (r) => r.cidade && matchCityToRoute(r.cidade, cityFilter),
     );
   }, [searchFiltered, cityFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / SUBMISSIONS_PAGE_SIZE));
+
+  // Volta para a primeira página sempre que a busca/filtro muda o resultado.
+  useEffect(() => {
+    setPage(0);
+  }, [search, cityFilter]);
+
+  // Evita ficar numa página vazia se o total encolher (ex.: após enviar para Leads).
+  useEffect(() => {
+    if (page > totalPages - 1) setPage(totalPages - 1);
+  }, [page, totalPages]);
+
+  const paginated = useMemo(
+    () => filtered.slice(page * SUBMISSIONS_PAGE_SIZE, (page + 1) * SUBMISSIONS_PAGE_SIZE),
+    [filtered, page],
+  );
 
   const unassignedInFilter = useMemo(
     () => filtered.filter((r) => !r.assigned_to),
@@ -451,23 +470,38 @@ export default function CampanhasCopaPage() {
     }
   };
 
+  // Enviar tudo numa chamada só passa do tempo limite da edge function quando
+  // há centenas/milhares de inscrições (cada uma faz algumas idas ao banco).
+  // Divide em lotes pequenos e chama a function várias vezes em sequência.
+  const SEND_TO_LEADS_BATCH_SIZE = 50;
+
   const sendToLeads = async (ids: string[]) => {
     const targets = ids.filter((id) => !sendingIds.has(id));
     if (targets.length === 0) return;
 
     setSendingIds((prev) => new Set([...prev, ...targets]));
     try {
-      const { data, error } = await supabase.functions.invoke("campanha-copa-send-to-leads", {
-        body: { submissionIds: targets },
-      });
-      if (error) throw error;
-
-      const results = (data?.results ?? []) as {
+      type SendResult = {
         submissionId: string;
         status: "sent" | "already_sent" | "error";
         leadId?: string;
         error?: string;
-      }[];
+      };
+      const results: SendResult[] = [];
+      for (let i = 0; i < targets.length; i += SEND_TO_LEADS_BATCH_SIZE) {
+        const batch = targets.slice(i, i + SEND_TO_LEADS_BATCH_SIZE);
+        const { data, error } = await supabase.functions.invoke("campanha-copa-send-to-leads", {
+          body: { submissionIds: batch },
+        });
+        if (error) {
+          batch.forEach((id) =>
+            results.push({ submissionId: id, status: "error", error: error.message }),
+          );
+          continue;
+        }
+        results.push(...((data?.results ?? []) as SendResult[]));
+      }
+
       const sent = results.filter((r) => r.status === "sent");
       const errors = results.filter((r) => r.status === "error");
 
@@ -768,7 +802,7 @@ export default function CampanhasCopaPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filtered.map((r) => {
+                    paginated.map((r) => {
                       const storeStaff = eligibleForSubmission(r);
                       return (
                         <TableRow key={r.id}>
@@ -866,6 +900,35 @@ export default function CampanhasCopaPage() {
                 </TableBody>
               </Table>
             </div>
+            {filtered.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3">
+                <p className="text-xs text-muted-foreground">
+                  Mostrando {page * SUBMISSIONS_PAGE_SIZE + 1}–
+                  {Math.min((page + 1) * SUBMISSIONS_PAGE_SIZE, filtered.length)} de {filtered.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page === 0}
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  >
+                    Anterior
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    Página {page + 1} de {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page >= totalPages - 1}
+                    onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  >
+                    Próxima
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

@@ -11,6 +11,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import {
   inboxDisplayModuleForConversation,
@@ -26,16 +34,21 @@ import WhatsAppCreateLeadPanel from "@/components/whatsapp/WhatsAppCreateLeadPan
 import WhatsAppCobrancaPanel from "@/components/whatsapp/WhatsAppCobrancaPanel";
 import {
   AlertCircle,
+  ArrowLeft,
+  Building2,
   Check,
   CheckCheck,
   Clock,
   FileText,
   Image as ImageIcon,
+  Info,
   Mic,
   MessageSquare,
   Paperclip,
+  Plus,
   Search,
   Send,
+  ShieldCheck,
   Smartphone,
   Square,
   Bell,
@@ -43,7 +56,6 @@ import {
   Trash2,
   UserCheck,
   UserX,
-  ArrowRightLeft,
   Bot,
 } from "lucide-react";
 import {
@@ -85,6 +97,9 @@ type ConversationRow = {
   status: "pending" | "open" | "closed";
   ai_active?: boolean;
   ai_enabled?: boolean;
+  routed_to_company_id?: string | null;
+  instance_name?: string | null;
+  instance_display_phone?: string | null;
 };
 
 type MessageRow = {
@@ -126,6 +141,28 @@ function formatInstanceShort(inst: WaInstanceRow | undefined): string {
   const phone = inst.display_phone?.trim();
   if (phone && phone !== "—") return `${inst.name} · ${phone}`;
   return inst.name;
+}
+
+/**
+ * Quando a conversa foi encaminhada de outra empresa (ou pertence a uma
+ * instância de pool sem empresa), instancesById não tem o registro — só
+ * lista instâncias da PRÓPRIA empresa. Usa o nome/telefone que já vêm
+ * embutidos na própria conversa (via RPC) como fallback.
+ */
+function resolveInstanceForDisplay(
+  conversation: { instance_id: string | null; instance_name?: string | null; instance_display_phone?: string | null },
+  instancesById: Record<string, WaInstanceRow>,
+): WaInstanceRow | undefined {
+  if (!conversation.instance_id) return undefined;
+  const known = instancesById[conversation.instance_id];
+  if (known) return known;
+  if (!conversation.instance_name) return undefined;
+  return {
+    id: conversation.instance_id,
+    name: conversation.instance_name,
+    display_phone: conversation.instance_display_phone ?? null,
+    phone_number_id: null,
+  };
 }
 
 const MODULE_STYLES: Record<ModuleKey, { label: string; className: string }> = {
@@ -208,6 +245,10 @@ function getConversationUnreadState(
   const unread = Math.max(Math.max(0, Number(c.unread_count) || 0), localBoost);
   if (unread > 0) return { show: true, count: unread };
 
+  // Encaminhada para esta empresa — precisa de atenção mesmo que a última
+  // mensagem tenha sido enviada pela empresa de origem (não pelo cliente).
+  if (c.status === "pending" && c.routed_to_company_id) return { show: true, count: 1 };
+
   if (c.last_message_direction === "in" && c.last_message_at) {
     const lastMsgAt = new Date(c.last_message_at).getTime();
     const lastReadAt = c.last_read_at ? new Date(c.last_read_at).getTime() : 0;
@@ -241,6 +282,7 @@ export default function WhatsAppInbox() {
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mobileInfoOpen, setMobileInfoOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"pending" | "mine" | "all">("pending");
   const [localUnreadBoost, setLocalUnreadBoost] = useState<Record<string, number>>({});
@@ -259,6 +301,7 @@ export default function WhatsAppInbox() {
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [templateLanguage, setTemplateLanguage] = useState<string>("pt_BR");
+  const [templatePopoverOpen, setTemplatePopoverOpen] = useState(false);
 
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [messages, setMessages] = useState<MessageRow[]>([]);
@@ -271,11 +314,10 @@ export default function WhatsAppInbox() {
   const [deletingMsgId, setDeletingMsgId] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  const [conversationActionLoading, setConversationActionLoading] = useState<"accept" | "close" | "transfer" | "ai-on" | "ai-off" | null>(null);
-  const [transferOpen, setTransferOpen] = useState(false);
-  const [transferUsers, setTransferUsers] = useState<{ user_id: string; full_name: string | null; email: string | null }[]>([]);
-  const [transferUsersLoading, setTransferUsersLoading] = useState(false);
-  const [transferTarget, setTransferTarget] = useState("");
+  const [conversationActionLoading, setConversationActionLoading] = useState<"accept" | "close" | "route-company" | "ai-on" | "ai-off" | null>(null);
+  const [routeCompanyOpen, setRouteCompanyOpen] = useState(false);
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+  const [routeCompanyTarget, setRouteCompanyTarget] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -385,13 +427,32 @@ export default function WhatsAppInbox() {
     return conversations.filter((c) => {
       if (view === "pending" && !(c.status === "pending" && c.last_message_direction === "in")) return false;
       if (view === "mine" && !(c.status === "open" && c.assigned_to === user?.id)) return false;
+      // "Todos" = para admin, literalmente todas as conversas de todas as
+      // empresas (visão geral). Para os demais usuários, só as conversas que
+      // eles mesmos fecharam — conversas encaminhadas para outra empresa não
+      // entram aqui, pois ao encaminhar o assigned_to deixa de ser o usuário
+      // e o status volta para "pending" (não "closed").
+      if (view === "all" && !isAdmin && !(c.status === "closed" && c.assigned_to === user?.id)) {
+        return false;
+      }
       if (!q) return true;
       const name = (c.contact_name || "").toLowerCase();
       const wa = (c.wa_id || "").toLowerCase();
       const preview = (c.last_preview || "").toLowerCase();
       return name.includes(q) || wa.includes(q) || preview.includes(q);
     });
-  }, [conversations, view, search, user?.id]);
+  }, [conversations, view, search, user?.id, isAdmin]);
+
+  // Renderizar as ~1900 linhas de "Todos" de uma vez (cada uma com ícones,
+  // badges, formatação de data) deixa a tela lenta/travando o tempo de tela
+  // (DOM grande, sem virtualização) — mostra só um lote por vez, com botão
+  // pra carregar mais. Reinicia o lote ao trocar de aba ou buscar.
+  const PAGE_SIZE = 150;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [view, search]);
+  const visibleList = useMemo(() => filteredList.slice(0, visibleCount), [filteredList, visibleCount]);
 
   const pendingConversationsCount = useMemo(
     () => conversations.filter((c) => c.status === "pending" && c.last_message_direction === "in").length,
@@ -403,14 +464,18 @@ export default function WhatsAppInbox() {
     [conversations, user?.id],
   );
 
-  const inboxTabs = useMemo((): { key: "pending" | "mine" | "all"; label: string }[] => {
-    const tabs: { key: "pending" | "mine" | "all"; label: string }[] = [
-      { key: "pending", label: pendingConversationsCount > 0 ? `Pendentes (${pendingConversationsCount})` : "Pendentes" },
-      { key: "mine", label: mineConversationsCount > 0 ? `Ativos (${mineConversationsCount})` : "Ativos" },
-    ];
-    if (isPrivileged) tabs.push({ key: "all", label: "Todas" });
-    return tabs;
-  }, [pendingConversationsCount, mineConversationsCount, isPrivileged]);
+  const closedMineConversationsCount = useMemo(
+    () => conversations.filter((c) => c.status === "closed" && c.assigned_to === user?.id).length,
+    [conversations, user?.id],
+  );
+
+  const allTabCount = isAdmin ? conversations.length : closedMineConversationsCount;
+
+  const inboxTabs = useMemo((): { key: "pending" | "mine" | "all"; label: string }[] => [
+    { key: "pending", label: pendingConversationsCount > 0 ? `Pendentes (${pendingConversationsCount})` : "Pendentes" },
+    { key: "mine", label: mineConversationsCount > 0 ? `Ativos (${mineConversationsCount})` : "Ativos" },
+    { key: "all", label: allTabCount > 0 ? `Todos (${allTabCount})` : "Todos" },
+  ], [pendingConversationsCount, mineConversationsCount, allTabCount]);
 
   const loadInstances = useCallback(async () => {
     const { data, error } = await supabase.rpc("list_whatsapp_instances_for_inbox");
@@ -470,26 +535,20 @@ export default function WhatsAppInbox() {
     setCobrancaInstanceIds(ids);
   }, []);
 
-  const getInstance = useCallback(
-    (instanceId: string | null | undefined) =>
-      instanceId ? instancesById[instanceId] : undefined,
-    [instancesById],
-  );
-
   const conversationInstanceLabel = useMemo(() => {
     if (!conversation?.instance_id) return null;
-    return formatInstanceShort(getInstance(conversation.instance_id));
-  }, [conversation?.instance_id, getInstance]);
+    return formatInstanceShort(resolveInstanceForDisplay(conversation, instancesById));
+  }, [conversation, instancesById]);
 
   const loadConversations = useCallback(async () => {
     const extendedCols =
-      "id, instance_id, wa_id, contact_name, phone_display, module, card_id, window_expires_at, last_message_at, last_preview, unread_count, last_message_direction, last_read_at, assigned_to, status";
+      "id, instance_id, wa_id, contact_name, phone_display, module, card_id, window_expires_at, last_message_at, last_preview, unread_count, last_message_direction, last_read_at, assigned_to, status, routed_to_company_id";
     const basicCols =
-      "id, instance_id, wa_id, contact_name, phone_display, module, card_id, window_expires_at, last_message_at, last_preview, unread_count, assigned_to, status";
+      "id, instance_id, wa_id, contact_name, phone_display, module, card_id, window_expires_at, last_message_at, last_preview, unread_count, assigned_to, status, routed_to_company_id";
 
     let rows: ConversationRow[] | null = null;
 
-    const rpc = await supabase.rpc("list_whatsapp_inbox_conversations", { p_limit: 200 });
+    const rpc = await supabase.rpc("list_whatsapp_inbox_conversations", { p_limit: 2000 });
     if (!rpc.error && rpc.data) {
       rows = rpc.data as ConversationRow[];
     }
@@ -659,6 +718,31 @@ export default function WhatsAppInbox() {
     }
   }, [conversation, applyConversationPatch, user?.id, currentUserName, loadConversations]);
 
+  const handleReopenConversation = useCallback(async () => {
+    if (!conversation) return;
+    setConversationActionLoading("accept");
+    try {
+      const { error } = await supabase.rpc("reopen_whatsapp_conversation", {
+        p_conversation_id: conversation.id,
+      });
+      if (error) throw error;
+      applyConversationPatch({
+        ...conversation,
+        status: "open",
+        assigned_to: user?.id ?? null,
+        assigned_to_name: currentUserName,
+      });
+      setView("mine");
+      toast.success("Atendimento reaberto");
+      void loadConversations();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao reabrir conversa");
+      void loadConversations();
+    } finally {
+      setConversationActionLoading(null);
+    }
+  }, [conversation, applyConversationPatch, user?.id, currentUserName, loadConversations]);
+
   const handleToggleAi = useCallback(async (active: boolean) => {
     if (!conversation) return;
     setConversationActionLoading(active ? "ai-on" : "ai-off");
@@ -696,59 +780,42 @@ export default function WhatsAppInbox() {
     }
   }, [conversation, applyConversationPatch, loadConversations]);
 
-  const loadTransferUsers = useCallback(async (instanceId: string | null) => {
-    if (!instanceId) {
-      setTransferUsers([]);
-      return;
-    }
-    setTransferUsersLoading(true);
-    try {
-      const { data, error } = await supabase.rpc("list_whatsapp_inbox_assignable_users", {
-        p_instance_id: instanceId,
-      });
-      if (error) throw error;
-      setTransferUsers((data || []) as { user_id: string; full_name: string | null; email: string | null }[]);
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Erro ao listar usuários para transferência");
-      setTransferUsers([]);
-    } finally {
-      setTransferUsersLoading(false);
-    }
+  useEffect(() => {
+    let cancelled = false;
+    void supabase.rpc("list_companies_for_whatsapp_routing").then(({ data }) => {
+      if (!cancelled) setCompanies((data || []) as { id: string; name: string }[]);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const handleOpenTransfer = useCallback(() => {
-    if (!conversation) return;
-    setTransferTarget("");
-    setTransferOpen(true);
-    void loadTransferUsers(conversation.instance_id);
-  }, [conversation, loadTransferUsers]);
+  const handleOpenRouteToCompany = useCallback(() => {
+    setRouteCompanyTarget("");
+    setRouteCompanyOpen(true);
+  }, []);
 
-  const handleTransferConversation = useCallback(async () => {
-    if (!conversation || !transferTarget) return;
-    setConversationActionLoading("transfer");
+  const handleRouteToCompany = useCallback(async () => {
+    if (!conversation || !routeCompanyTarget) return;
+    setConversationActionLoading("route-company");
     try {
-      const { error } = await supabase.rpc("transfer_whatsapp_conversation", {
+      const { error } = await supabase.rpc("route_whatsapp_conversation_to_company", {
         p_conversation_id: conversation.id,
-        p_to_user_id: transferTarget,
+        p_company_id: routeCompanyTarget,
       });
       if (error) throw error;
-      const target = transferUsers.find((u) => u.user_id === transferTarget);
-      applyConversationPatch({
-        ...conversation,
-        status: "open",
-        assigned_to: transferTarget,
-        assigned_to_name: target?.full_name || target?.email || null,
-      });
-      setTransferOpen(false);
-      toast.success("Conversa transferida");
+      const target = companies.find((c) => c.id === routeCompanyTarget);
+      setRouteCompanyOpen(false);
+      toast.success(`Conversa encaminhada para ${target?.name || "a empresa selecionada"}`);
+      setSelectedId(null);
       void loadConversations();
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Erro ao transferir conversa");
+      toast.error(e instanceof Error ? e.message : "Erro ao encaminhar conversa");
       void loadConversations();
     } finally {
       setConversationActionLoading(null);
     }
-  }, [conversation, transferTarget, transferUsers, applyConversationPatch, loadConversations]);
+  }, [conversation, routeCompanyTarget, companies, loadConversations]);
 
   const handleDeleteMessage = useCallback(async () => {
     if (!deletingMsgId) return;
@@ -997,7 +1064,13 @@ export default function WhatsAppInbox() {
       if ((data as any)?.error) throw new Error((data as any).error);
       setDraft("");
       await loadMessages(conversation.id);
-      await loadConversations();
+      // Não recarrega a lista inteira de conversas aqui: whatsapp-chat já
+      // atualiza a linha em whatsapp_conversations no servidor, e o canal
+      // realtime já assinado (applyConversationPatch) reflete isso sozinho.
+      // Um loadConversations() completo a cada envio refaz a query pesada
+      // de até 2000 conversas (com JOIN LATERAL por linha) e re-ordena tudo
+      // no cliente — em contas com muitas conversas isso trava a tela
+      // quando o usuário manda mensagem rápido pra pessoas diferentes.
       setPinnedToBottom(true);
       queueMicrotask(() => scrollToBottom("smooth"));
     } catch (e: unknown) {
@@ -1026,7 +1099,7 @@ export default function WhatsAppInbox() {
       if (error) throw new Error(await parseSendError(data, error));
       if ((data as any)?.error) throw new Error((data as any).error);
       await loadMessages(conversation.id);
-      await loadConversations();
+      // Mesma razão do handleSendText: a lista já se atualiza via realtime.
       setPinnedToBottom(true);
       queueMicrotask(() => scrollToBottom("smooth"));
     } catch (e: unknown) {
@@ -1084,7 +1157,7 @@ export default function WhatsAppInbox() {
       if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
       setDraft("");
       await loadMessages(conversation.id);
-      await loadConversations();
+      // Mesma razão de handleSendText: a lista já se atualiza via realtime.
       setPinnedToBottom(true);
       queueMicrotask(() => scrollToBottom("smooth"));
     } catch (e: unknown) {
@@ -1187,15 +1260,203 @@ export default function WhatsAppInbox() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Conteúdo "Vinculado no CRM" — reaproveitado no painel lateral (desktop)
+  // e dentro da folha de informações do cliente (mobile).
+  const crmPanelInner = conversation ? (
+    <div className="min-w-0 space-y-4">
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Vinculado no CRM
+        </p>
+        <dl className="mt-3 space-y-3 text-sm">
+          <div>
+            <dt className="text-xs text-muted-foreground">Módulo</dt>
+            <dd className="mt-0.5">
+              <span className={cn("rounded px-2 py-0.5 text-xs font-medium", mod.className)}>
+                {mod.label}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Nossa linha (recebe/envia)</dt>
+            <dd className="mt-0.5 text-xs font-medium text-sky-800 dark:text-sky-300 break-words">
+              {conversationInstanceLabel || "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Telefone do cliente</dt>
+            <dd className="mt-0.5 font-medium text-amber-700 dark:text-amber-300 break-words">
+              {formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
+            </dd>
+          </div>
+        </dl>
+      </div>
+      {isAdmin || isGerente ? (
+        <WhatsAppCobrancaPanel
+          conversation={conversation}
+          formatPhone={formatPhoneDisplay}
+          onLinked={handleLeadLinked}
+          onResolvedModule={setPanelResolvedModule}
+          fallback={
+            <WhatsAppCreateLeadPanel
+              conversation={conversation}
+              formatPhone={formatPhoneDisplay}
+              onLinked={handleLeadLinked}
+              afterCobrancaSearch
+              onResolvedModule={setPanelResolvedModule}
+            />
+          }
+        />
+      ) : useCobrancaPanel ? (
+        <WhatsAppCobrancaPanel
+          conversation={conversation}
+          formatPhone={formatPhoneDisplay}
+          onLinked={handleLeadLinked}
+          onResolvedModule={setPanelResolvedModule}
+        />
+      ) : (
+        <WhatsAppCreateLeadPanel
+          conversation={conversation}
+          formatPhone={formatPhoneDisplay}
+          onLinked={handleLeadLinked}
+          onResolvedModule={setPanelResolvedModule}
+        />
+      )}
+    </div>
+  ) : null;
+
+  // Status + ações da conversa (aceitar/transferir/fechar/IA) — usado no
+  // cabeçalho desktop e dentro da folha de informações no mobile.
+  const conversationStatusAndActions = conversation ? (
+    <div className="flex w-full flex-wrap items-center justify-between gap-2">
+      <p className="text-xs text-muted-foreground">
+        {conversation.status === "pending"
+          ? "Aguardando atendimento"
+          : conversation.status === "closed"
+            ? "Atendimento encerrado"
+            : conversation.assigned_to === user?.id
+              ? "Atendido por você"
+              : `Atendido por: ${conversation.assigned_to_name || "—"}`}
+      </p>
+      <div className="flex items-center gap-2">
+        {conversation.ai_enabled &&
+        conversation.status !== "pending" &&
+        (conversation.assigned_to === user?.id || isPrivileged) ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            disabled={conversationActionLoading !== null}
+            onClick={() => void handleToggleAi(!conversation.ai_active)}
+          >
+            <Bot className="h-3.5 w-3.5" />
+            {conversation.ai_active ? "Pausar IA" : "Reativar IA"}
+          </Button>
+        ) : null}
+        {conversation.status === "pending" ? (
+          <Button
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            disabled={conversationActionLoading !== null}
+            onClick={() => void handleAcceptConversation()}
+          >
+            <UserCheck className="h-3.5 w-3.5" />
+            Aceitar
+          </Button>
+        ) : null}
+        {conversation.status === "open" &&
+        (conversation.assigned_to === user?.id || isPrivileged) ? (
+          <>
+            <Popover open={routeCompanyOpen} onOpenChange={setRouteCompanyOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  disabled={conversationActionLoading !== null}
+                  onClick={handleOpenRouteToCompany}
+                >
+                  <Building2 className="h-3.5 w-3.5" />
+                  Encaminhar p/ empresa
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-64 space-y-3">
+                <p className="text-sm font-medium">Encaminhar para outra empresa</p>
+                <p className="text-xs text-muted-foreground">
+                  A conversa fica pendente para qualquer usuário da empresa escolhida aceitar.
+                </p>
+                <Select value={routeCompanyTarget} onValueChange={setRouteCompanyTarget}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Selecione a empresa" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {companies.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  className="h-8 w-full text-xs"
+                  disabled={!routeCompanyTarget || conversationActionLoading !== null}
+                  onClick={() => void handleRouteToCompany()}
+                >
+                  Confirmar encaminhamento
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 w-full gap-1.5 text-xs"
+                  disabled={conversationActionLoading !== null}
+                  onClick={() => {
+                    setRouteCompanyOpen(false);
+                    void handleCloseConversation();
+                  }}
+                >
+                  <UserX className="h-3.5 w-3.5" />
+                  Fechar conversa em vez de encaminhar
+                </Button>
+              </PopoverContent>
+            </Popover>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 text-xs"
+              disabled={conversationActionLoading !== null}
+              onClick={() => void handleCloseConversation()}
+            >
+              <UserX className="h-3.5 w-3.5" />
+              Fechar
+            </Button>
+          </>
+        ) : null}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-0 flex-1 overflow-hidden border bg-card lg:rounded-xl lg:shadow-sm">
-        {/* Lista de conversas */}
-        <aside className="flex w-full max-w-[320px] flex-col border-r bg-muted/30 lg:max-w-[360px]">
+        {/* Lista de conversas — no mobile ocupa a tela toda e some quando uma conversa é aberta */}
+        <aside
+          className={cn(
+            "flex w-full flex-col border-r bg-muted/30 lg:max-w-[360px]",
+            conversation ? "hidden lg:flex" : "flex max-w-full lg:max-w-[360px]",
+          )}
+        >
           <div className="space-y-3 border-b p-3">
             <div className="flex items-center gap-2">
               <MessageSquare className="h-5 w-5 text-primary" />
               <h1 className="text-lg font-semibold">Conversas</h1>
+              <Badge
+                variant="outline"
+                className="gap-1 border-emerald-600/50 text-[10px] text-emerald-700 dark:text-emerald-300"
+              >
+                <ShieldCheck className="h-3 w-3" />
+                API Oficial Meta
+              </Badge>
               {notifyPermission === "granted" ? (
                 <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400">
                   <Bell className="h-3.5 w-3.5" />
@@ -1220,7 +1481,7 @@ export default function WhatsAppInbox() {
             </div>
             {!isAdmin ? (
               <p className="text-[10px] text-muted-foreground">
-                Exibindo apenas números atribuídos a você (WhatsApp → API Meta).
+                Exibindo números da sua empresa e/ou atribuídos a você (WhatsApp → API Meta).
               </p>
             ) : null}
             <div className="relative">
@@ -1249,9 +1510,9 @@ export default function WhatsAppInbox() {
 
           <ScrollArea className="flex-1">
             <ul className="p-1">
-              {filteredList.map((c) => {
+              {visibleList.map((c) => {
                 const active = c.id === selectedId;
-                const inst = c.instance_id ? instancesById[c.instance_id] : undefined;
+                const inst = resolveInstanceForDisplay(c, instancesById);
                 const m = MODULE_STYLES[inboxDisplayModuleForConversation({
                   dedicatedCobrancaUser: cobrancaInboxMode,
                   storedModule: c.module,
@@ -1277,18 +1538,18 @@ export default function WhatsAppInbox() {
                       type="button"
                       onClick={() => setSelectedId(c.id)}
                       className={cn(
-                        "relative flex w-full gap-3 overflow-visible rounded-lg border border-transparent p-3 text-left transition-colors",
+                        "relative flex w-full gap-2.5 overflow-visible rounded-lg border border-transparent p-2 text-left transition-colors",
                         active
                           ? "bg-primary/10"
                           : hasUnread
                             ? "border-green-500/20 bg-green-500/[0.08] hover:bg-green-500/[0.12]"
                             : "hover:bg-muted",
-                        hasUnread && !active && "pl-2.5 before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[3px] before:rounded-full before:bg-green-500 before:content-['']",
+                        hasUnread && !active && "pl-2 before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[3px] before:rounded-full before:bg-green-500 before:content-['']",
                       )}
                     >
                       <Avatar
                         className={cn(
-                          "h-11 w-11 shrink-0",
+                          "h-9 w-9 shrink-0",
                           hasUnread && !active && "ring-2 ring-green-500/45 ring-offset-2 ring-offset-background",
                         )}
                       >
@@ -1302,27 +1563,27 @@ export default function WhatsAppInbox() {
                         </AvatarFallback>
                       </Avatar>
                       <div className="min-w-0 flex-1">
-                        <p className={cn("truncate", hasUnread ? "font-semibold text-foreground" : "font-medium")}>
+                        <p className={cn("truncate text-sm leading-tight", hasUnread ? "font-semibold text-foreground" : "font-medium")}>
                           {contact}
                         </p>
                         <p
                           className={cn(
-                            "mt-0.5 truncate text-xs",
+                            "mt-0.5 truncate text-xs leading-tight",
                             hasUnread ? "font-semibold text-foreground" : "text-muted-foreground",
                           )}
                         >
                           {c.last_preview || "—"}
                         </p>
                         {hasUnread && !active ? (
-                          <p className="mt-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+                          <p className="mt-0.5 text-[10px] leading-tight font-medium text-green-600 dark:text-green-400">
                             Aguardando resposta
                           </p>
                         ) : null}
-                        <p className="mt-0.5 truncate text-[10px] font-medium text-sky-800 dark:text-sky-300">
+                        <p className="mt-0.5 truncate text-[10px] leading-tight font-medium text-sky-800 dark:text-sky-300">
                           <Smartphone className="mr-0.5 inline h-3 w-3 opacity-80" />
                           {instanceName} · {customerPhone}
                         </p>
-                        <div className="mt-1 flex items-center gap-1.5">
+                        <div className="mt-0.5 flex items-center gap-1.5">
                           <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", m.className)}>
                             {m.label}
                           </span>
@@ -1371,12 +1632,25 @@ export default function WhatsAppInbox() {
                   Nenhuma conversa encontrada
                 </li>
               ) : null}
+              {filteredList.length > visibleCount && (
+                <li className="p-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                  >
+                    Carregar mais ({filteredList.length - visibleCount} restantes)
+                  </Button>
+                </li>
+              )}
             </ul>
           </ScrollArea>
         </aside>
 
-        {/* Thread + painel lateral */}
-        <div className="flex min-w-0 flex-1 flex-col">
+        {/* Thread + painel lateral — no mobile só aparece depois de escolher a conversa */}
+        <div className={cn("flex min-w-0 flex-1 flex-col", !conversation && "hidden lg:flex")}>
           {!conversation ? (
             <div className="flex flex-1 items-center justify-center text-muted-foreground">
               <AlertCircle className="h-4 w-4 mr-2" />
@@ -1385,155 +1659,119 @@ export default function WhatsAppInbox() {
           ) : (
             <>
               {/* Cabeçalho da conversa */}
-              <header className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
-                <Avatar className="h-10 w-10">
-                  <AvatarFallback>{initials(conversation.contact_name || conversation.wa_id)}</AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="font-semibold">
+              <header className="border-b">
+                {/* Mobile: cabeçalho compacto, estilo WhatsApp — detalhes ficam na folha de informações */}
+                <div className="flex items-center gap-2 px-3 py-2 lg:hidden">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="-ml-1 h-9 w-9 shrink-0"
+                    onClick={() => setSelectedId(null)}
+                    title="Voltar para as conversas"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                  <Avatar className="h-9 w-9 shrink-0">
+                    <AvatarFallback>{initials(conversation.contact_name || conversation.wa_id)}</AvatarFallback>
+                  </Avatar>
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => setMobileInfoOpen(true)}
+                  >
+                    <h2 className="truncate text-sm font-semibold leading-tight">
                       {conversation.card_id && conversation.contact_name?.trim()
                         ? conversation.contact_name
                         : formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
                     </h2>
-                    <span className={cn("rounded px-2 py-0.5 text-xs font-medium", mod.className)}>
+                    <p className="truncate text-[11px] leading-tight text-muted-foreground">
                       {mod.label}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Cliente: {formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
-                  </p>
-                  {conversationInstanceLabel ? (
-                    <p className="mt-1 flex items-center gap-1 text-xs font-medium text-sky-800 dark:text-sky-300">
-                      <Smartphone className="h-3.5 w-3.5 shrink-0" />
-                      Nossa linha: {conversationInstanceLabel}
+                      {" · "}
+                      {windowOpen ? "Janela 24h aberta" : "Só template aprovado"}
                     </p>
+                  </button>
+                  {conversation.status === "pending" ? (
+                    <Button
+                      size="sm"
+                      className="h-8 shrink-0 gap-1 px-2.5 text-xs"
+                      disabled={conversationActionLoading !== null}
+                      onClick={() => void handleAcceptConversation()}
+                    >
+                      <UserCheck className="h-3.5 w-3.5" />
+                      Aceitar
+                    </Button>
                   ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 shrink-0"
+                    onClick={() => setMobileInfoOpen(true)}
+                    title="Informações do cliente"
+                  >
+                    <Info className="h-4 w-4" />
+                  </Button>
                 </div>
-                {windowOpen ? (
-                  <Badge variant="secondary" className="gap-1 bg-emerald-500/15 text-emerald-800 dark:text-emerald-200">
-                    <Clock className="h-3 w-3" />
-                    Janela 24h aberta
-                    {conversation.window_expires_at ? (
-                      <span className="font-normal opacity-80">
-                        · até {format(new Date(conversation.window_expires_at), "HH:mm", { locale: ptBR })}
-                      </span>
-                    ) : null}
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary" className="gap-1 bg-amber-500/15 text-amber-900 dark:text-amber-100">
-                    <FileText className="h-3 w-3" />
-                    Só template aprovado
-                  </Badge>
-                )}
 
-                {conversation.ai_enabled ? (
-                  conversation.ai_active ? (
-                    <Badge variant="secondary" className="gap-1 bg-violet-500/15 text-violet-800 dark:text-violet-200">
-                      <Bot className="h-3 w-3" />
-                      IA respondendo
+                {/* Desktop: cabeçalho completo */}
+                <div className="hidden flex-wrap items-center gap-3 px-4 py-3 lg:flex">
+                  <Avatar className="h-10 w-10">
+                    <AvatarFallback>{initials(conversation.contact_name || conversation.wa_id)}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="font-semibold">
+                        {conversation.card_id && conversation.contact_name?.trim()
+                          ? conversation.contact_name
+                          : formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
+                      </h2>
+                      <span className={cn("rounded px-2 py-0.5 text-xs font-medium", mod.className)}>
+                        {mod.label}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Cliente: {formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
+                    </p>
+                    {conversationInstanceLabel ? (
+                      <p className="mt-1 flex items-center gap-1 text-xs font-medium text-sky-800 dark:text-sky-300">
+                        <Smartphone className="h-3.5 w-3.5 shrink-0" />
+                        Nossa linha: {conversationInstanceLabel}
+                      </p>
+                    ) : null}
+                  </div>
+                  {windowOpen ? (
+                    <Badge variant="secondary" className="gap-1 bg-emerald-500/15 text-emerald-800 dark:text-emerald-200">
+                      <Clock className="h-3 w-3" />
+                      Janela 24h aberta
+                      {conversation.window_expires_at ? (
+                        <span className="font-normal opacity-80">
+                          · até {format(new Date(conversation.window_expires_at), "HH:mm", { locale: ptBR })}
+                        </span>
+                      ) : null}
                     </Badge>
                   ) : (
-                    <Badge variant="secondary" className="gap-1 bg-muted text-muted-foreground">
-                      <Bot className="h-3 w-3" />
-                      IA pausada
+                    <Badge variant="secondary" className="gap-1 bg-amber-500/15 text-amber-900 dark:text-amber-100">
+                      <FileText className="h-3 w-3" />
+                      Só template aprovado
                     </Badge>
-                  )
-                ) : null}
+                  )}
 
-                <div className="flex w-full flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
-                    {conversation.status === "pending"
-                      ? "Aguardando atendimento"
-                      : conversation.status === "closed"
-                        ? "Atendimento encerrado"
-                        : conversation.assigned_to === user?.id
-                          ? "Atendido por você"
-                          : `Atendido por: ${conversation.assigned_to_name || "—"}`}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    {conversation.ai_enabled &&
-                    conversation.status !== "pending" &&
-                    (conversation.assigned_to === user?.id || isPrivileged) ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 gap-1.5 text-xs"
-                        disabled={conversationActionLoading !== null}
-                        onClick={() => void handleToggleAi(!conversation.ai_active)}
-                      >
-                        <Bot className="h-3.5 w-3.5" />
-                        {conversation.ai_active ? "Pausar IA" : "Reativar IA"}
-                      </Button>
-                    ) : null}
-                    {conversation.status === "pending" ? (
-                      <Button
-                        size="sm"
-                        className="h-8 gap-1.5 text-xs"
-                        disabled={conversationActionLoading !== null}
-                        onClick={() => void handleAcceptConversation()}
-                      >
-                        <UserCheck className="h-3.5 w-3.5" />
-                        Aceitar
-                      </Button>
-                    ) : null}
-                    {conversation.status === "open" &&
-                    (conversation.assigned_to === user?.id || isPrivileged) ? (
-                      <>
-                        <Popover open={transferOpen} onOpenChange={setTransferOpen}>
-                          <PopoverTrigger asChild>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 gap-1.5 text-xs"
-                              disabled={conversationActionLoading !== null}
-                              onClick={handleOpenTransfer}
-                            >
-                              <ArrowRightLeft className="h-3.5 w-3.5" />
-                              Transferir
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent align="end" className="w-64 space-y-3">
-                            <p className="text-sm font-medium">Transferir conversa</p>
-                            <Select value={transferTarget} onValueChange={setTransferTarget}>
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue
-                                  placeholder={transferUsersLoading ? "Carregando..." : "Selecione um atendente"}
-                                />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {transferUsers
-                                  .filter((u) => u.user_id !== user?.id)
-                                  .map((u) => (
-                                    <SelectItem key={u.user_id} value={u.user_id}>
-                                      {u.full_name || u.email || u.user_id}
-                                    </SelectItem>
-                                  ))}
-                              </SelectContent>
-                            </Select>
-                            <Button
-                              size="sm"
-                              className="h-8 w-full text-xs"
-                              disabled={!transferTarget || conversationActionLoading !== null}
-                              onClick={() => void handleTransferConversation()}
-                            >
-                              Confirmar transferência
-                            </Button>
-                          </PopoverContent>
-                        </Popover>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 gap-1.5 text-xs"
-                          disabled={conversationActionLoading !== null}
-                          onClick={() => void handleCloseConversation()}
-                        >
-                          <UserX className="h-3.5 w-3.5" />
-                          Fechar
-                        </Button>
-                      </>
-                    ) : null}
-                  </div>
+                  {conversation.ai_enabled ? (
+                    conversation.ai_active ? (
+                      <Badge variant="secondary" className="gap-1 bg-violet-500/15 text-violet-800 dark:text-violet-200">
+                        <Bot className="h-3 w-3" />
+                        IA respondendo
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="gap-1 bg-muted text-muted-foreground">
+                        <Bot className="h-3 w-3" />
+                        IA pausada
+                      </Badge>
+                    )
+                  ) : null}
+
+                  {conversationStatusAndActions}
                 </div>
               </header>
 
@@ -1547,21 +1785,12 @@ export default function WhatsAppInbox() {
                         const at = new Date(msg.created_at);
                         const canDelete = out && (isAdmin || isGerente || msg.sent_by === user?.id);
                         return (
-                          <div key={msg.id} className={cn("group flex items-end gap-1", out ? "justify-end" : "justify-start")}>
-                            {out && canDelete && (
-                              <button
-                                className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 rounded p-1 text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                title="Excluir mensagem"
-                                onClick={() => setDeletingMsgId(msg.id)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
+                          <div key={msg.id} className={cn("group flex min-w-0 items-end", out ? "justify-end" : "justify-start")}>
                             <div
                               className={cn(
-                                "relative max-w-[85%] rounded-lg px-3 py-2 text-sm shadow-sm",
+                                "relative min-w-0 max-w-[85%] break-words rounded-lg px-3 py-2 text-sm shadow-sm",
                                 out
-                                  ? "rounded-br-none bg-[#d9fdd3] text-foreground dark:bg-emerald-900/50"
+                                  ? "mr-7 rounded-br-none bg-[#d9fdd3] text-foreground dark:bg-emerald-900/50"
                                   : "rounded-bl-none bg-white dark:bg-card",
                               )}
                             >
@@ -1587,6 +1816,15 @@ export default function WhatsAppInbox() {
                                 <span>{format(at, "HH:mm", { locale: ptBR })}</span>
                                 {out && <StatusIcon status={msg.status} />}
                               </div>
+                              {canDelete && (
+                                <button
+                                  className="absolute -right-7 top-1 opacity-0 group-hover:opacity-100 transition-opacity rounded p-1 text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                  title="Excluir mensagem"
+                                  onClick={() => setDeletingMsgId(msg.id)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         );
@@ -1617,10 +1855,28 @@ export default function WhatsAppInbox() {
                             </Button>
                           </div>
                         ) : conversation.status === "closed" ? (
-                          <div className="rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                            Conversa encerrada — ela some das listas e volta para Pendentes se o cliente
-                            responder novamente.
-                          </div>
+                          windowOpen && conversation.assigned_to === user?.id ? (
+                            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-950 dark:text-emerald-100">
+                              <span>
+                                Conversa encerrada, mas o cliente ainda está dentro da janela de 24h —
+                                você pode continuar o atendimento sem esperar ele responder.
+                              </span>
+                              <Button
+                                size="sm"
+                                className="h-7 gap-1.5 text-xs"
+                                disabled={conversationActionLoading !== null}
+                                onClick={() => void handleReopenConversation()}
+                              >
+                                <UserCheck className="h-3.5 w-3.5" />
+                                Reabrir atendimento
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                              Conversa encerrada — ela some das listas e volta para Pendentes se o cliente
+                              responder novamente.
+                            </div>
+                          )
                         ) : (
                           <div className="rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                             Atendido por {conversation.assigned_to_name || "outro atendente"} — somente leitura.
@@ -1666,43 +1922,111 @@ export default function WhatsAppInbox() {
                             }}
                           />
 
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="shrink-0"
-                            disabled={sending || uploading || !conversation.instance_id}
-                            onClick={() => fileInputRef.current?.click()}
-                            title="Anexar arquivo"
-                          >
-                            <Paperclip className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="shrink-0"
-                            disabled={sending || uploading || !conversation.instance_id}
-                            onClick={() => imageInputRef.current?.click()}
-                            title="Enviar imagem"
-                          >
-                            <ImageIcon className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant={recording ? "destructive" : "ghost"}
-                            size="icon"
-                            className="shrink-0"
-                            disabled={sending || uploading || !!audioDraft || !conversation.instance_id}
-                            onClick={() => (recording ? void stopRecording() : void startRecording())}
-                            title={recording ? "Parar gravação" : "Gravar áudio"}
-                          >
-                            {recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="shrink-0"
+                                disabled={sending || uploading || !conversation.instance_id}
+                                title="Mais opções"
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start">
+                              <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                                <Paperclip className="mr-2 h-4 w-4" />
+                                Anexar arquivo
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => imageInputRef.current?.click()}>
+                                <ImageIcon className="mr-2 h-4 w-4" />
+                                Enviar imagem
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                disabled={!!audioDraft}
+                                onClick={() => (recording ? void stopRecording() : void startRecording())}
+                              >
+                                {recording ? (
+                                  <Square className="mr-2 h-4 w-4 text-destructive" />
+                                ) : (
+                                  <Mic className="mr-2 h-4 w-4" />
+                                )}
+                                {recording ? "Parar gravação" : "Gravar áudio"}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => setTemplatePopoverOpen(true)}>
+                                <FileText className="mr-2 h-4 w-4" />
+                                Enviar template
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                          <Dialog open={templatePopoverOpen} onOpenChange={setTemplatePopoverOpen}>
+                            <DialogContent className="sm:max-w-sm">
+                              <DialogHeader>
+                                <DialogTitle>Enviar template aprovado</DialogTitle>
+                              </DialogHeader>
+                              <div className="space-y-3">
+                                <div className="space-y-1">
+                                  <label className="text-xs font-medium text-muted-foreground">Template</label>
+                                  {templates.length > 0 ? (
+                                    <Select
+                                      value={selectedTemplate}
+                                      onValueChange={(v) => {
+                                        setSelectedTemplate(v);
+                                        const t = templates.find((x) => x.name === v);
+                                        if (t?.language) setTemplateLanguage(t.language);
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-8 text-xs">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {templates.map((t) => (
+                                          <SelectItem key={`${t.name}-${t.language}`} value={t.name}>
+                                            {t.name} · {t.language}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  ) : (
+                                    <Input
+                                      className="h-8 text-xs"
+                                      placeholder={templatesLoading ? "Carregando…" : "Digite o nome do template aprovado"}
+                                      value={selectedTemplate}
+                                      onChange={(e) => setSelectedTemplate(e.target.value)}
+                                    />
+                                  )}
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-xs font-medium text-muted-foreground">Idioma</label>
+                                  <Input
+                                    className="h-8 text-xs"
+                                    value={templateLanguage}
+                                    onChange={(e) => setTemplateLanguage(e.target.value)}
+                                    placeholder="pt_BR"
+                                  />
+                                </div>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="w-full gap-1 text-xs"
+                                  disabled={sending || !conversation.instance_id}
+                                  onClick={async () => {
+                                    await handleSendTemplate();
+                                    setTemplatePopoverOpen(false);
+                                  }}
+                                >
+                                  <Send className="h-3.5 w-3.5" />
+                                  Enviar template
+                                </Button>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
                           <Textarea
                             placeholder="Digite sua mensagem..."
-                            className="min-h-[44px] resize-none"
-                            rows={2}
+                            className="min-h-[60px] resize-none"
+                            rows={3}
                             value={draft}
                             onChange={(e) => setDraft(e.target.value)}
                           />
@@ -1844,72 +2168,66 @@ export default function WhatsAppInbox() {
                   </footer>
                 </div>
 
-                {/* Painel lateral CRM */}
+                {/* Painel lateral CRM (desktop) */}
                 <aside className="hidden min-h-0 min-w-[300px] w-[min(100%,360px)] shrink-0 flex-col border-l bg-muted/20 lg:flex">
                   <ScrollArea className="min-h-0 flex-1">
-                    <div className="min-w-0 p-4 space-y-4">
-                      <div>
-                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          Vinculado no CRM
-                        </p>
-                        <dl className="mt-3 space-y-3 text-sm">
-                          <div>
-                            <dt className="text-xs text-muted-foreground">Módulo</dt>
-                            <dd className="mt-0.5">
-                              <span className={cn("rounded px-2 py-0.5 text-xs font-medium", mod.className)}>
-                                {mod.label}
-                              </span>
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-xs text-muted-foreground">Nossa linha (recebe/envia)</dt>
-                            <dd className="mt-0.5 text-xs font-medium text-sky-800 dark:text-sky-300 break-words">
-                              {conversationInstanceLabel || "—"}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-xs text-muted-foreground">Telefone do cliente</dt>
-                            <dd className="mt-0.5 font-medium text-amber-700 dark:text-amber-300 break-words">
-                              {formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
-                            </dd>
-                          </div>
-                        </dl>
-                      </div>
-                      {isAdmin || isGerente ? (
-                        <WhatsAppCobrancaPanel
-                          conversation={conversation}
-                          formatPhone={formatPhoneDisplay}
-                          onLinked={handleLeadLinked}
-                          onResolvedModule={setPanelResolvedModule}
-                          fallback={
-                            <WhatsAppCreateLeadPanel
-                              conversation={conversation}
-                              formatPhone={formatPhoneDisplay}
-                              onLinked={handleLeadLinked}
-                              afterCobrancaSearch
-                              onResolvedModule={setPanelResolvedModule}
-                            />
-                          }
-                        />
-                      ) : useCobrancaPanel ? (
-                        <WhatsAppCobrancaPanel
-                          conversation={conversation}
-                          formatPhone={formatPhoneDisplay}
-                          onLinked={handleLeadLinked}
-                          onResolvedModule={setPanelResolvedModule}
-                        />
-                      ) : (
-                        <WhatsAppCreateLeadPanel
-                          conversation={conversation}
-                          formatPhone={formatPhoneDisplay}
-                          onLinked={handleLeadLinked}
-                          onResolvedModule={setPanelResolvedModule}
-                        />
-                      )}
-                    </div>
+                    <div className="p-4">{crmPanelInner}</div>
                   </ScrollArea>
                 </aside>
               </div>
+
+              {/* Folha de informações do cliente (mobile) — status, ações e card do CRM */}
+              <Sheet open={mobileInfoOpen} onOpenChange={setMobileInfoOpen}>
+                <SheetContent side="right" className="w-full overflow-y-auto p-0 sm:max-w-sm">
+                  <SheetHeader className="border-b p-4 text-left">
+                    <SheetTitle className="flex items-center gap-2">
+                      <Avatar className="h-9 w-9">
+                        <AvatarFallback>{initials(conversation.contact_name || conversation.wa_id)}</AvatarFallback>
+                      </Avatar>
+                      <span className="truncate">
+                        {conversation.card_id && conversation.contact_name?.trim()
+                          ? conversation.contact_name
+                          : formatPhoneDisplay(conversation.phone_display || conversation.wa_id)}
+                      </span>
+                    </SheetTitle>
+                  </SheetHeader>
+                  <div className="space-y-4 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {windowOpen ? (
+                        <Badge variant="secondary" className="gap-1 bg-emerald-500/15 text-emerald-800 dark:text-emerald-200">
+                          <Clock className="h-3 w-3" />
+                          Janela 24h aberta
+                          {conversation.window_expires_at ? (
+                            <span className="font-normal opacity-80">
+                              · até {format(new Date(conversation.window_expires_at), "HH:mm", { locale: ptBR })}
+                            </span>
+                          ) : null}
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="gap-1 bg-amber-500/15 text-amber-900 dark:text-amber-100">
+                          <FileText className="h-3 w-3" />
+                          Só template aprovado
+                        </Badge>
+                      )}
+                      {conversation.ai_enabled ? (
+                        conversation.ai_active ? (
+                          <Badge variant="secondary" className="gap-1 bg-violet-500/15 text-violet-800 dark:text-violet-200">
+                            <Bot className="h-3 w-3" />
+                            IA respondendo
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="gap-1 bg-muted text-muted-foreground">
+                            <Bot className="h-3 w-3" />
+                            IA pausada
+                          </Badge>
+                        )
+                      ) : null}
+                    </div>
+                    {conversationStatusAndActions}
+                    <div className="border-t pt-4">{crmPanelInner}</div>
+                  </div>
+                </SheetContent>
+              </Sheet>
             </>
           )}
         </div>

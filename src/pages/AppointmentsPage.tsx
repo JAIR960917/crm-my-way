@@ -36,6 +36,7 @@ import {
 import { cn } from "@/lib/utils";
 import { isRealtimeEnabled } from "@/lib/runtime-config";
 import {
+  CANAIS_AGENDAMENTO,
   FORMAS_PAGAMENTO_CONSULTA,
   FORMAS_PAGAMENTO_OCULOS,
   formaConsultaSemValor,
@@ -135,6 +136,7 @@ export default function AppointmentsPage() {
   const [formNome, setFormNome] = useState("");
   const [formTelefone, setFormTelefone] = useState("");
   const [formIdade, setFormIdade] = useState("");
+  const [formCanal, setFormCanal] = useState("Loja");
   const [formDate, setFormDate] = useState<Date | undefined>();
   const [formTime, setFormTime] = useState("09:00");
   const [formValor, setFormValor] = useState("");
@@ -796,7 +798,7 @@ export default function AppointmentsPage() {
     setEditingAppt(null);
     setFormNome(""); setFormTelefone(""); setFormIdade("");
     setFormDate(undefined); setFormTime("09:00");
-    setFormValor(""); setFormPagamentoOculos(""); setFormPagamentoConsulta("");
+    setFormValor(""); setFormPagamentoOculos(""); setFormPagamentoConsulta(""); setFormCanal("Loja");
     setFormConsultaPaga(""); setFormConfirmacao("Pendente");
     setFormComparecimento("Pendente"); setFormVenda("Pendente"); setFormResumo("");
     setFormRescheduleDate(undefined); setFormRescheduleTime("09:00");
@@ -804,6 +806,23 @@ export default function AppointmentsPage() {
   };
 
   const calendarLabel = getCalendarQueryRange(focusDate, calendarView).label;
+
+  // Explica por que o botão Salvar está desabilitado — sem isso, um
+  // agendamento sem "forma de pagamento da consulta" preenchida travava o
+  // botão pra QUALQUER edição (até só corrigir o nome) sem nenhuma mensagem
+  // visível explicando o motivo.
+  const saveBlockedReason = (): string | null => {
+    if (editingAppt?.is_reschedule_snapshot) return null;
+    if (editingAppt && isAppointmentInactive(editingAppt)) return null;
+    if (!formNome) return "Preencha o nome do cliente.";
+    if (!formDate) return "Preencha a data do agendamento.";
+    if (!formPagamentoOculos) return "Selecione a forma de pagamento dos óculos.";
+    if (!editingAppt && !formConsultaPaga) return "Informe se a consulta foi paga.";
+    if (formConsultaPaga === "sim" && !formPagamentoConsulta) {
+      return "Selecione a forma de pagamento da consulta para poder salvar.";
+    }
+    return null;
+  };
 
   const openEdit = (appt: Appointment) => {
     setEditingAppt(appt);
@@ -816,6 +835,7 @@ export default function AppointmentsPage() {
     setFormValor(String(appt.valor));
     setFormPagamentoOculos(appt.forma_pagamento_oculos || appt.forma_pagamento || "");
     setFormPagamentoConsulta(appt.forma_pagamento_consulta || "");
+    setFormCanal(appt.canal_agendamento || "Loja");
     setFormConsultaPaga(appt.consulta_paga === true ? "sim" : appt.consulta_paga === false ? "nao" : "");
     setFormConfirmacao(appt.confirmacao || "Pendente");
     setFormComparecimento(appt.comparecimento || "Pendente");
@@ -833,7 +853,7 @@ export default function AppointmentsPage() {
       toast.error("Informe se a consulta foi paga (Sim ou Não).");
       return;
     }
-    const pagamentoConsultaNeeded = !!editingAppt || formConsultaPaga === "sim";
+    const pagamentoConsultaNeeded = formConsultaPaga === "sim";
     if (pagamentoConsultaNeeded && !formPagamentoConsulta) {
       toast.error("Informe a forma de pagamento da consulta.");
       return;
@@ -863,6 +883,7 @@ export default function AppointmentsPage() {
         forma_pagamento: formPagamentoOculos,
         forma_pagamento_oculos: formPagamentoOculos,
         forma_pagamento_consulta: formPagamentoConsulta,
+        canal_agendamento: formCanal,
         confirmacao: formConfirmacao,
         comparecimento: formComparecimento,
         resumo: formResumo,
@@ -897,7 +918,7 @@ export default function AppointmentsPage() {
         consulta_paga_no_agendamento: pagaConsulta,
         consulta_paga_em: pagaConsulta ? nowIso : null,
         consulta_paga_por: pagaConsulta ? user.id : null,
-        canal_agendamento: "Loja",
+        canal_agendamento: formCanal,
         nome: formNome, telefone: formTelefone, idade: formIdade,
         previous_status: "manual",
         original_scheduled_datetime: dt.toISOString(),
@@ -1258,7 +1279,15 @@ export default function AppointmentsPage() {
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={handleEditDialogOpenChange}>
-        <DialogContent className={cn(editingAppt ? "sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" : "sm:max-w-md")}>
+        <DialogContent
+          className={cn(editingAppt ? "sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" : "sm:max-w-md")}
+          onPointerDownOutside={(e) => {
+            if (!editingAppt) e.preventDefault();
+          }}
+          onEscapeKeyDown={(e) => {
+            if (!editingAppt) e.preventDefault();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>
               {editingAppt?.is_reschedule_snapshot
@@ -1354,6 +1383,13 @@ export default function AppointmentsPage() {
                 <Label>Horário <span className="text-destructive">*</span></Label>
                 <Input type="time" value={formTime} onChange={e => setFormTime(e.target.value)} required />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Forma de captação <span className="text-destructive">*</span></Label>
+              <Select value={formCanal} onValueChange={setFormCanal}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{CANAIS_AGENDAMENTO.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <Label>Forma de pagamento do Óculos <span className="text-destructive">*</span></Label>
@@ -1527,7 +1563,10 @@ export default function AppointmentsPage() {
               </div>
             )}
 
-            <Button type="submit" className="w-full" disabled={saving || !formDate || !formPagamentoOculos || !formNome || (!editingAppt && !formConsultaPaga) || ((!!editingAppt || formConsultaPaga === "sim") && !formPagamentoConsulta) || !!editingAppt?.is_reschedule_snapshot || !!(editingAppt && isAppointmentInactive(editingAppt))}>
+            {!saving && saveBlockedReason() && (
+              <p className="text-xs text-destructive">{saveBlockedReason()}</p>
+            )}
+            <Button type="submit" className="w-full" disabled={saving || !formDate || !formPagamentoOculos || !formNome || (!editingAppt && !formConsultaPaga) || (formConsultaPaga === "sim" && !formPagamentoConsulta) || !!editingAppt?.is_reschedule_snapshot || !!(editingAppt && isAppointmentInactive(editingAppt))}>
               {saving ? "Salvando..." : editingAppt ? (isAppointmentInactive(editingAppt) ? "Somente leitura" : "Atualizar") : "Criar Agendamento"}
             </Button>
             </>

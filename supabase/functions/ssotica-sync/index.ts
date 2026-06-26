@@ -987,13 +987,24 @@ async function syncContasReceber(
 
         // Negativado SERASA / Ajuizado(a) Saniely / Návde = dívida AINDA ATIVA.
         // A SSótica pode marcar cancelado_em/baixado_em/estornado_em quando
-        // negativa ou ajuíza a parcela, mas a dívida continua válida e o
-        // cliente deve permanecer na cobrança na coluna correspondente.
+        // negativa ou ajuíza a parcela (efeito colateral automático, sem
+        // responsável humano), mas a dívida continua válida nesse caso. Já
+        // quando um FUNCIONÁRIO cancela/baixa/estorna manualmente depois
+        // (ex.: "cancelado_por": "Brenda"), isso é uma resolução real — sem
+        // essa distinção, negativações resolvidas manualmente ficavam
+        // presas pra sempre, porque a SSótica não atualiza o campo
+        // "situacao" ao cancelar.
         const isNegativada = isNegativadoSerasa || isAjuizado;
 
-        const foiBaixada = !isNegativada && !!parcela.baixado_em;
-        const foiCancelada = !isNegativada && !!parcela.cancelado_em;
-        const foiEstornada = !isNegativada && !!parcela.estornado_em;
+        const foiBaixada = !isNegativada
+          ? !!parcela.baixado_em
+          : !!parcela.baixado_em && !!parcela.baixado_por;
+        const foiCancelada = !isNegativada
+          ? !!parcela.cancelado_em
+          : !!parcela.cancelado_em && !!parcela.cancelado_por;
+        const foiEstornada = !isNegativada
+          ? !!parcela.estornado_em
+          : !!parcela.estornado_em && !!parcela.estornado_por;
         const foiPaga = isParcelaQuitada(parcela, situacao, isNegativada, isAtiva);
 
         if (!isAtiva) skipped.naoAtiva++;

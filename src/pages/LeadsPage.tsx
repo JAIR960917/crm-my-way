@@ -7,7 +7,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Plus, Filter, X, Search, ArrowRightLeft, Users } from "lucide-react";
+import { Plus, Filter, X, Search, ArrowRightLeft, Users, Copy, Trash2, Loader2, MoreVertical, FolderInput } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -16,7 +17,9 @@ import LeadFormDialog from "@/components/leads/LeadFormDialog";
 import ScheduleLeadDialog from "@/components/leads/ScheduleLeadDialog";
 import LeadHistoryDialog from "@/components/leads/LeadHistoryDialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -144,7 +147,7 @@ export default function LeadsPage() {
         && filterVendedor !== "all"
         && statusKey !== "excluidos"
       ) {
-        res = res.or(`assigned_to.eq.${filterVendedor},created_by.eq.${filterVendedor}`);
+        res = res.eq("assigned_to", filterVendedor);
       }
       if (filterDateFrom) {
         const from = new Date(filterDateFrom); from.setHours(0, 0, 0, 0);
@@ -621,6 +624,200 @@ export default function LeadsPage() {
     setDeleteConfirmLead(null);
   };
 
+  // Leads duplicados (mesmo telefone) — agrupa por sufixo de 8 dígitos do
+  // telefone resolvido (mesma lógica de is_phone_field/rótulo usada pra
+  // exibir o card). NÃO varre todo o JSON procurando "qualquer string com
+  // 8+ dígitos" — isso confunde datas guardadas como AAAAMMDD com telefone.
+  type DuplicateGroup = { phoneSuffix: string; phone: string; leads: Lead[]; samePhone: boolean };
+  const [duplicatesDialogOpen, setDuplicatesDialogOpen] = useState(false);
+  // Mover todos os cards de uma coluna pra outra de uma vez (admin).
+  const [moveColumnSource, setMoveColumnSource] = useState<{ key: string; label: string } | null>(null);
+  const [moveColumnDest, setMoveColumnDest] = useState("");
+  const [movingColumn, setMovingColumn] = useState(false);
+  const [scanningDuplicates, setScanningDuplicates] = useState(false);
+  const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[] | null>(null);
+  const [deletingAllDuplicates, setDeletingAllDuplicates] = useState(false);
+  const [deleteAllDuplicatesConfirmOpen, setDeleteAllDuplicatesConfirmOpen] = useState(false);
+
+  const phoneSuffix = (telefone: string): string | null => {
+    const digits = (telefone || "").replace(/\D/g, "");
+    return digits.length >= 8 ? digits.slice(-8) : null;
+  };
+
+  const scanDuplicateLeads = async () => {
+    setScanningDuplicates(true);
+    try {
+      const { data, error } = await supabase
+        .from("crm_leads")
+        .select("id, data, assigned_to, created_by, status, created_at")
+        .neq("status", "excluidos")
+        .limit(10000);
+      if (error) throw error;
+
+      const groups = new Map<string, { phone: string; leads: Lead[] }>();
+      (data || []).forEach((l: any) => {
+        const leadData = (l.data || {}) as Record<string, any>;
+        const identity = resolveLeadIdentity(leadData, formFields);
+        const suffix = phoneSuffix(identity.telefone);
+        if (!suffix) return;
+        const group = groups.get(suffix) || { phone: identity.telefone || suffix, leads: [] };
+        group.leads.push(l as Lead);
+        groups.set(suffix, group);
+      });
+
+      const result: DuplicateGroup[] = Array.from(groups.entries())
+        .filter(([, g]) => g.leads.length >= 2)
+        .map(([suffix, g]) => {
+          const leads = g.leads.sort((a, b) => a.created_at.localeCompare(b.created_at));
+          const distinctPhones = new Set(
+            leads.map((l) => resolveLeadIdentity(l.data || {}, formFields).telefone.replace(/\D/g, "")),
+          );
+          return { phoneSuffix: suffix, phone: g.phone, leads, samePhone: distinctPhones.size <= 1 };
+        })
+        .sort((a, b) => b.leads.length - a.leads.length);
+
+      setDuplicateGroups(result);
+      const totalLeads = result.reduce((acc, g) => acc + g.leads.length, 0);
+      toast.success(
+        result.length > 0
+          ? `${result.length} telefone(s) duplicado(s) — ${totalLeads} leads no total.`
+          : "Nenhum lead duplicado encontrado.",
+      );
+    } catch (err: any) {
+      toast.error(`Erro ao verificar duplicados: ${err.message || err}`);
+    } finally {
+      setScanningDuplicates(false);
+    }
+  };
+
+  // Exclui (soft delete) todos os leads duplicados de cada grupo, mantendo
+  // só o mais RECENTE (created_at mais novo) por telefone. Só age em grupos
+  // onde os números completos são todos iguais de fato (samePhone) — grupos
+  // que só batem na terminação de 8 dígitos (DDD diferente, coincidência)
+  // nunca são tocados aqui, mesmo no "excluir todos".
+  // Mesma lógica de deleteAllDuplicates, mas escopada aos resultados da
+  // busca atual (ex.: usuário pesquisou um telefone e viu vários cards da
+  // mesma pessoa) — evita ter que abrir o painel "Duplicados" e re-varrer
+  // a base inteira só pra resolver um caso pontual já visível na tela.
+  const [deletingSearchDuplicates, setDeletingSearchDuplicates] = useState(false);
+  const [searchDuplicatesConfirmOpen, setSearchDuplicatesConfirmOpen] = useState(false);
+
+  const searchDuplicateGroups = useMemo((): DuplicateGroup[] => {
+    if (!isSearching || !searchResults || searchResults.length < 2) return [];
+    const byPhone = new Map<string, Lead[]>();
+    for (const lead of searchResults) {
+      const identity = resolveLeadIdentity(lead.data || {}, formFields);
+      const digits = identity.telefone.replace(/\D/g, "");
+      if (digits.length < 8) continue;
+      const arr = byPhone.get(digits) || [];
+      arr.push(lead);
+      byPhone.set(digits, arr);
+    }
+    return Array.from(byPhone.entries())
+      .filter(([, leads]) => leads.length >= 2)
+      .map(([digits, leads]) => ({
+        phoneSuffix: digits.slice(-8),
+        phone: digits,
+        leads: leads.sort((a, b) => a.created_at.localeCompare(b.created_at)),
+        samePhone: true,
+      }));
+  }, [isSearching, searchResults, formFields]);
+
+  const deleteSearchDuplicates = async () => {
+    setDeletingSearchDuplicates(true);
+    let deleted = 0;
+    let failed = 0;
+    try {
+      for (const group of searchDuplicateGroups) {
+        const toDelete = group.leads.slice(0, -1); // mantém o mais recente
+        for (const lead of toDelete) {
+          const isPermanentDelete = isAdmin && lead.status === "excluidos";
+          const { error } = isPermanentDelete
+            ? await supabase.rpc("hard_delete_lead", { _lead_id: lead.id })
+            : await supabase.rpc("soft_delete_lead", { _lead_id: lead.id });
+          if (error) {
+            failed += 1;
+          } else {
+            deleted += 1;
+            removePaginatedItem(lead.id);
+          }
+        }
+      }
+      if (deleted > 0) toast.success(`${deleted} lead(s) duplicado(s) excluído(s).`);
+      if (failed > 0) toast.error(`${failed} lead(s) não puderam ser excluídos.`);
+      setRefreshKey((k) => k + 1);
+      setSearchDuplicatesConfirmOpen(false);
+    } finally {
+      setDeletingSearchDuplicates(false);
+    }
+  };
+
+  const deleteAllDuplicates = async () => {
+    if (!duplicateGroups) return;
+    setDeletingAllDuplicates(true);
+    let deleted = 0;
+    let failed = 0;
+    try {
+      for (const group of duplicateGroups) {
+        if (!group.samePhone) continue;
+        const toDelete = group.leads.slice(0, -1); // mantém o último (mais recente)
+        for (const lead of toDelete) {
+          const isPermanentDelete = isAdmin && lead.status === "excluidos";
+          const { error } = isPermanentDelete
+            ? await supabase.rpc("hard_delete_lead", { _lead_id: lead.id })
+            : await supabase.rpc("soft_delete_lead", { _lead_id: lead.id });
+          if (error) {
+            failed += 1;
+          } else {
+            deleted += 1;
+            removePaginatedItem(lead.id);
+          }
+        }
+      }
+      if (deleted > 0) toast.success(`${deleted} lead(s) duplicado(s) excluído(s).`);
+      if (failed > 0) toast.error(`${failed} lead(s) não puderam ser excluídos.`);
+      if (deleted === 0 && failed === 0) toast.info("Nenhum lead duplicado seguro pra excluir automaticamente.");
+      setRefreshKey((k) => k + 1);
+      setDeleteAllDuplicatesConfirmOpen(false);
+      await scanDuplicateLeads();
+    } finally {
+      setDeletingAllDuplicates(false);
+    }
+  };
+
+  // Move TODOS os leads de uma coluna pra outra de uma vez — uma única
+  // atualização no banco (não respeita os filtros da tela; pega literalmente
+  // todo lead com o status de origem, igual o usuário pediu).
+  const confirmMoveColumn = async () => {
+    if (!moveColumnSource || !moveColumnDest) return;
+    setMovingColumn(true);
+    try {
+      const { error } = await supabase
+        .from("crm_leads")
+        .update({ status: moveColumnDest })
+        .eq("status", moveColumnSource.key);
+      if (error) throw error;
+      toast.success(`Leads movidos de "${moveColumnSource.label}" para "${statusLabels[moveColumnDest]}".`);
+      setMoveColumnSource(null);
+      setMoveColumnDest("");
+      setRefreshKey((k) => k + 1);
+    } catch (err: any) {
+      toast.error(`Erro ao mover coluna: ${err.message || err}`);
+    } finally {
+      setMovingColumn(false);
+    }
+  };
+
+  const leadDisplayName = (lead: Lead) => {
+    const identity = resolveLeadIdentity(lead.data || {}, formFields);
+    return identity.nome || "Sem nome";
+  };
+
+  const leadDisplayPhone = (lead: Lead) => {
+    const identity = resolveLeadIdentity(lead.data || {}, formFields);
+    return identity.telefone || "—";
+  };
+
   const openRestore = (lead: Lead) => {
     setRestoreLead(lead);
     setRestoreAssignee(lead.assigned_to || "");
@@ -968,6 +1165,20 @@ export default function LeadsPage() {
           {(isAdmin || isGerente) && (
             <Button
               size="sm"
+              variant="outline"
+              onClick={() => {
+                setDuplicatesDialogOpen(true);
+                void scanDuplicateLeads();
+              }}
+              className="shrink-0"
+            >
+              <Copy className="mr-1 h-4 w-4" />
+              Duplicados
+            </Button>
+          )}
+          {(isAdmin || isGerente) && (
+            <Button
+              size="sm"
               variant={showFilters ? "default" : "outline"}
               onClick={() => setShowFilters(!showFilters)}
               className="shrink-0"
@@ -998,6 +1209,24 @@ export default function LeadsPage() {
           </button>
         )}
       </div>
+
+      {searchDuplicateGroups.length > 0 && (
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-sm">
+          <span className="text-amber-700 dark:text-amber-400">
+            {searchDuplicateGroups.reduce((acc, g) => acc + g.leads.length, 0)} card(s) duplicado(s) nessa busca
+            (mesmo telefone).
+          </span>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => setSearchDuplicatesConfirmOpen(true)}
+            disabled={deletingSearchDuplicates}
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Excluir duplicados
+          </Button>
+        </div>
+      )}
 
       {/* Filter bar */}
       {(isAdmin || isGerente) && showFilters && (
@@ -1058,7 +1287,7 @@ export default function LeadsPage() {
         <div className="flex gap-1.5 min-w-max">
           {visibleStatuses.map((status) => {
             const colors = colorMap[status.color] || colorMap.blue;
-            const count = getLeadsByStatus(status.key).length;
+            const count = getColumnState(status.key).total;
             return (
               <button
                 key={status.key}
@@ -1117,7 +1346,7 @@ export default function LeadsPage() {
               ))}
               {hasMore && (
                 <p className="text-center text-xs text-muted-foreground py-2">
-                  Mostrando {visibleLeads.length} de {statusLeads.length} — role para carregar mais
+                  Mostrando {visibleLeads.length} de {colState.total} — role para carregar mais
                 </p>
               )}
               <button
@@ -1144,10 +1373,25 @@ export default function LeadsPage() {
               <div key={status.key} className="flex-shrink-0 w-[280px] flex flex-col min-h-0">
                 <div className="flex items-center gap-2 mb-2 px-1 flex-shrink-0">
                   <div className={`h-2.5 w-2.5 rounded-full ${colors.header}`} />
-                  <h3 className="font-semibold text-sm text-foreground">{status.label}</h3>
+                  <h3 className="font-semibold text-sm text-foreground truncate">{status.label}</h3>
                   <span className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full ${colors.badge}`}>
-                    {statusLeads.length}
+                    {colState.total}
                   </span>
+                  {isAdmin && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0">
+                          <MoreVertical className="h-3.5 w-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => { setMoveColumnSource({ key: status.key, label: status.label }); setMoveColumnDest(""); }}>
+                          <FolderInput className="mr-2 h-4 w-4" />
+                          Mover todos para outra coluna
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
 
                 <Droppable droppableId={status.key}>
@@ -1199,7 +1443,7 @@ export default function LeadsPage() {
 
                       {hasMore && (
                         <p className="text-center text-xs text-muted-foreground py-1">
-                          Mostrando {visibleLeads.length} de {statusLeads.length} — role para carregar mais
+                          Mostrando {visibleLeads.length} de {colState.total} — role para carregar mais
                         </p>
                       )}
 
@@ -1341,6 +1585,167 @@ export default function LeadsPage() {
         />
       )}
 
+      <Dialog open={duplicatesDialogOpen} onOpenChange={setDuplicatesDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Leads duplicados (mesmo telefone)</DialogTitle>
+            <DialogDescription>
+              Agrupado pelos últimos 8 dígitos do telefone do lead. Confira antes de excluir — pode ser duas
+              pessoas com números parecidos por coincidência.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-between gap-2">
+            <Button size="sm" variant="secondary" onClick={() => void scanDuplicateLeads()} disabled={scanningDuplicates}>
+              {scanningDuplicates ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Verificando...</>
+              ) : (
+                <><Search className="mr-2 h-4 w-4" />Verificar agora</>
+              )}
+            </Button>
+            <div className="flex items-center gap-2">
+              {duplicateGroups && (
+                <span className="text-xs text-muted-foreground">
+                  {duplicateGroups.length} telefone(s) duplicado(s)
+                </span>
+              )}
+              {!!duplicateGroups?.some((g) => g.samePhone && g.leads.length > 1) && (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setDeleteAllDuplicatesConfirmOpen(true)}
+                  disabled={deletingAllDuplicates}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Excluir duplicados
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+            {duplicateGroups && duplicateGroups.length === 0 && (
+              <p className="text-sm text-muted-foreground py-6 text-center">Nenhum lead duplicado encontrado.</p>
+            )}
+            {duplicateGroups?.map((group) => {
+              const keptId = group.samePhone ? group.leads[group.leads.length - 1].id : null;
+              return (
+              <div key={group.phoneSuffix} className="rounded-lg border p-3 space-y-2">
+                <p className="text-sm font-medium">
+                  Termina em {group.phoneSuffix} <span className="text-muted-foreground">({group.leads.length} leads)</span>
+                  {!group.samePhone && (
+                    <span className="ml-2 text-xs font-normal text-amber-500">
+                      ⚠ números completos diferentes — só a terminação bate, confira antes de excluir
+                    </span>
+                  )}
+                </p>
+                <div className="space-y-1.5">
+                  {group.leads.map((lead) => (
+                    <div key={lead.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5">
+                      <div className="min-w-0">
+                        <p className="text-sm truncate">
+                          {leadDisplayName(lead)} <span className="text-muted-foreground">· {leadDisplayPhone(lead)}</span>
+                          {keptId === lead.id && (
+                            <span className="ml-1.5 text-[10px] font-normal text-emerald-500">mantido</span>
+                          )}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {statuses.find((s) => s.key === lead.status)?.label || lead.status} ·{" "}
+                          {profiles.find((p) => p.user_id === lead.assigned_to)?.full_name || "Sem responsável"} ·{" "}
+                          {new Date(lead.created_at).toLocaleDateString("pt-BR")}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="shrink-0 text-destructive hover:text-destructive"
+                        onClick={() => handleDelete(lead)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={deleteAllDuplicatesConfirmOpen} onOpenChange={(open) => !deletingAllDuplicates && setDeleteAllDuplicatesConfirmOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir leads duplicados?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Mantém o lead mais recente de cada telefone e move os demais pra "Excluídos" (não exclui de vez —
+              pode restaurar depois). Grupos marcados com ⚠ (números completos diferentes) não são tocados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingAllDuplicates}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); void deleteAllDuplicates(); }}
+              disabled={deletingAllDuplicates}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingAllDuplicates ? "Excluindo..." : "Excluir duplicados"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={searchDuplicatesConfirmOpen} onOpenChange={(open) => !deletingSearchDuplicates && setSearchDuplicatesConfirmOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir cards duplicados desta busca?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Mantém o card mais recente de cada telefone encontrado nesta busca e move os demais pra "Excluídos"
+              (não exclui de vez — pode restaurar depois).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingSearchDuplicates}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); void deleteSearchDuplicates(); }}
+              disabled={deletingSearchDuplicates}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingSearchDuplicates ? "Excluindo..." : "Excluir duplicados"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!moveColumnSource} onOpenChange={(open) => !open && !movingColumn && setMoveColumnSource(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mover todos os leads de "{moveColumnSource?.label}"</AlertDialogTitle>
+            <AlertDialogDescription>
+              Move TODOS os leads dessa coluna pra outra de uma vez (independente dos filtros aplicados na tela).
+              Não dá pra desfazer em massa — só manualmente, lead por lead.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2 space-y-1.5">
+            <Label>Coluna de destino</Label>
+            <Select value={moveColumnDest} onValueChange={setMoveColumnDest}>
+              <SelectTrigger><SelectValue placeholder="Selecione a coluna" /></SelectTrigger>
+              <SelectContent>
+                {visibleStatuses.filter((s) => s.key !== moveColumnSource?.key).map((s) => (
+                  <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={movingColumn}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); void confirmMoveColumn(); }}
+              disabled={movingColumn || !moveColumnDest}
+            >
+              {movingColumn ? "Movendo..." : "Mover todos"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }

@@ -159,6 +159,7 @@ async function dispatchSend(
     metaTemplateBodyParams?: import("../_shared/whatsappSend.ts").MetaTemplateBodyParam[];
     metaTemplateMessageSource?: string | null;
     metaTemplateVars?: Record<string, string>;
+    forceTemplate?: boolean;
   },
 ) {
   const target = await resolveSendTargetBySession(supabase, session);
@@ -178,6 +179,7 @@ async function dispatchSend(
     metaTemplateBodyParams: metaOpts?.metaTemplateBodyParams,
     metaTemplateMessageSource: metaOpts?.metaTemplateMessageSource,
     metaTemplateVars: metaOpts?.metaTemplateVars,
+    forceTemplate: metaOpts?.forceTemplate && !!metaOpts?.metaTemplateName,
     supabase,
   });
   return {
@@ -648,11 +650,16 @@ serve(async (req) => {
             rrIndex++;
           } else if (isGlobal && !fixedSession) {
             const cardCompanyId = resolveCardCompanyId(card, userToCompany);
-            if (!cardCompanyId) {
-              skippedNoCompany++;
-              continue;
+            session = cardCompanyId ? (companyToSession.get(cardCompanyId) || null) : null;
+            if (!session) {
+              // Sem empresa mapeada (ou empresa sem instância própria) — em
+              // vez de pular o lead silenciosamente, usa um número geral
+              // (instância sem empresa vinculada), igual já acontece para
+              // cobranças. Evita leads "perdidos" por falta de mapeamento
+              // cidade→loja (ex.: Campanha Copa).
+              session = pickRoundRobinSession(rrIndex);
+              rrIndex++;
             }
-            session = companyToSession.get(cardCompanyId) || null;
             if (!session) {
               skippedNoCompany++;
               continue;
@@ -681,6 +688,7 @@ serve(async (req) => {
                 metaTemplateBodyParams: buildMetaTemplateBodyParams(campaign.message, vars),
                 metaTemplateMessageSource: campaign.message,
                 metaTemplateVars: vars,
+                forceTemplate: !!campaign.force_template,
               },
             );
             if (result.ok) {
@@ -732,6 +740,11 @@ serve(async (req) => {
           const finalSentIds = new Set((finalSends || []).filter((s: any) => s.status === "sent").map((s: any) => s.lead_id));
           const stillPending = scopedCards.filter((c: any) => !finalSentIds.has(c.id));
           if (stillPending.length === 0) {
+            // sent_count/error_count somam TODAS as execuções que esvaziaram
+            // esta coluna (não só os envios desta execução), senão o log de
+            // conclusão mostra "Cards: 27, Enviados: 2" mesmo já tendo
+            // enviado pra todo mundo ao longo de várias execuções anteriores.
+            const finalErrorCount = (finalSends || []).filter((s: any) => s.status === "error").length;
             await supabase.from("whatsapp_completion_logs").insert({
               source_type: "campaign",
               source_id: campaign.id,
@@ -742,8 +755,8 @@ serve(async (req) => {
               status_key: statusKey,
               company_id: campaign.company_id,
               total_cards: scopedCards.length,
-              sent_count: campaignSentNow,
-              error_count: campaignErrorsNow,
+              sent_count: finalSentIds.size,
+              error_count: finalErrorCount,
               completed_at: new Date().toISOString(),
             });
           }
@@ -922,11 +935,14 @@ serve(async (req) => {
             session = selectedSessions[rrIndex % selectedSessions.length];
           } else if (useCompanySessionFallback) {
             const cardCompanyId = resolveCardCompanyId(card, userToCompany);
-            if (!cardCompanyId) {
-              skippedNoCompany++;
-              continue;
+            session = cardCompanyId ? (companyToSession.get(cardCompanyId) || null) : null;
+            if (!session) {
+              // Sem empresa mapeada (ou empresa sem instância própria) — usa
+              // um número geral (instância sem empresa vinculada) em vez de
+              // pular o lead silenciosamente. Evita leads "perdidos" por
+              // falta de mapeamento cidade→loja (ex.: Campanha Copa).
+              session = pickRoundRobinSession(rrIndex);
             }
-            session = companyToSession.get(cardCompanyId) || null;
             if (!session) {
               skippedNoCompany++;
               continue;
@@ -1003,6 +1019,7 @@ serve(async (req) => {
                   metaTemplateBodyParams: templateParams,
                   metaTemplateMessageSource: step.message,
                   metaTemplateVars: vars,
+                  forceTemplate: !!step.force_template,
                 },
               );
               const instanceName = sessionToInstanceName.get(session!) || session!;
@@ -1204,6 +1221,12 @@ serve(async (req) => {
             return sent.size < totalSteps;
           });
           if (stillPending.length === 0) {
+            // sent_count/error_count somam TODAS as execuções que esvaziaram
+            // esta coluna (não só os envios desta execução), senão o log de
+            // conclusão mostra "Cards: 27, Enviados: 2" mesmo já tendo
+            // enviado pra todo mundo ao longo de várias execuções anteriores.
+            const finalSentCardCount = cards.filter((c: any) => (finalByCard.get(c.id)?.size || 0) >= totalSteps).length;
+            const finalErrorCount = (finalSends || []).filter((s: any) => s.status === "error").length;
             await supabase.from("whatsapp_completion_logs").insert({
               source_type: "trigger",
               source_id: tc.id,
@@ -1214,8 +1237,8 @@ serve(async (req) => {
               status_key: statusKey,
               company_id: tc.company_id,
               total_cards: cards.length,
-              sent_count: triggerSentNow,
-              error_count: triggerErrorsNow,
+              sent_count: finalSentCardCount,
+              error_count: finalErrorCount,
               completed_at: new Date().toISOString(),
             });
           }

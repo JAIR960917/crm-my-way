@@ -3,15 +3,25 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   BarChart3,
+  Banknote,
   Building2,
+  Calculator,
+  CircleDollarSign,
   Download,
   Eye,
   Filter,
+  LayoutDashboard,
   Loader2,
+  Plus,
+  ReceiptText,
   RefreshCw,
-  ShoppingBag,
+  Search,
+  ShoppingCart,
+  Target,
+  TrendingUp,
   Trophy,
   UserCheck,
+  UserPlus,
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,16 +51,38 @@ import {
 } from "@/components/ui/table";
 import {
   EXAME_VISTA_OPTIONS,
+  addCampanhaCopaDespesa,
+  buildGeralMetrics,
+  dedupeRowsByCpf,
+  deleteCampanhaCopaDespesa,
   exportCampanhaCopaPlacarCsv,
+  exportCampanhaCopaUnmappedCsv,
+  fetchCampanhaCopaDespesas,
   fetchCampanhaCopaRelatorio,
   fetchCampanhaCopaRelatorioMeta,
+  lookupLeadsByPhones,
+  normalizePhoneDigits,
   normalizePlacarInput,
   renovacaoMatchLabel,
+  type CampanhaCopaDespesa,
   type CampanhaCopaRelatorioFilters,
   type CampanhaCopaRelatorioRow,
+  type LeadsStatusFilter,
   type RenovacaoMatch,
   NO_COMPANY_FILTER,
 } from "@/lib/campanha-copa-relatorio";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Trash2 } from "lucide-react";
 import { Navigate } from "react-router-dom";
 
 const ALL = "__all__";
@@ -116,9 +148,13 @@ export default function CampanhaCopaRelatorioPage() {
   const [metrics, setMetrics] = useState({
     total: 0,
     em_renovacao: 0,
+    em_leads_externo: 0,
+    em_leads_via_copa: 0,
     prospect: 0,
     outra_loja: 0,
     pct_renovacao: 0,
+    pct_leads_externo: 0,
+    pct_leads_via_copa: 0,
     pct_prospect: 0,
     pct_outra_loja: 0,
     consentimento_marketing: 0,
@@ -133,7 +169,7 @@ export default function CampanhaCopaRelatorioPage() {
   const [jogo, setJogo] = useState(ALL);
   const [dataInicio, setDataInicio] = useState("");
   const [dataFim, setDataFim] = useState("");
-  const [renovacaoFiltro, setRenovacaoFiltro] = useState(ALL);
+  const [leadsFiltro, setLeadsFiltro] = useState(ALL);
   const [assignedTo, setAssignedTo] = useState(ALL);
   const [placarHome, setPlacarHome] = useState("");
   const [placarAway, setPlacarAway] = useState("");
@@ -149,18 +185,27 @@ export default function CampanhaCopaRelatorioPage() {
     [placarHome, placarAway],
   );
 
+  // Quantos CPFs distintos existem entre as inscrições filtradas — quando a
+  // mesma pessoa participa de mais de uma campanha/jogo, ela gera uma
+  // inscrição por participação, mas é a mesma pessoa.
+  const uniqueLeadsCount = useMemo(() => dedupeRowsByCpf(rows).length, [rows]);
+
+  const [unmappedExported, setUnmappedExported] = useState(false);
+  const [unmappedDeleting, setUnmappedDeleting] = useState(false);
+  const [unmappedDeleteOpen, setUnmappedDeleteOpen] = useState(false);
+
   const filters = useMemo((): CampanhaCopaRelatorioFilters => ({
     ultimo_exame: ultimoExame === ALL ? null : ultimoExame,
     cidade: cidade.trim() || null,
     jogo: jogo === ALL ? null : jogo,
     data_inicio: dataInicio || null,
     data_fim: dataFim || null,
-    renovacao_filtro: renovacaoFiltro === ALL ? null : (renovacaoFiltro as RenovacaoMatch),
+    leads_status_filtro: leadsFiltro === ALL ? null : (leadsFiltro as LeadsStatusFilter),
     assigned_to: assignedTo === ALL ? null : assignedTo,
     placar: placarFiltro,
     company_id: empresa === ALL ? null : empresa === NO_COMPANY ? NO_COMPANY : empresa,
     converteu: converteu === ALL ? null : converteu === "sim",
-  }), [ultimoExame, cidade, jogo, dataInicio, dataFim, renovacaoFiltro, assignedTo, placarFiltro, empresa, converteu]);
+  }), [ultimoExame, cidade, jogo, dataInicio, dataFim, leadsFiltro, assignedTo, placarFiltro, empresa, converteu]);
 
   const loadMeta = useCallback(async () => {
     const [profRes, meta] = await Promise.all([
@@ -197,6 +242,10 @@ export default function CampanhaCopaRelatorioPage() {
     void loadReport();
   }, [isAdmin, loadReport]);
 
+  useEffect(() => {
+    setUnmappedExported(false);
+  }, [rows]);
+
   const profileName = useCallback(
     (id: string | null) => {
       if (!id) return "Sem responsável";
@@ -206,8 +255,214 @@ export default function CampanhaCopaRelatorioPage() {
     [profiles],
   );
 
-  const empresaBase = Math.max(1, metrics.total);
-  const exameBase = Math.max(1, metrics.total);
+  const isUnmappedFilter = empresa === NO_COMPANY;
+
+  const exportUnmappedCsv = useCallback(() => {
+    if (rows.length === 0) return;
+    exportCampanhaCopaUnmappedCsv(rows, profileName);
+    setUnmappedExported(true);
+    toast.success("CSV exportado. Agora você pode excluir essas inscrições.");
+  }, [rows, profileName]);
+
+  const deleteAllUnmapped = useCallback(async () => {
+    if (rows.length === 0) return;
+    setUnmappedDeleting(true);
+    let okCount = 0;
+    let errCount = 0;
+    for (const row of rows) {
+      try {
+        const { error: subErr } = await supabase
+          .from("campanha_copa_submissions")
+          .delete()
+          .eq("id", row.id);
+        if (subErr) throw subErr;
+        if (row.lead_id) {
+          const { error: leadErr } = await supabase.from("crm_leads").delete().eq("id", row.lead_id);
+          if (leadErr) throw leadErr;
+        }
+        okCount++;
+      } catch {
+        errCount++;
+      }
+    }
+    setUnmappedDeleting(false);
+    setUnmappedDeleteOpen(false);
+    setUnmappedExported(false);
+    if (errCount === 0) {
+      toast.success(`${okCount} inscrição(ões) sem empresa mapeada excluída(s).`);
+    } else {
+      toast.error(`${okCount} excluída(s), ${errCount} falharam. Tente novamente para as restantes.`);
+    }
+    void loadReport();
+  }, [rows, loadReport]);
+
+  // Leads que já estão em Renovação não deveriam continuar existindo como
+  // card em Leads — uma pessoa não pode estar em Renovação E em Leads ao
+  // mesmo tempo. Varre as inscrições com renovacao_match != "nao" (em
+  // renovação na própria loja OU em outra loja), descobre os leads cujo
+  // telefone bate, e permite excluir esses leads (exportando antes).
+  type RenLeadMatch = { lead_id: string; nome: string; telefone: string; cidade: string };
+  const [renLeadsDialogOpen, setRenLeadsDialogOpen] = useState(false);
+  const [renLeadsScanning, setRenLeadsScanning] = useState(false);
+  const [renLeadsResults, setRenLeadsResults] = useState<RenLeadMatch[] | null>(null);
+  const [renLeadsExported, setRenLeadsExported] = useState(false);
+  const [renLeadsDeletingAll, setRenLeadsDeletingAll] = useState(false);
+
+  const scanLeadsEmRenovacao = useCallback(async () => {
+    setRenLeadsScanning(true);
+    setRenLeadsExported(false);
+    try {
+      const candidateRows = rows.filter((r) => r.renovacao_match !== "nao");
+      const phoneToRow = new Map<string, CampanhaCopaRelatorioRow>();
+      for (const row of candidateRows) {
+        const phone = normalizePhoneDigits(row.telefone);
+        if (phone.length >= 10) phoneToRow.set(phone, row);
+      }
+      const matches = await lookupLeadsByPhones([...phoneToRow.keys()]);
+      const byLeadId = new Map<string, RenLeadMatch>();
+      for (const m of matches) {
+        if (byLeadId.has(m.lead_id)) continue;
+        const row = phoneToRow.get(m.phone_digits);
+        byLeadId.set(m.lead_id, {
+          lead_id: m.lead_id,
+          nome: row?.nome || "—",
+          telefone: row?.telefone || m.phone_digits,
+          cidade: row?.cidade || "—",
+        });
+      }
+      const results = [...byLeadId.values()];
+      setRenLeadsResults(results);
+      toast.success(`${results.length} lead(s) encontrado(s) já em Renovação.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao verificar");
+    } finally {
+      setRenLeadsScanning(false);
+    }
+  }, [rows]);
+
+  const exportRenLeadsCsv = useCallback(() => {
+    if (!renLeadsResults || renLeadsResults.length === 0) return;
+    const header = ["Nome", "Telefone", "Cidade"];
+    const lines = renLeadsResults.map((r) =>
+      [r.nome, r.telefone, r.cidade].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(";"),
+    );
+    const csv = [header.join(";"), ...lines].join("\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `leads_ja_em_renovacao_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setRenLeadsExported(true);
+    toast.success("CSV exportado. Agora você pode excluir esses leads.");
+  }, [renLeadsResults]);
+
+  const deleteAllLeadsEmRenovacao = useCallback(async () => {
+    if (!renLeadsResults || renLeadsResults.length === 0) return;
+    setRenLeadsDeletingAll(true);
+    let okCount = 0;
+    let errCount = 0;
+    for (const r of renLeadsResults) {
+      try {
+        await Promise.all([
+          supabase.from("crm_lead_notes").delete().eq("lead_id", r.lead_id),
+          supabase.from("lead_activities").delete().eq("lead_id", r.lead_id),
+          supabase.from("crm_appointments").delete().eq("lead_id", r.lead_id),
+          supabase.from("notifications").delete().eq("lead_id", r.lead_id),
+          supabase.from("scheduled_whatsapp_messages").delete().eq("lead_id", r.lead_id),
+        ]);
+        const { error } = await supabase.from("crm_leads").delete().eq("id", r.lead_id);
+        if (error) throw error;
+        okCount++;
+      } catch {
+        errCount++;
+      }
+    }
+    setRenLeadsDeletingAll(false);
+    setRenLeadsResults(null);
+    setRenLeadsExported(false);
+    if (errCount === 0) {
+      toast.success(`${okCount} lead(s) já em Renovação excluído(s).`);
+    } else {
+      toast.error(`${okCount} excluído(s), ${errCount} falharam. Tente novamente para os restantes.`);
+    }
+  }, [renLeadsResults]);
+
+  const empresaBase = Math.max(1, uniqueLeadsCount);
+  const exameBase = Math.max(1, uniqueLeadsCount);
+
+  // ===== Seção "Geral" — despesas/investimento e métricas financeiras =====
+  const [despesas, setDespesas] = useState<CampanhaCopaDespesa[]>([]);
+  const [despesasLoading, setDespesasLoading] = useState(true);
+  const [novaDespesaValor, setNovaDespesaValor] = useState("");
+  const [novaDespesaDescricao, setNovaDespesaDescricao] = useState("");
+  const [addingDespesa, setAddingDespesa] = useState(false);
+  const [deletingDespesaId, setDeletingDespesaId] = useState<string | null>(null);
+
+  const loadDespesas = useCallback(async () => {
+    setDespesasLoading(true);
+    try {
+      setDespesas(await fetchCampanhaCopaDespesas());
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao carregar despesas");
+    } finally {
+      setDespesasLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void loadDespesas();
+  }, [isAdmin, loadDespesas]);
+
+  const despesasTotal = useMemo(
+    () => despesas.reduce((acc, d) => acc + Number(d.valor || 0), 0),
+    [despesas],
+  );
+
+  // "Leads totais" pro CPL = Prospect + Já estava em Leads — quem está em
+  // Renovação não é "lead", é cliente, então não entra nessa base.
+  const leadsTotaisCount = metrics.prospect + metrics.em_leads_externo;
+  const geralMetrics = useMemo(
+    () => buildGeralMetrics(rows, despesasTotal, leadsTotaisCount, metrics.prospect),
+    [rows, despesasTotal, leadsTotaisCount, metrics.prospect],
+  );
+
+  const handleAddDespesa = useCallback(async () => {
+    const valor = Number(novaDespesaValor.replace(",", "."));
+    if (!Number.isFinite(valor) || valor <= 0) {
+      toast.error("Informe um valor válido");
+      return;
+    }
+    setAddingDespesa(true);
+    try {
+      await addCampanhaCopaDespesa(valor, novaDespesaDescricao);
+      setNovaDespesaValor("");
+      setNovaDespesaDescricao("");
+      await loadDespesas();
+      toast.success("Despesa adicionada.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao adicionar despesa");
+    } finally {
+      setAddingDespesa(false);
+    }
+  }, [novaDespesaValor, novaDespesaDescricao, loadDespesas]);
+
+  const handleDeleteDespesa = useCallback(async (id: string) => {
+    setDeletingDespesaId(id);
+    try {
+      await deleteCampanhaCopaDespesa(id);
+      setDespesas((prev) => prev.filter((d) => d.id !== id));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao excluir despesa");
+    } finally {
+      setDeletingDespesaId(null);
+    }
+  }, []);
+
+  const formatBRL = (v: number) =>
+    v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   if (!isAdmin) {
     return <Navigate to="/campanhas-copa" replace />;
@@ -233,6 +488,16 @@ export default function CampanhaCopaRelatorioPage() {
                 Campanhas Copa
               </Link>
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRenLeadsDialogOpen(true);
+                void scanLeadsEmRenovacao();
+              }}
+            >
+              <Search className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">Leads já em Renovação</span>
+            </Button>
             <Button variant="outline" onClick={() => void loadReport()} disabled={loading}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               <span className="ml-2 hidden sm:inline">Atualizar</span>
@@ -247,7 +512,7 @@ export default function CampanhaCopaRelatorioPage() {
               Filtros
             </CardTitle>
             <CardDescription>
-              Refine por último exame, cidade, jogo, placar, período, status na Renovação, responsável e empresa.
+              Refine por último exame, cidade, jogo, placar, período, status em Leads/Renovação, responsável e empresa.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -307,15 +572,16 @@ export default function CampanhaCopaRelatorioPage() {
               </div>
 
               <div className="space-y-2">
-                <Label>Em Renovação?</Label>
-                <Select value={renovacaoFiltro} onValueChange={setRenovacaoFiltro}>
+                <Label>Leads</Label>
+                <Select value={leadsFiltro} onValueChange={setLeadsFiltro}>
                   <SelectTrigger>
                     <SelectValue placeholder="Todos" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL}>Todos</SelectItem>
-                    <SelectItem value="sim">Sim — na loja da cidade</SelectItem>
-                    <SelectItem value="nao">Não — prospect</SelectItem>
+                    <SelectItem value="em_renovacao">Em renovação</SelectItem>
+                    <SelectItem value="em_leads">Em leads</SelectItem>
+                    <SelectItem value="prospect">Prospect</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -423,7 +689,7 @@ export default function CampanhaCopaRelatorioPage() {
           </CardContent>
         </Card>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Total de inscrições</CardDescription>
@@ -433,8 +699,23 @@ export default function CampanhaCopaRelatorioPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-1">
+                <Users className="h-3.5 w-3.5" />
+                Leads únicos (CPF)
+              </CardDescription>
+              <CardTitle className="text-3xl">
+                {uniqueLeadsCount}
+                <span className="text-base font-normal text-muted-foreground ml-2">(100%)</span>
+              </CardTitle>
+              <p className="text-xs text-muted-foreground pt-1">
+                Pessoas distintas pelo CPF — conta uma vez mesmo participando de várias campanhas
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-1">
                 <UserCheck className="h-3.5 w-3.5" />
-                Já em Renovação (loja)
+                Já em Renovação
               </CardDescription>
               <CardTitle className="text-3xl text-emerald-600">
                 {metrics.em_renovacao}
@@ -442,13 +723,33 @@ export default function CampanhaCopaRelatorioPage() {
                   ({metrics.pct_renovacao}%)
                 </span>
               </CardTitle>
+              <p className="text-xs text-muted-foreground pt-1">
+                Cliente ativo em Renovação, na própria loja ou em outra
+              </p>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-1">
+                <LayoutDashboard className="h-3.5 w-3.5" />
+                Já estava em Leads
+              </CardDescription>
+              <CardTitle className="text-3xl text-blue-600">
+                {metrics.em_leads_externo}
+                <span className="text-base font-normal text-muted-foreground ml-2">
+                  ({metrics.pct_leads_externo}%)
+                </span>
+              </CardTitle>
+              <p className="text-xs text-muted-foreground pt-1">
+                Telefone já tinha card em Leads ANTES/independente da Campanha Copa (e não está em Renovação)
+              </p>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-1">
                 <Users className="h-3.5 w-3.5" />
-                Prospect (não em Renovação)
+                Prospect (sem Renovação nem Leads prévios)
               </CardDescription>
               <CardTitle className="text-3xl">
                 {metrics.prospect}
@@ -456,45 +757,14 @@ export default function CampanhaCopaRelatorioPage() {
                   ({metrics.pct_prospect}%)
                 </span>
               </CardTitle>
-            </CardHeader>
-          </Card>
-          <Card className="border-amber-500/40 bg-amber-500/5">
-            <CardHeader className="pb-2">
-              <CardDescription className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                <ShoppingBag className="h-3.5 w-3.5" />
-                Compraram após a campanha
-              </CardDescription>
-              <CardTitle className="text-3xl text-amber-600 dark:text-amber-400">
-                {metrics.convertidos}
-                <span className="text-base font-normal text-muted-foreground ml-2">
-                  ({metrics.total > 0 ? Math.round((metrics.convertidos / metrics.total) * 100) : 0}%)
-                </span>
-              </CardTitle>
               <p className="text-xs text-muted-foreground pt-1">
-                Última compra registrada é posterior à data de inscrição
+                Card em Leads veio da própria campanha, e a pessoa não está em Renovação nem tinha lead prévio
               </p>
             </CardHeader>
           </Card>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
-          <Card className="border-green-500/40 bg-green-500/5">
-            <CardHeader className="pb-2">
-              <CardDescription className="flex items-center gap-1 text-green-600 dark:text-green-400">
-                <ShoppingBag className="h-3.5 w-3.5" />
-                Prospects que compraram (nunca havia comprado)
-              </CardDescription>
-              <CardTitle className="text-3xl text-green-600 dark:text-green-400">
-                {metrics.prospect_convertidos}
-                <span className="text-base font-normal text-muted-foreground ml-2">
-                  ({metrics.prospect > 0 ? Math.round((metrics.prospect_convertidos / (metrics.prospect + metrics.prospect_convertidos)) * 100) : 0}% dos prospects)
-                </span>
-              </CardTitle>
-              <p className="text-xs text-muted-foreground pt-1">
-                Leads sem histórico de compra anterior que converteram após a campanha
-              </p>
-            </CardHeader>
-          </Card>
+        <div className="grid gap-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Consentimento de marketing</CardTitle>
@@ -561,11 +831,183 @@ export default function CampanhaCopaRelatorioPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Calculator className="h-4 w-4" />
+              Geral
+            </CardTitle>
+            <CardDescription>
+              Resultado financeiro da campanha — calculado a partir das inscrições filtradas acima e das despesas
+              lançadas abaixo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <Banknote className="h-3.5 w-3.5" />
+                    Faturamento
+                  </CardDescription>
+                  <CardTitle className="text-2xl text-emerald-600">{formatBRL(geralMetrics.faturamento)}</CardTitle>
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Valor vendido para quem fez a 1ª compra após a inscrição
+                  </p>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <ShoppingCart className="h-3.5 w-3.5" />
+                    Vendas
+                  </CardDescription>
+                  <CardTitle className="text-2xl">{geralMetrics.vendas}</CardTitle>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <UserPlus className="h-3.5 w-3.5" />
+                    Novos Clientes
+                  </CardDescription>
+                  <CardTitle className="text-2xl">{geralMetrics.novosClientes}</CardTitle>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <ReceiptText className="h-3.5 w-3.5" />
+                    Despesas
+                  </CardDescription>
+                  <CardTitle className="text-2xl text-amber-600">{formatBRL(geralMetrics.despesas)}</CardTitle>
+                  <p className="text-xs text-muted-foreground pt-1">Soma dos lançamentos abaixo</p>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <CircleDollarSign className="h-3.5 w-3.5" />
+                    Ticket Médio
+                  </CardDescription>
+                  <CardTitle className="text-2xl">{formatBRL(geralMetrics.ticketMedio)}</CardTitle>
+                  <p className="text-xs text-muted-foreground pt-1">Faturamento ÷ Vendas</p>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <Target className="h-3.5 w-3.5" />
+                    CAC
+                  </CardDescription>
+                  <CardTitle className="text-2xl">{formatBRL(geralMetrics.cac)}</CardTitle>
+                  <p className="text-xs text-muted-foreground pt-1">Despesas ÷ Vendas</p>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <TrendingUp className="h-3.5 w-3.5" />
+                    CPL Leads totais
+                  </CardDescription>
+                  <CardTitle className="text-2xl">{formatBRL(geralMetrics.cplLeadsTotais)}</CardTitle>
+                  <p className="text-xs text-muted-foreground pt-1">Despesas ÷ (Prospect + Já estava em Leads)</p>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription className="flex items-center gap-1">
+                    <TrendingUp className="h-3.5 w-3.5" />
+                    CPL Leads novos
+                  </CardDescription>
+                  <CardTitle className="text-2xl">{formatBRL(geralMetrics.cplLeadsNovos)}</CardTitle>
+                  <p className="text-xs text-muted-foreground pt-1">Despesas ÷ Prospect (leads novos)</p>
+                </CardHeader>
+              </Card>
+            </div>
+
+            <div className="rounded-lg border p-4 space-y-3">
+              <p className="text-sm font-medium">Despesas / valor investido</p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                <div className="space-y-1 sm:w-40">
+                  <Label className="text-xs">Valor (R$)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="0,00"
+                    value={novaDespesaValor}
+                    onChange={(e) => setNovaDespesaValor(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1 flex-1">
+                  <Label className="text-xs">Descrição (opcional)</Label>
+                  <Input
+                    placeholder="Ex.: Investimento em anúncio — semana 1"
+                    value={novaDespesaDescricao}
+                    onChange={(e) => setNovaDespesaDescricao(e.target.value)}
+                  />
+                </div>
+                <Button onClick={() => void handleAddDespesa()} disabled={addingDespesa}>
+                  {addingDespesa ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+                  Adicionar
+                </Button>
+              </div>
+
+              {despesasLoading ? (
+                <p className="text-sm text-muted-foreground">Carregando despesas…</p>
+              ) : despesas.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhuma despesa lançada ainda.</p>
+              ) : (
+                <div className="max-h-60 overflow-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Data</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead className="text-right">Valor</TableHead>
+                        <TableHead className="text-right">Ação</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {despesas.map((d) => (
+                        <TableRow key={d.id}>
+                          <TableCell className="text-xs whitespace-nowrap">
+                            {format(new Date(d.created_at), "dd/MM/yy HH:mm", { locale: ptBR })}
+                          </TableCell>
+                          <TableCell className="text-xs">{d.descricao || "—"}</TableCell>
+                          <TableCell className="text-xs text-right whitespace-nowrap">
+                            {formatBRL(Number(d.valor))}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={deletingDespesaId === d.id}
+                              onClick={() => void handleDeleteDespesa(d.id)}
+                            >
+                              {deletingDespesaId === d.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="text-base">Inscrições detalhadas</CardTitle>
                 <CardDescription>
-                  Até 5.000 registros. &quot;Em Renovação&quot; = CPF ou telefone encontrado em{" "}
+                  Até 5.000 registros. &quot;Em Renovação&quot; = CPF e telefone (os dois) encontrados na mesma pessoa em{" "}
                   <code className="text-xs">crm_renovacoes</code> da loja mapeada pela cidade informada.
                 </CardDescription>
               </div>
@@ -579,6 +1021,24 @@ export default function CampanhaCopaRelatorioPage() {
                   <Download className="h-4 w-4 mr-2" />
                   Exportar CSV ({rows.length}) — placar {placarFiltro}
                 </Button>
+              )}
+              {isUnmappedFilter && rows.length > 0 && (
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  <Button variant="secondary" size="sm" onClick={exportUnmappedCsv}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Exportar CSV ({rows.length}) — sem empresa mapeada
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={!unmappedExported || unmappedDeleting}
+                    title={!unmappedExported ? "Exporte o CSV primeiro" : undefined}
+                    onClick={() => setUnmappedDeleteOpen(true)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Excluir todos ({rows.length})
+                  </Button>
+                </div>
               )}
             </div>
           </CardHeader>
@@ -675,6 +1135,101 @@ export default function CampanhaCopaRelatorioPage() {
           <strong>Prospect</strong> = não encontrado na loja (inclui clientes de outras unidades da rede).
         </p>
       </div>
+
+      <AlertDialog open={unmappedDeleteOpen} onOpenChange={setUnmappedDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir todas as inscrições sem empresa mapeada?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isso excluirá permanentemente {rows.length} inscrição(ões) da Campanha Copa (e o lead
+              vinculado, quando houver) que não têm empresa mapeada pela cidade. Essa ação não pode ser
+              desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={unmappedDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void deleteAllUnmapped();
+              }}
+              disabled={unmappedDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {unmappedDeleting ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={renLeadsDialogOpen} onOpenChange={setRenLeadsDialogOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Leads que já estão em Renovação</DialogTitle>
+            <DialogDescription>
+              Uma pessoa já cliente ativo em Renovação não deveria continuar com um card na tela de Leads.
+              Exporte o CSV antes de excluir.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <Button size="sm" variant="secondary" onClick={() => void scanLeadsEmRenovacao()} disabled={renLeadsScanning}>
+                {renLeadsScanning ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Verificando...</>
+                ) : (
+                  <><Search className="mr-2 h-4 w-4" />Verificar agora</>
+                )}
+              </Button>
+              {renLeadsResults && renLeadsResults.length > 0 && (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={exportRenLeadsCsv}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Exportar CSV ({renLeadsResults.length})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={!renLeadsExported || renLeadsDeletingAll}
+                    title={!renLeadsExported ? "Exporte o CSV primeiro" : undefined}
+                    onClick={() => void deleteAllLeadsEmRenovacao()}
+                  >
+                    {renLeadsDeletingAll ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Excluindo...</>
+                    ) : (
+                      <><Trash2 className="mr-2 h-4 w-4" />Excluir todos ({renLeadsResults.length})</>
+                    )}
+                  </Button>
+                </div>
+              )}
+            </div>
+            {renLeadsResults && renLeadsResults.length === 0 && (
+              <p className="text-sm text-muted-foreground">Nenhum lead encontrado já em Renovação.</p>
+            )}
+            {renLeadsResults && renLeadsResults.length > 0 && (
+              <div className="max-h-[400px] overflow-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>Telefone</TableHead>
+                      <TableHead>Cidade</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {renLeadsResults.map((r) => (
+                      <TableRow key={r.lead_id}>
+                        <TableCell className="text-xs">{r.nome}</TableCell>
+                        <TableCell className="text-xs">{r.telefone}</TableCell>
+                        <TableCell className="text-xs">{r.cidade}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

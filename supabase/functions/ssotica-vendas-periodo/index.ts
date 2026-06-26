@@ -47,6 +47,33 @@ async function fetchSSotica(url: string, token: string): Promise<any> {
   return res.json();
 }
 
+/**
+ * A SSótica pagina listas grandes (ex.: financeiro/contas-a-receber já usa
+ * page/perPage). /vendas/periodo sem paginação só devolvia a 1ª página,
+ * subcontando MUITO o total de vendas em períodos/empresas com volume alto.
+ * Aceita tanto resposta paginada ({data, currentPage, totalPages}) quanto
+ * um array puro (sem wrapper), continuando até não haver mais páginas.
+ */
+async function fetchAllPages(baseUrl: string, token: string): Promise<any[]> {
+  const all: any[] = [];
+  let page = 1;
+  while (true) {
+    const pagedUrl = `${baseUrl}&page=${page}&perPage=100`;
+    const json = await fetchSSotica(pagedUrl, token);
+    if (Array.isArray(json)) {
+      all.push(...json);
+      break;
+    }
+    const items = Array.isArray(json?.data) ? json.data : [];
+    all.push(...items);
+    const totalPages = Number(json?.totalPages ?? 1);
+    const currentPage = Number(json?.currentPage ?? page);
+    if (items.length === 0 || currentPage >= totalPages) break;
+    page++;
+  }
+  return all;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -171,8 +198,7 @@ Deno.serve(async (req) => {
       windows.map(async (w) => {
         const url = `${SSOTICA_BASE}/vendas/periodo?cnpj=${encodeURIComponent(cnpj)}&inicio_periodo=${w.start}&fim_periodo=${w.end}`;
         try {
-          const vendas = await fetchSSotica(url, token);
-          return Array.isArray(vendas) ? vendas : [];
+          return await fetchAllPages(url, token);
         } catch (err) {
           console.error(`[ssotica-vendas-periodo] ${cnpj} ${w.start}→${w.end}`, err);
           return [];

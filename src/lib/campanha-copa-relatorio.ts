@@ -17,13 +17,15 @@ export const EXAME_VISTA_OPTIONS = [
 
 export type RenovacaoMatch = "sim" | "nao" | "outra_loja";
 
+export type LeadsStatusFilter = "em_renovacao" | "em_leads" | "prospect";
+
 export type CampanhaCopaRelatorioFilters = {
   ultimo_exame?: string | null;
   cidade?: string | null;
   jogo?: string | null;
   data_inicio?: string | null;
   data_fim?: string | null;
-  renovacao_filtro?: RenovacaoMatch | null;
+  leads_status_filtro?: LeadsStatusFilter | null;
   assigned_to?: string | null;
   placar?: string | null;
   company_id?: string | null;
@@ -33,9 +35,13 @@ export type CampanhaCopaRelatorioFilters = {
 export type CampanhaCopaRelatorioMetrics = {
   total: number;
   em_renovacao: number;
+  em_leads_externo: number;
+  em_leads_via_copa: number;
   prospect: number;
   outra_loja: number;
   pct_renovacao: number;
+  pct_leads_externo: number;
+  pct_leads_via_copa: number;
   pct_prospect: number;
   pct_outra_loja: number;
   consentimento_marketing: number;
@@ -75,6 +81,12 @@ export type CampanhaCopaRelatorioRow = {
   renovacao_company_name: string | null;
   converteu_apos_campanha: boolean;
   cliente_novo_pos_campanha: boolean;
+  /** Valor da última venda (crm_renovacoes.valor) — só é a venda "qualificada" quando converteu_apos_campanha é true. */
+  valor_venda: number | null;
+  /** Telefone já existia como card em Leads ANTES/independente da Campanha Copa. */
+  em_leads_externo: boolean;
+  /** Telefone está em Leads só porque a própria inscrição da Campanha Copa criou o card. */
+  em_leads_via_copa: boolean;
 };
 
 export type CampanhaCopaRelatorioResult = {
@@ -107,6 +119,7 @@ type RenovacaoLite = {
   status: string;
   data_ultima_compra: string | null;
   data_ultima_venda: string | null;
+  valor: number | null;
   ssotica_company_id: string;
   cpf_digits: string;
   phone_digits: string;
@@ -143,7 +156,7 @@ function timestampBefore(isoA: string, isoB: string): boolean {
   return isoA.slice(0, 10) < isoB.slice(0, 10);
 }
 
-const MAX_SUBMISSIONS = 5000;
+const MAX_SUBMISSIONS = 50000;
 
 function toIsoStart(dateStr: string | null | undefined): string | null {
   if (!dateStr) return null;
@@ -159,7 +172,7 @@ function cpfDigits(value: string | null | undefined): string {
   return (value ?? "").replace(/\D/g, "");
 }
 
-function normalizePhoneDigits(raw: string | null | undefined): string {
+export function normalizePhoneDigits(raw: string | null | undefined): string {
   let d = (raw ?? "").replace(/\D/g, "");
   if (d.length >= 12 && d.startsWith("55")) d = d.slice(2);
   if (d.length === 10 && d[2] !== "9") d = `${d.slice(0, 2)}9${d.slice(2)}`;
@@ -194,28 +207,24 @@ function parsePlacarScores(placar: string | null | undefined): { home: number; a
   return { home, away };
 }
 
-function isBetterRenovacao(a: RenovacaoLite, b: RenovacaoLite, preferCpf: boolean): boolean {
-  const aCpf = preferCpf && a.cpf_digits.length >= 11;
-  const bCpf = preferCpf && b.cpf_digits.length >= 11;
-  if (aCpf !== bCpf) return bCpf;
-  return b.updated_at > a.updated_at;
-}
-
+/**
+ * Match exige CPF E telefone batendo ao MESMO TEMPO — número de telefone é
+ * frequentemente compartilhado entre pessoas da mesma casa/família no
+ * Brasil, então confiar só no telefone já causou caso real de atribuir a
+ * compra de uma pessoa (ex.: marido) a outra (ex.: esposa) que nunca comprou,
+ * só porque usam o mesmo número. CPF isolado também não basta (CPF errado
+ * digitado no formulário é possível) — exige os dois pra reduzir falsos
+ * positivos nas duas direções.
+ */
 function findSameStoreRenovacao(
   companyId: string,
   cpf: string,
   phone: string,
   byCompanyCpf: Map<string, RenovacaoLite>,
-  byCompanyPhone: Map<string, RenovacaoLite>,
 ): { ren: RenovacaoLite | null; matchType: string | null } {
-  if (cpf.length >= 11) {
-    const hit = byCompanyCpf.get(`${companyId}|${cpf}`);
-    if (hit) return { ren: hit, matchType: "cpf" };
-  }
-  if (phone.length >= 10) {
-    const hit = byCompanyPhone.get(`${companyId}|${phone}`);
-    if (hit) return { ren: hit, matchType: "telefone" };
-  }
+  if (cpf.length < 11 || phone.length < 10) return { ren: null, matchType: null };
+  const hit = byCompanyCpf.get(`${companyId}|${cpf}`);
+  if (hit && hit.phone_digits === phone) return { ren: hit, matchType: "cpf e telefone" };
   return { ren: null, matchType: null };
 }
 
@@ -225,35 +234,20 @@ function findOtherStoreRenovacao(
   phone: string,
   all: RenovacaoLite[],
 ): { ren: RenovacaoLite | null; matchType: string | null } {
+  if (cpf.length < 11 || phone.length < 10) return { ren: null, matchType: null };
   let best: RenovacaoLite | null = null;
-  let matchType: string | null = null;
 
   for (const ren of all) {
     if (companyId && ren.ssotica_company_id === companyId) continue;
-
-    const cpfHit = cpf.length >= 11 && ren.cpf_digits === cpf;
-    const phoneHit = phone.length >= 10 && ren.phone_digits === phone;
-    if (!cpfHit && !phoneHit) continue;
-
-    const type = cpfHit ? "cpf" : "telefone";
-    if (!best) {
-      best = ren;
-      matchType = type;
-      continue;
-    }
-    const preferCpf = type === "cpf";
-    if (isBetterRenovacao(best, ren, preferCpf) || (type === "cpf" && matchType !== "cpf")) {
-      best = ren;
-      matchType = type;
-    }
+    if (ren.cpf_digits !== cpf || ren.phone_digits !== phone) continue;
+    if (!best || ren.updated_at > best.updated_at) best = ren;
   }
 
-  return { ren: best, matchType };
+  return { ren: best, matchType: best ? "cpf e telefone" : null };
 }
 
 function buildRenovacaoIndexes(renovacoes: RenovacaoLite[]) {
   const byCompanyCpf = new Map<string, RenovacaoLite>();
-  const byCompanyPhone = new Map<string, RenovacaoLite>();
 
   for (const ren of renovacoes) {
     if (ren.cpf_digits.length >= 11) {
@@ -261,21 +255,70 @@ function buildRenovacaoIndexes(renovacoes: RenovacaoLite[]) {
       const cur = byCompanyCpf.get(key);
       if (!cur || ren.updated_at > cur.updated_at) byCompanyCpf.set(key, ren);
     }
-    if (ren.phone_digits.length >= 10) {
-      const key = `${ren.ssotica_company_id}|${ren.phone_digits}`;
-      const cur = byCompanyPhone.get(key);
-      if (!cur || ren.updated_at > cur.updated_at) byCompanyPhone.set(key, ren);
+  }
+
+  return { byCompanyCpf };
+}
+
+/**
+ * Reduz a 1 linha por CPF — quando a mesma pessoa participou de várias
+ * campanhas/jogos, ela conta só uma vez. Mantém a inscrição mais RECENTE de
+ * cada CPF (reflete o estado mais atual de renovação/conversão da pessoa).
+ * Linhas sem CPF não são agrupadas entre si (cada uma conta como única).
+ */
+export function dedupeRowsByCpf(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRelatorioRow[] {
+  const byCpf = new Map<string, CampanhaCopaRelatorioRow>();
+  const withoutCpf: CampanhaCopaRelatorioRow[] = [];
+
+  for (const row of rows) {
+    const cpf = cpfDigits(row.cpf);
+    if (cpf.length < 11) {
+      withoutCpf.push(row);
+      continue;
+    }
+    const current = byCpf.get(cpf);
+    if (!current || row.created_at > current.created_at) {
+      byCpf.set(cpf, row);
     }
   }
 
-  return { byCompanyCpf, byCompanyPhone };
+  return [...byCpf.values(), ...withoutCpf];
 }
 
-function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRelatorioMetrics {
+/**
+ * Classifica uma inscrição em 1 dos 3 buckets MUTUAMENTE EXCLUSIVOS do
+ * relatório — usado tanto pelas métricas quanto pelo filtro "Leads".
+ * Prioridade:
+ * 1) Em Renovação (própria loja OU outra loja) — MAS só quem JÁ estava em
+ *    Renovação ANTES de participar. Quem só está em Renovação porque
+ *    comprou DEPOIS de se inscrever (cliente_novo_pos_campanha &&
+ *    converteu_apos_campanha) é um resultado da campanha, não alguém que
+ *    "já estava" — cai no bucket de Prospect.
+ * 2) Em Leads (só quem NÃO está em Renovação, senão dobraria).
+ * 3) Prospect — resíduo: todo mundo que não caiu em (1) ou (2), incluindo
+ *    quem converteu para Renovação ou para Leads através da própria campanha.
+ */
+export function classifyLeadsStatus(row: CampanhaCopaRelatorioRow): LeadsStatusFilter {
+  const convertedViaCampanha = row.cliente_novo_pos_campanha && row.converteu_apos_campanha;
+  const emRenovacao =
+    (row.renovacao_match === "sim" || row.renovacao_match === "outra_loja") && !convertedViaCampanha;
+  if (emRenovacao) return "em_renovacao";
+  if (row.renovacao_match === "nao" && row.em_leads_externo) return "em_leads";
+  return "prospect";
+}
+
+export function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRelatorioMetrics {
   const total = rows.length;
-  const em_renovacao = rows.filter((r) => r.renovacao_match === "sim").length;
-  // outra_loja é fundido no prospect — não é exibido separadamente
-  const prospect = rows.filter((r) => r.renovacao_match === "nao" || r.renovacao_match === "outra_loja").length;
+  // Quem participou de mais de uma campanha/jogo com o mesmo CPF não pode
+  // ser contado mais de uma vez nesses cards — mesma regra de "Leads
+  // únicos (CPF)". Mantém a inscrição mais recente de cada pessoa.
+  const uniquePeople = dedupeRowsByCpf(rows);
+  // Os 3 buckets abaixo são mutuamente exclusivos e cobrem todo mundo — a
+  // soma dos três sempre bate com "Leads únicos (CPF)" (ver classifyLeadsStatus).
+  const em_renovacao = uniquePeople.filter((r) => classifyLeadsStatus(r) === "em_renovacao").length;
+  const em_leads_externo = uniquePeople.filter((r) => classifyLeadsStatus(r) === "em_leads").length;
+  const prospect = uniquePeople.length - em_renovacao - em_leads_externo;
+  const em_leads_via_copa = prospect;
   const outra_loja = 0;
   const consentimento_marketing = rows.filter((r) => r.consentimento_marketing).length;
   // Comprou APÓS a data da inscrição na campanha (última compra >= data do
@@ -291,9 +334,13 @@ function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRelatorioMe
     (r) => r.cliente_novo_pos_campanha && r.converteu_apos_campanha,
   ).length;
 
+  // Distribuição por empresa/exame e os percentuais dos buckets usam "Leads
+  // únicos (CPF)" como base (100%), não o total bruto de inscrições — senão
+  // quem participou de várias campanhas contava mais de uma vez na distribuição.
+  const uniqueTotal = uniquePeople.length;
   const empresaMap = new Map<string, number>();
   const exameMap = new Map<string, number>();
-  for (const row of rows) {
+  for (const row of uniquePeople) {
     const empresa = row.company_name?.trim() || "Sem empresa mapeada";
     const exame = row.ultimo_exame_vista?.trim() || "Não informado";
     empresaMap.set(empresa, (empresaMap.get(empresa) ?? 0) + 1);
@@ -311,11 +358,15 @@ function buildMetrics(rows: CampanhaCopaRelatorioRow[]): CampanhaCopaRelatorioMe
   return {
     total,
     em_renovacao,
+    em_leads_externo,
+    em_leads_via_copa,
     prospect,
     outra_loja,
-    pct_renovacao: total > 0 ? Math.round((em_renovacao / total) * 1000) / 10 : 0,
-    pct_prospect: total > 0 ? Math.round((prospect / total) * 1000) / 10 : 0,
-    pct_outra_loja: total > 0 ? Math.round((outra_loja / total) * 1000) / 10 : 0,
+    pct_renovacao: uniqueTotal > 0 ? Math.round((em_renovacao / uniqueTotal) * 1000) / 10 : 0,
+    pct_leads_externo: uniqueTotal > 0 ? Math.round((em_leads_externo / uniqueTotal) * 1000) / 10 : 0,
+    pct_leads_via_copa: uniqueTotal > 0 ? Math.round((em_leads_via_copa / uniqueTotal) * 1000) / 10 : 0,
+    pct_prospect: uniqueTotal > 0 ? Math.round((prospect / uniqueTotal) * 1000) / 10 : 0,
+    pct_outra_loja: uniqueTotal > 0 ? Math.round((outra_loja / uniqueTotal) * 1000) / 10 : 0,
     consentimento_marketing,
     convertidos,
     prospect_convertidos,
@@ -365,6 +416,51 @@ async function lookupRenovacoes(cpfs: string[], phones: string[]): Promise<Renov
   return ((data ?? []) as RenovacaoLite[]).filter((r) => r.ssotica_company_id);
 }
 
+/**
+ * Telefones (já normalizados) que existem como card na tela de Leads,
+ * separados por origem: leadsExternos = lead que já existia independente da
+ * Campanha Copa (origem_campanha != 'copa' ou nulo); leadsViaCopa = lead que
+ * só existe porque a própria inscrição da Campanha Copa o criou
+ * automaticamente (origem_campanha = 'copa').
+ */
+async function lookupLeadsPhones(
+  phones: string[],
+): Promise<{ leadsExternos: Set<string>; leadsViaCopa: Set<string> }> {
+  if (phones.length === 0) return { leadsExternos: new Set(), leadsViaCopa: new Set() };
+
+  const { data, error } = await supabase.rpc("campanha_copa_lookup_leads" as never, {
+    p_phones: phones,
+  } as never);
+
+  if (error) throw new Error(error.message);
+
+  const leadsExternos = new Set<string>();
+  const leadsViaCopa = new Set<string>();
+  for (const row of (data ?? []) as Array<{ phone_digits: string; origem_campanha: string | null }>) {
+    if (row.origem_campanha === "copa") {
+      leadsViaCopa.add(row.phone_digits);
+    } else {
+      leadsExternos.add(row.phone_digits);
+    }
+  }
+  return { leadsExternos, leadsViaCopa };
+}
+
+export type LeadMatch = { lead_id: string; phone_digits: string; origem_campanha: string | null };
+
+/** Leads (id, telefone normalizado, origem) que batem com uma lista de telefones. */
+export async function lookupLeadsByPhones(phones: string[]): Promise<LeadMatch[]> {
+  if (phones.length === 0) return [];
+
+  const { data, error } = await supabase.rpc("campanha_copa_lookup_leads" as never, {
+    p_phones: phones,
+  } as never);
+
+  if (error) throw new Error(error.message);
+
+  return (data ?? []) as LeadMatch[];
+}
+
 export async function fetchCampanhaCopaRelatorio(
   filters: CampanhaCopaRelatorioFilters,
 ): Promise<CampanhaCopaRelatorioResult> {
@@ -390,8 +486,11 @@ export async function fetchCampanhaCopaRelatorio(
     if (phone.length >= 10) phoneSet.add(phone);
   }
 
-  const renovacoes = await lookupRenovacoes([...cpfSet], [...phoneSet]);
-  const { byCompanyCpf, byCompanyPhone } = buildRenovacaoIndexes(renovacoes);
+  const [renovacoes, { leadsExternos, leadsViaCopa }] = await Promise.all([
+    lookupRenovacoes([...cpfSet], [...phoneSet]),
+    lookupLeadsPhones([...phoneSet]),
+  ]);
+  const { byCompanyCpf } = buildRenovacaoIndexes(renovacoes);
 
   const companyIds = new Set<string>();
   for (const route of routes) companyIds.add(route.company_id);
@@ -417,7 +516,7 @@ export async function fetchCampanhaCopaRelatorio(
     let matched: RenovacaoLite | null = null;
 
     if (companyId) {
-      const same = findSameStoreRenovacao(companyId, cpf, phone, byCompanyCpf, byCompanyPhone);
+      const same = findSameStoreRenovacao(companyId, cpf, phone, byCompanyCpf);
       if (same.ren) {
         renovacao_match = "sim";
         renovacao_match_type = same.matchType;
@@ -435,6 +534,11 @@ export async function fetchCampanhaCopaRelatorio(
     }
 
     const renovacaoCompanyId = matched?.ssotica_company_id ?? null;
+    const converteuAposCampanha = !!(
+      matched &&
+      ultimaCompraReal(matched) &&
+      dateOnOrAfterTimestamp(ultimaCompraReal(matched)!, sub.created_at)
+    );
 
     return {
       id: sub.id,
@@ -468,11 +572,7 @@ export async function fetchCampanhaCopaRelatorio(
       renovacao_company_name: renovacaoCompanyId
         ? companyNameById.get(renovacaoCompanyId) ?? null
         : null,
-      converteu_apos_campanha: !!(
-        matched &&
-        ultimaCompraReal(matched) &&
-        dateOnOrAfterTimestamp(ultimaCompraReal(matched)!, sub.created_at)
-      ),
+      converteu_apos_campanha: converteuAposCampanha,
       // O registro de renovação só existe a partir da primeira compra conhecida.
       // Se ele foi criado no MESMO DIA ou DEPOIS da inscrição na campanha, o
       // cliente ainda não existia como comprador no momento em que participou
@@ -481,11 +581,17 @@ export async function fetchCampanhaCopaRelatorio(
       cliente_novo_pos_campanha: !!(
         matched?.created_at && !timestampBefore(matched.created_at, sub.created_at)
       ),
+      // valor é da venda mais RECENTE do cliente — só é a venda "qualificada"
+      // (a que aconteceu depois da inscrição) quando converteu_apos_campanha
+      // é true; senão o valor seria de uma venda antiga, sem relação com a campanha.
+      valor_venda: converteuAposCampanha ? matched?.valor ?? null : null,
+      em_leads_externo: phone.length >= 10 && leadsExternos.has(phone),
+      em_leads_via_copa: phone.length >= 10 && leadsViaCopa.has(phone),
     };
   });
 
-  if (filters.renovacao_filtro) {
-    rows = rows.filter((r) => r.renovacao_match === filters.renovacao_filtro);
+  if (filters.leads_status_filtro) {
+    rows = rows.filter((r) => classifyLeadsStatus(r) === filters.leads_status_filtro);
   }
 
   if (filters.company_id === NO_COMPANY_FILTER) {
@@ -514,7 +620,7 @@ export async function fetchCampanhaCopaRelatorioMeta(): Promise<{
       .from("campanha_copa_submissions")
       .select("cidade, jogo, jogo_label")
       .order("created_at", { ascending: false })
-      .limit(2000),
+      .limit(MAX_SUBMISSIONS),
     supabase
       .from("campanha_copa_cidade_lojas" as never)
       .select("company_id"),
@@ -645,6 +751,53 @@ export function exportCampanhaCopaPlacarCsv(
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+export function exportCampanhaCopaUnmappedCsv(
+  rows: CampanhaCopaRelatorioRow[],
+  profileName: (id: string | null) => string,
+) {
+  const headers = [
+    "Nome",
+    "CPF",
+    "Telefone",
+    "Cidade",
+    "Idade",
+    "Ultimo exame",
+    "Em Renovacao",
+    "Responsavel",
+    "Data inscricao",
+  ];
+
+  const lines = [
+    headers.join(CSV_DELIMITER),
+    ...rows.map((row) =>
+      [
+        csvEscape(row.nome),
+        csvTextCell(row.cpf),
+        csvTextCell(row.telefone),
+        csvEscape(row.cidade),
+        csvEscape(row.idade),
+        csvEscape(row.ultimo_exame_vista),
+        csvEscape(renovacaoMatchLabel(row.renovacao_match)),
+        csvEscape(profileName(row.assigned_to)),
+        csvEscape(formatCsvDate(row.created_at)),
+      ].join(CSV_DELIMITER),
+    ),
+  ];
+
+  const blob = new Blob(["﻿" + lines.join("\r\n") + "\r\n"], {
+    type: "text/csv;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `campanha-copa-sem-empresa-mapeada-${new Date().toISOString().slice(0, 10)}.csv`;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export function renovacaoMatchLabel(match: RenovacaoMatch): string {
   switch (match) {
     case "sim":
@@ -654,4 +807,95 @@ export function renovacaoMatchLabel(match: RenovacaoMatch): string {
     default:
       return "Não está em Renovação";
   }
+}
+
+// ============================================================
+// Seção "Geral" — despesas/investimento da campanha e métricas
+// financeiras derivadas (faturamento, CAC, CPL, ticket médio).
+// ============================================================
+
+export type CampanhaCopaDespesa = {
+  id: string;
+  valor: number;
+  descricao: string | null;
+  created_at: string;
+};
+
+export async function fetchCampanhaCopaDespesas(): Promise<CampanhaCopaDespesa[]> {
+  const { data, error } = await supabase
+    .from("campanha_copa_despesas" as never)
+    .select("id, valor, descricao, created_at")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CampanhaCopaDespesa[];
+}
+
+export async function addCampanhaCopaDespesa(valor: number, descricao: string): Promise<void> {
+  const { error } = await supabase
+    .from("campanha_copa_despesas" as never)
+    .insert({ valor, descricao: descricao.trim() || null } as never);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteCampanhaCopaDespesa(id: string): Promise<void> {
+  const { error } = await supabase.from("campanha_copa_despesas" as never).delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export type CampanhaCopaGeralMetrics = {
+  faturamento: number;
+  vendas: number;
+  novosClientes: number;
+  despesas: number;
+  ticketMedio: number;
+  cac: number;
+  cplLeadsTotais: number;
+  cplLeadsNovos: number;
+};
+
+/**
+ * Vendas/Novos Clientes/Faturamento usam o MESMO grupo: pessoas cuja
+ * PRIMEIRA compra conhecida aconteceu depois da inscrição na campanha
+ * (cliente_novo_pos_campanha && converteu_apos_campanha) — quem já era
+ * cliente antes e comprou de novo não entra aqui. Deduplicado por CPF
+ * (mesma pessoa em mais de uma campanha conta uma vez).
+ */
+export function buildGeralMetrics(
+  rows: CampanhaCopaRelatorioRow[],
+  despesasTotal: number,
+  leadsTotais: number,
+  leadsNovos: number,
+): CampanhaCopaGeralMetrics {
+  // cliente_novo_pos_campanha/converteu_apos_campanha são relativos à
+  // inscrição (comparam com a data DAQUELA submissão) — uma pessoa que se
+  // inscreveu mais de uma vez pode ter isso true numa inscrição antiga e
+  // false na mais recente. dedupeRowsByCpf só mantém a mais recente, então
+  // filtrar DEPOIS de deduplicar podia perder uma venda real (a inscrição
+  // que efetivamente qualificava ficava descartada). Por isso aqui agrupa
+  // por CPF e conta a pessoa se QUALQUER inscrição dela qualificar.
+  const bestPerCpf = new Map<string, CampanhaCopaRelatorioRow>();
+  const withoutCpfQualifying: CampanhaCopaRelatorioRow[] = [];
+  for (const row of rows) {
+    if (!(row.cliente_novo_pos_campanha && row.converteu_apos_campanha)) continue;
+    const cpf = cpfDigits(row.cpf);
+    if (cpf.length < 11) {
+      withoutCpfQualifying.push(row);
+      continue;
+    }
+    if (!bestPerCpf.has(cpf)) bestPerCpf.set(cpf, row);
+  }
+  const novosClientesRows = [...bestPerCpf.values(), ...withoutCpfQualifying];
+  const vendas = novosClientesRows.length;
+  const faturamento = novosClientesRows.reduce((acc, r) => acc + (r.valor_venda ?? 0), 0);
+
+  return {
+    faturamento,
+    vendas,
+    novosClientes: vendas,
+    despesas: despesasTotal,
+    ticketMedio: vendas > 0 ? faturamento / vendas : 0,
+    cac: vendas > 0 ? despesasTotal / vendas : 0,
+    cplLeadsTotais: leadsTotais > 0 ? despesasTotal / leadsTotais : 0,
+    cplLeadsNovos: leadsNovos > 0 ? despesasTotal / leadsNovos : 0,
+  };
 }

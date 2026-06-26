@@ -118,7 +118,7 @@ export default function AppointmentsListTable({
         <table className="text-xs w-max border-collapse">
           <thead>
             <tr className="bg-muted/70 border-b">
-              <th className={cn(TH, "min-w-[120px]")}>Nome</th>
+              <th className={cn(TH, "min-w-[120px] sticky left-0 z-20 bg-muted/70 border-r")}>Nome</th>
               <th className={cn(TH, "min-w-[105px]")}>Telefone</th>
               <th className={cn(TH, "min-w-[44px]")}>Idade</th>
               <th className={cn(TH, "min-w-[128px]")}>Horário</th>
@@ -167,8 +167,16 @@ export default function AppointmentsListTable({
                     isSnapshot && "border-dashed",
                   )}
                 >
-                  <td className="px-2 py-1.5 align-middle whitespace-nowrap" title={nameTitle}>
-                    <div className="flex items-center gap-1">
+                  <td
+                    className="p-0 align-middle relative sticky left-0 z-10 border-r bg-background"
+                    title={nameTitle}
+                  >
+                    {/* Camada sólida (bg-background) + camada com a MESMA cor translúcida da
+                        linha, as duas confinadas dentro da própria célula — fica idêntica ao
+                        resto da linha (mesmo tom), mas sem deixar o conteúdo que passa por
+                        baixo "vazar" através dela ao rolar a tabela (célula fixa). */}
+                    <div className={cn("absolute inset-0", rowColor)} />
+                    <div className="relative px-2 py-1.5 whitespace-nowrap flex items-center gap-1">
                       {isSnapshot && <span className="text-violet-400 shrink-0">↪</span>}
                       <span>{appt.nome || "—"}</span>
                     </div>
