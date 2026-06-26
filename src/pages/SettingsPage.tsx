@@ -15,6 +15,7 @@ import { Save, Upload, Trash2, Clock, Wrench, RotateCcw } from "lucide-react";
 import RolePermissionsManager from "@/components/settings/RolePermissionsManager";
 import CompanyEyeExamDaysManager from "@/components/settings/CompanyEyeExamDaysManager";
 import CrediarioSettingsSection from "@/components/settings/CrediarioSettingsSection";
+import CrediarioContractTemplateSection from "@/components/settings/CrediarioContractTemplateSection";
 
 type SettingField = {
   key: string;
@@ -473,6 +474,10 @@ export default function SettingsPage() {
 
       <div className="mt-10 border-t pt-8">
         <CrediarioSettingsSection />
+      </div>
+
+      <div className="mt-10 border-t pt-8">
+        <CrediarioContractTemplateSection />
       </div>
 
       <div className="mt-10 border-t pt-8">

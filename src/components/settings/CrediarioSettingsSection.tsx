@@ -15,6 +15,9 @@ interface Settings {
   score_tiers: ScoreTier[];
   renegociacao_max_parcelas: number;
   renegociacao_juros_percent: number;
+  cora_interest_monthly_percent: number;
+  cora_fine_percent: number;
+  cora_discount_percent: number;
 }
 
 const defaultTiers: ScoreTier[] = [
@@ -56,6 +59,9 @@ export default function CrediarioSettingsSection() {
           score_tiers: tiers.length ? tiers : defaultTiers,
           renegociacao_max_parcelas: data.renegociacao_max_parcelas ?? 12,
           renegociacao_juros_percent: data.renegociacao_juros_percent ?? 0,
+          cora_interest_monthly_percent: data.cora_interest_monthly_percent ?? 0,
+          cora_fine_percent: data.cora_fine_percent ?? 0,
+          cora_discount_percent: data.cora_discount_percent ?? 0,
         });
       } else {
         // Primeira vez: cria a linha de configuração padrão.
@@ -72,6 +78,9 @@ export default function CrediarioSettingsSection() {
             score_tiers: defaultTiers,
             renegociacao_max_parcelas: created.renegociacao_max_parcelas,
             renegociacao_juros_percent: created.renegociacao_juros_percent,
+            cora_interest_monthly_percent: created.cora_interest_monthly_percent ?? 0,
+            cora_fine_percent: created.cora_fine_percent ?? 0,
+            cora_discount_percent: created.cora_discount_percent ?? 0,
           });
         }
       }
@@ -123,6 +132,9 @@ export default function CrediarioSettingsSection() {
       score_tiers: tiersSorted as unknown as never,
       renegociacao_max_parcelas: s.renegociacao_max_parcelas,
       renegociacao_juros_percent: s.renegociacao_juros_percent,
+      cora_interest_monthly_percent: s.cora_interest_monthly_percent,
+      cora_fine_percent: s.cora_fine_percent,
+      cora_discount_percent: s.cora_discount_percent,
     }).eq("id", s.id);
     setSaving(false);
     if (error) toast.error("Erro ao salvar", { description: error.message });
@@ -270,6 +282,52 @@ export default function CrediarioSettingsSection() {
                   onChange={(e) => setField("renegociacao_juros_percent", parseFloat(e.target.value || "0"))}
                 />
                 <p className="text-xs text-muted-foreground">Use 0 para renegociação sem juros.</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6 space-y-4">
+            <h3 className="text-base font-semibold">Cora — Cobrança (encargos)</h3>
+            <p className="text-sm text-muted-foreground">
+              Encargos aplicados aos boletos emitidos na Cora (enviados em <code>payment_terms</code> ao criar cada
+              boleto). Use <strong>0</strong> para não cobrar. Vale para todas as empresas — as credenciais de
+              autenticação do Cora ficam em Crediário → Credenciais.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Juros mensal (%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={s.cora_interest_monthly_percent}
+                  onChange={(e) => setField("cora_interest_monthly_percent", parseFloat(e.target.value || "0"))}
+                />
+                <p className="text-xs text-muted-foreground">Aplicado proporcionalmente após o vencimento.</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Multa por atraso (%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={s.cora_fine_percent}
+                  onChange={(e) => setField("cora_fine_percent", parseFloat(e.target.value || "0"))}
+                />
+                <p className="text-xs text-muted-foreground">Cobrada uma vez se o boleto vencer.</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Desconto por antecipação (%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={s.cora_discount_percent}
+                  onChange={(e) => setField("cora_discount_percent", parseFloat(e.target.value || "0"))}
+                />
+                <p className="text-xs text-muted-foreground">Pago um dia antes do vencimento.</p>
               </div>
             </div>
           </CardContent>
