@@ -1187,6 +1187,7 @@ export default function ActiveClientsPage() {
             ? resolveCanalFromLeadData((schedulingItem.data || {}) as Record<string, unknown>)
             : "Ligação Renovação"
         }
+        companyId={schedulingItem?.ssotica_company_id ?? null}
         saving={scheduleSaving}
         onSubmit={handleScheduleSubmit}
       />

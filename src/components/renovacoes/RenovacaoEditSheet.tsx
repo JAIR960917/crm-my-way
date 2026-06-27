@@ -564,6 +564,7 @@ export default function RenovacaoEditSheet(props: Props) {
                     renovacaoId={renovacaoId}
                     userId={user.id}
                     renovacaoStatus={formStatus}
+                    companyId={ssoticaCompanyId}
                     renovacaoSnapshot={(() => {
                       const nameField = fields.find(f => f.is_name_field);
                       const phoneField = fields.find(f => f.is_phone_field);

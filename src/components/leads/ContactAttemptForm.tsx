@@ -12,6 +12,7 @@ type Props = {
   userId: string;
   leadStatus: string;
   leadSnapshot: { nome: string; telefone: string; idade: string };
+  companyId?: string | null;
   onSaved?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 };
@@ -42,6 +43,7 @@ export default function ContactAttemptForm({
   userId,
   leadStatus,
   leadSnapshot,
+  companyId,
   onSaved,
   onDirtyChange,
 }: Props) {
@@ -118,6 +120,7 @@ export default function ContactAttemptForm({
     <TratativaContatoForm
       onSave={handleSave}
       onDirtyChange={onDirtyChange}
+      companyId={companyId}
     />
   );
 }

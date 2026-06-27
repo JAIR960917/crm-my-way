@@ -11,6 +11,7 @@ type Props = {
   userId: string;
   renovacaoStatus: string;
   renovacaoSnapshot: { nome: string; telefone: string; idade: string };
+  companyId?: string | null;
   onSaved?: (updatedData?: Record<string, unknown>) => void;
   onDirtyChange?: (dirty: boolean) => void;
 };
@@ -41,6 +42,7 @@ export default function RenovacaoContactAttemptForm({
   userId,
   renovacaoStatus,
   renovacaoSnapshot,
+  companyId,
   onSaved,
   onDirtyChange,
 }: Props) {
@@ -111,6 +113,7 @@ export default function RenovacaoContactAttemptForm({
     <TratativaContatoForm
       onSave={handleSave}
       onDirtyChange={onDirtyChange}
+      companyId={companyId}
     />
   );
 }

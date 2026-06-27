@@ -18,6 +18,7 @@ import { addToOfflineQueue, syncOfflineQueue, getOfflineQueue, type OfflineAppoi
 import { formatPhoneBR } from "@/lib/phoneFormat";
 import { format, parse } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { useAllowedExamDates } from "@/hooks/use-allowed-exam-dates";
 import { cn } from "@/lib/utils";
 import { normalizeLeadData, resolveLeadIdentity } from "@/lib/leadIdentity";
 import {
@@ -80,6 +81,12 @@ export default function NewLeadPage() {
   const [agConsultaPaga, setAgConsultaPaga] = useState<"sim" | "nao" | "">("");
   const [agFormaPagamentoConsulta, setAgFormaPagamentoConsulta] = useState("");
   const [agValorConsulta, setAgValorConsulta] = useState("");
+  const [myCompanyId, setMyCompanyId] = useState<string | null>(null);
+  const { allowedDates: agAllowedDates, loadAllowedExamDates: loadAgAllowedExamDates, isDateDisabled: isAgDateDisabled } = useAllowedExamDates();
+
+  useEffect(() => {
+    if (agendou === "sim") void loadAgAllowedExamDates(myCompanyId);
+  }, [agendou, myCompanyId, loadAgAllowedExamDates]);
 
   // Duplicate phone detection
   const [duplicateInfo, setDuplicateInfo] = useState<
@@ -155,6 +162,7 @@ export default function NewLeadPage() {
         if (flds) setFields(flds as unknown as FormField[]);
         if (sts) setStatuses(sts as CrmStatus[]);
         setCompanies(comps);
+        setMyCompanyId(myProfile?.company_id ?? null);
         if (sts && sts.length > 0) setFormStatus(searchParams.get("status") || sts[0].key);
         const me = (profs || []).find((p: any) => p.user_id === user?.id);
         setCurrentUserName(me?.full_name || user?.email || "");
@@ -820,11 +828,15 @@ export default function NewLeadPage() {
                         mode="single"
                         selected={agDate ? new Date(agDate + "T00:00:00") : undefined}
                         onSelect={(d) => setAgDate(d ? format(d, "yyyy-MM-dd") : "")}
+                        disabled={isAgDateDisabled}
                         locale={ptBR}
                         className="p-3 pointer-events-auto"
                       />
                     </PopoverContent>
                   </Popover>
+                  {agAllowedDates && (
+                    <p className="text-xs text-muted-foreground">Apenas datas com especialista alocado podem ser selecionadas.</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">

@@ -1,11 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarIcon, Clock } from "lucide-react";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { FORMAS_PAGAMENTO_OCULOS } from "@/lib/appointmentUtils";
+import { useAllowedExamDates } from "@/hooks/use-allowed-exam-dates";
+import { cn } from "@/lib/utils";
 
 type Props = {
   open: boolean;
@@ -13,6 +19,7 @@ type Props = {
   leadName: string;
   leadPhone: string;
   canalAgendamento: string;
+  companyId: string | null;
   saving: boolean;
   onSubmit: (data: {
     scheduled_datetime: string;
@@ -30,21 +37,27 @@ export default function ScheduleLeadDialog({
   leadName,
   leadPhone,
   canalAgendamento,
+  companyId,
   saving,
   onSubmit,
 }: Props) {
-  const [dateStr, setDateStr] = useState("");
+  const [date, setDate] = useState<Date | undefined>();
   const [time, setTime] = useState("09:00");
   const [formaPagamento, setFormaPagamento] = useState("");
   const [consultaPaga, setConsultaPaga] = useState<"sim" | "nao" | "">("");
+  const { allowedDates, loadAllowedExamDates, isDateDisabled } = useAllowedExamDates();
+
+  useEffect(() => {
+    if (open) void loadAllowedExamDates(companyId);
+  }, [open, companyId, loadAllowedExamDates]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!dateStr || !formaPagamento || !consultaPaga || !canalAgendamento) return;
+    if (!date || !formaPagamento || !consultaPaga || !canalAgendamento) return;
 
-    const [y, mo, d] = dateStr.split("-").map(Number);
     const [h, m] = time.split(":").map(Number);
-    const dt = new Date(y, mo - 1, d, h, m, 0, 0);
+    const dt = new Date(date);
+    dt.setHours(h, m, 0, 0);
     const paga = consultaPaga === "sim";
 
     onSubmit({
@@ -56,7 +69,7 @@ export default function ScheduleLeadDialog({
       consulta_paga_no_agendamento: paga,
     });
 
-    setDateStr("");
+    setDate(undefined);
     setTime("09:00");
     setFormaPagamento("");
     setConsultaPaga("");
@@ -79,17 +92,20 @@ export default function ScheduleLeadDialog({
 
           <div className="space-y-2">
             <Label>Data do Agendamento <span className="text-destructive">*</span></Label>
-            <div className="relative">
-              <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-destructive pointer-events-none" />
-              <Input
-                type="date"
-                value={dateStr}
-                onChange={(e) => setDateStr(e.target.value)}
-                required
-                onClick={(e) => (e.currentTarget as any).showPicker?.()}
-                className="pl-10 cursor-pointer"
-              />
-            </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !date && "text-muted-foreground")}>
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {date ? format(date, "dd/MM/yyyy") : "Selecionar"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar mode="single" selected={date} onSelect={setDate} disabled={isDateDisabled} locale={ptBR} className="p-3 pointer-events-auto" />
+              </PopoverContent>
+            </Popover>
+            {allowedDates && (
+              <p className="text-xs text-muted-foreground">Apenas datas com especialista alocado podem ser selecionadas.</p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -124,7 +140,7 @@ export default function ScheduleLeadDialog({
             </Select>
           </div>
 
-          <Button type="submit" className="w-full" disabled={saving || !dateStr || !formaPagamento || !consultaPaga || !canalAgendamento}>
+          <Button type="submit" className="w-full" disabled={saving || !date || !formaPagamento || !consultaPaga || !canalAgendamento}>
             {saving ? "Agendando..." : "Confirmar Agendamento"}
           </Button>
         </form>

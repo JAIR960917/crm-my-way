@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   buildMonthGrid,
@@ -20,11 +21,13 @@ type Props = {
   focusDate: Date;
   entries: SpecialistScheduleEntry[];
   onDayClick?: (date: Date) => void;
+  /** Admin only — abre o dialog de escala de especialistas do dia */
+  onManageExamDay?: (date: Date) => void;
 };
 
 const MAX_VISIBLE = 5;
 
-export default function SpecialistScheduleCalendar({ focusDate, entries, onDayClick }: Props) {
+export default function SpecialistScheduleCalendar({ focusDate, entries, onDayClick, onManageExamDay }: Props) {
   const byDay = useMemo(() => groupScheduleByDay(entries), [entries]);
   const grid = buildMonthGrid(focusDate);
   const today = new Date();
@@ -49,11 +52,21 @@ export default function SpecialistScheduleCalendar({ focusDate, entries, onDayCl
             <div
               key={key}
               className={cn(
-                "min-h-[140px] p-1 flex flex-col gap-0.5 bg-background",
+                "min-h-[140px] p-1 flex flex-col gap-0.5 bg-background relative",
                 !inMonth && "bg-muted/20 text-muted-foreground",
               )}
               onClick={() => onDayClick?.(day)}
             >
+              {onManageExamDay && (
+                <button
+                  type="button"
+                  title="Gerenciar especialistas do dia"
+                  onClick={(e) => { e.stopPropagation(); onManageExamDay(day); }}
+                  className="absolute top-0.5 right-0.5 h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted"
+                >
+                  <Settings2 className="h-3 w-3" />
+                </button>
+              )}
               <div className="flex flex-col items-center gap-0.5 shrink-0">
                 <button
                   type="button"
