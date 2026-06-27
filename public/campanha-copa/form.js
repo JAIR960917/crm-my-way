@@ -16,6 +16,11 @@
   var sintomasErrorEl = document.getElementById("sintomas-error");
   var sintomasCheckboxes = document.querySelectorAll('input[name="sintomas"]');
 
+  // Slug de rastreamento lido do parâmetro ?ref= da URL (campanha de origem)
+  var trackingRef = (function () {
+    try { return new URLSearchParams(window.location.search).get("ref") || ""; } catch (_) { return ""; }
+  })();
+
   var currentJogoKey = "";
   var pixelSuccessSnippet = "";
   var pixelFormInjected = false;
@@ -538,6 +543,7 @@
       palpite_home: parseInt(document.getElementById("palpite_home").value, 10),
       palpite_away: parseInt(document.getElementById("palpite_away").value, 10),
       consentimento_marketing: document.getElementById("consentimento_marketing").checked,
+      tracking_slug: trackingRef || undefined,
     };
   }
 

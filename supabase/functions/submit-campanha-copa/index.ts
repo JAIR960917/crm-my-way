@@ -146,6 +146,7 @@ serve(async (req) => {
       || body.consentimento_marketing === "true"
       || body.consentimento_marketing === "on";
 
+    const trackingSlug = String(body.tracking_slug || "").trim().slice(0, 80) || null;
     const clientJogoKey = String(body.jogo_key || "").trim();
     if (clientJogoKey && clientJogoKey !== jogoCfg.jogo_key) {
       return jsonResponse({
@@ -245,6 +246,7 @@ serve(async (req) => {
         jogo_label: jogoCfg.jogo_label,
         consentimento_marketing: true,
         assigned_to: null,
+        tracking_slug: trackingSlug,
       })
       .select("id")
       .single();
@@ -279,6 +281,7 @@ serve(async (req) => {
       team_home_name: jogoCfg.team_home_name,
       team_away_name: jogoCfg.team_away_name,
       consentimento_marketing: true,
+      ...(trackingSlug ? { tracking_slug: trackingSlug } : {}),
     };
     applyUltimoExameVistaToLeadData(leadData, ultimoExame, lastVisitFieldId);
     applyFormaCaptacaoToLeadData(leadData, formaCaptacaoFieldId);
