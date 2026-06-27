@@ -5,9 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, EyeOff, Wallet, Palette } from "lucide-react";
+import { Loader2, Plus, Trash2, EyeOff } from "lucide-react";
 import type { ScoreTier } from "@/lib/crediarioFinance";
-import { useCrediarioTheme } from "@/contexts/CrediarioThemeContext";
 
 interface Settings {
   id: string;
@@ -16,59 +15,6 @@ interface Settings {
   score_tiers: ScoreTier[];
   renegociacao_max_parcelas: number;
   renegociacao_juros_percent: number;
-  cora_interest_monthly_percent: number;
-  cora_fine_percent: number;
-  cora_discount_percent: number;
-  theme_primary_color: string;
-  theme_background_color: string;
-  theme_text_color: string;
-  theme_button_color: string;
-}
-
-const COLOR_FIELDS: { key: keyof Pick<Settings, "theme_primary_color" | "theme_background_color" | "theme_text_color" | "theme_button_color">; label: string; placeholder: string }[] = [
-  { key: "theme_primary_color", label: "Cor Primária (destaques)", placeholder: "220 72% 50%" },
-  { key: "theme_button_color", label: "Cor dos Botões", placeholder: "220 72% 55%" },
-  { key: "theme_background_color", label: "Cor de Fundo", placeholder: "222 47% 6%" },
-  { key: "theme_text_color", label: "Cor dos Textos", placeholder: "210 20% 92%" },
-];
-
-/** Converte HSL "H S% L%" para hex (input type=color). */
-function hslToHex(hsl: string): string {
-  try {
-    const parts = hsl.trim().split(/\s+/);
-    const h = parseFloat(parts[0]) || 0;
-    const s = (parseFloat(parts[1]) || 0) / 100;
-    const l = (parseFloat(parts[2]) || 0) / 100;
-    const a = s * Math.min(l, 1 - l);
-    const f = (n: number) => {
-      const k = (n + h / 30) % 12;
-      const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-      return Math.round(255 * color).toString(16).padStart(2, "0");
-    };
-    return `#${f(0)}${f(8)}${f(4)}`;
-  } catch {
-    return "#888888";
-  }
-}
-
-/** Converte hex para HSL "H S% L%". */
-function hexToHsl(hex: string): string {
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h = 0, s = 0;
-  const l = (max + min) / 2;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r: h = ((g - b) / d + (g < b ? 6 : 0)) * 60; break;
-      case g: h = ((b - r) / d + 2) * 60; break;
-      case b: h = ((r - g) / d + 4) * 60; break;
-    }
-  }
-  return `${Math.round(h)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
 }
 
 const defaultTiers: ScoreTier[] = [
@@ -92,11 +38,10 @@ function normalizeTier(t: Partial<ScoreTier>): ScoreTier {
   };
 }
 
-/** Regras de negócio do Crediário (score, faixas de entrada/juros, renegociação) — seção da tela única de Configurações. */
+/** Regras de negócio do Crediário (score, faixas de entrada/juros, renegociação). */
 export default function CrediarioSettingsSection() {
   const [s, setS] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
-  const { refresh: refreshCrediarioTheme } = useCrediarioTheme();
 
   useEffect(() => {
     (async () => {
@@ -111,13 +56,6 @@ export default function CrediarioSettingsSection() {
           score_tiers: tiers.length ? tiers : defaultTiers,
           renegociacao_max_parcelas: data.renegociacao_max_parcelas ?? 12,
           renegociacao_juros_percent: data.renegociacao_juros_percent ?? 0,
-          cora_interest_monthly_percent: data.cora_interest_monthly_percent ?? 0,
-          cora_fine_percent: data.cora_fine_percent ?? 0,
-          cora_discount_percent: data.cora_discount_percent ?? 0,
-          theme_primary_color: data.theme_primary_color ?? "",
-          theme_background_color: data.theme_background_color ?? "",
-          theme_text_color: data.theme_text_color ?? "",
-          theme_button_color: data.theme_button_color ?? "",
         });
       } else {
         // Primeira vez: cria a linha de configuração padrão.
@@ -134,13 +72,6 @@ export default function CrediarioSettingsSection() {
             score_tiers: defaultTiers,
             renegociacao_max_parcelas: created.renegociacao_max_parcelas,
             renegociacao_juros_percent: created.renegociacao_juros_percent,
-            cora_interest_monthly_percent: created.cora_interest_monthly_percent ?? 0,
-            cora_fine_percent: created.cora_fine_percent ?? 0,
-            cora_discount_percent: created.cora_discount_percent ?? 0,
-            theme_primary_color: created.theme_primary_color ?? "",
-            theme_background_color: created.theme_background_color ?? "",
-            theme_text_color: created.theme_text_color ?? "",
-            theme_button_color: created.theme_button_color ?? "",
           });
         }
       }
@@ -192,34 +123,18 @@ export default function CrediarioSettingsSection() {
       score_tiers: tiersSorted as unknown as never,
       renegociacao_max_parcelas: s.renegociacao_max_parcelas,
       renegociacao_juros_percent: s.renegociacao_juros_percent,
-      cora_interest_monthly_percent: s.cora_interest_monthly_percent,
-      cora_fine_percent: s.cora_fine_percent,
-      cora_discount_percent: s.cora_discount_percent,
-      theme_primary_color: s.theme_primary_color || null,
-      theme_background_color: s.theme_background_color || null,
-      theme_text_color: s.theme_text_color || null,
-      theme_button_color: s.theme_button_color || null,
     }).eq("id", s.id);
     setSaving(false);
     if (error) toast.error("Erro ao salvar", { description: error.message });
     else {
-      toast.success("Configurações do Crediário salvas");
+      toast.success("Regras do Crediário salvas");
       setField("score_tiers", tiersSorted);
-      await refreshCrediarioTheme();
     }
   };
 
   return (
     <div>
-      <h2 className="text-lg font-semibold flex items-center gap-2">
-        <Wallet className="h-5 w-5 text-primary" /> Crediário — Regras de negócio
-      </h2>
-      <p className="text-sm text-muted-foreground mt-1">
-        Score mínimo, faixas de entrada/juros e regras de renegociação. Marca, modelo de contrato, Cora e ZapSign
-        usam as credenciais por empresa em Crediário → Credenciais.
-      </p>
-
-      <div className="grid gap-6 mt-4">
+      <div className="grid gap-6">
         <Card>
           <CardContent className="p-6 space-y-4">
             <h3 className="text-base font-semibold">Critérios gerais</h3>
@@ -348,102 +263,6 @@ export default function CrediarioSettingsSection() {
                 />
                 <p className="text-xs text-muted-foreground">Use 0 para renegociação sem juros.</p>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6 space-y-4">
-            <h3 className="text-base font-semibold">Cora — Cobrança (encargos)</h3>
-            <p className="text-sm text-muted-foreground">
-              Encargos aplicados aos boletos emitidos na Cora (enviados em <code>payment_terms</code> ao criar cada
-              boleto). Use <strong>0</strong> para não cobrar. Vale para todas as empresas — as credenciais de
-              autenticação do Cora ficam em Crediário → Credenciais.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label>Juros mensal (%)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={s.cora_interest_monthly_percent}
-                  onChange={(e) => setField("cora_interest_monthly_percent", parseFloat(e.target.value || "0"))}
-                />
-                <p className="text-xs text-muted-foreground">Aplicado proporcionalmente após o vencimento.</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Multa por atraso (%)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={s.cora_fine_percent}
-                  onChange={(e) => setField("cora_fine_percent", parseFloat(e.target.value || "0"))}
-                />
-                <p className="text-xs text-muted-foreground">Cobrada uma vez se o boleto vencer.</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Desconto por antecipação (%)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={s.cora_discount_percent}
-                  onChange={(e) => setField("cora_discount_percent", parseFloat(e.target.value || "0"))}
-                />
-                <p className="text-xs text-muted-foreground">Pago um dia antes do vencimento.</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6 space-y-4">
-            <h3 className="text-base font-semibold flex items-center gap-2">
-              <Palette className="h-4 w-4 text-primary" /> Cores do Crediário
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              Cores aplicadas só dentro das telas do Crediário (a sidebar continua com o tema geral do sistema).
-              Deixe em branco para usar o mesmo tema do restante do CRM.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {COLOR_FIELDS.map((field) => (
-                <div key={field.key} className="space-y-2">
-                  <Label>{field.label}</Label>
-                  <div className="flex gap-2 items-center">
-                    <Input
-                      value={s[field.key]}
-                      onChange={(e) => setField(field.key, e.target.value)}
-                      placeholder={field.placeholder}
-                      className="flex-1"
-                    />
-                    <div className="relative">
-                      <div
-                        className="h-9 w-9 rounded-md border shrink-0 cursor-pointer hover:ring-2 hover:ring-primary transition-all"
-                        style={{ backgroundColor: s[field.key] ? `hsl(${s[field.key]})` : "transparent" }}
-                        onClick={() => {
-                          const input = document.getElementById(`crediario-color-${field.key}`) as HTMLInputElement;
-                          input?.click();
-                        }}
-                        title="Clique para escolher a cor"
-                      />
-                      <input
-                        id={`crediario-color-${field.key}`}
-                        type="color"
-                        className="absolute inset-0 opacity-0 w-0 h-0"
-                        value={hslToHex(s[field.key] || "0 0% 50%")}
-                        onChange={(e) => setField(field.key, hexToHsl(e.target.value))}
-                      />
-                    </div>
-                    {s[field.key] && (
-                      <Button variant="ghost" size="icon" onClick={() => setField(field.key, "")} title="Limpar (usar tema geral)">
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
             </div>
           </CardContent>
         </Card>

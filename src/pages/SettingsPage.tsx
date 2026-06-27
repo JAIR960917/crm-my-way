@@ -10,12 +10,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Save, Upload, Trash2, Clock, Wrench, RotateCcw } from "lucide-react";
 import RolePermissionsManager from "@/components/settings/RolePermissionsManager";
 import CompanyEyeExamDaysManager from "@/components/settings/CompanyEyeExamDaysManager";
 import CrediarioSettingsSection from "@/components/settings/CrediarioSettingsSection";
+import CrediarioMarcaSection from "@/components/settings/CrediarioMarcaSection";
 import CrediarioContractTemplateSection from "@/components/settings/CrediarioContractTemplateSection";
+import CrediarioCoraEncargosCard from "@/components/settings/CrediarioCoraEncargosCard";
 import CrediarioWebhookSection from "@/components/settings/CrediarioWebhookSection";
 
 type SettingField = {
@@ -352,12 +355,20 @@ export default function SettingsPage() {
   return (
     <AppLayout>
       <div className="mb-4">
-        <h1 className="text-xl sm:text-2xl font-bold">Configurações do Sistema</h1>
+        <h1 className="text-xl sm:text-2xl font-bold">Configurações</h1>
         <p className="text-xs sm:text-sm text-muted-foreground">
-          Personalize a aparência do sistema
+          Escolha qual sistema quer configurar
         </p>
       </div>
 
+      <Tabs defaultValue="crm">
+        <TabsList>
+          <TabsTrigger value="crm">CRM</TabsTrigger>
+          <TabsTrigger value="crediario">Crediário</TabsTrigger>
+          <TabsTrigger value="funcoes">Funções</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="crm" className="mt-6">
       <div className="max-w-lg space-y-6">
         {/* Logo */}
         <div className="space-y-2">
@@ -673,22 +684,36 @@ export default function SettingsPage() {
       <div className="mt-10 border-t pt-8">
         <CompanyEyeExamDaysManager />
       </div>
+        </TabsContent>
 
-      <div className="mt-10 border-t pt-8">
-        <CrediarioSettingsSection />
-      </div>
+        <TabsContent value="crediario" className="mt-6">
+          <Tabs defaultValue="regras">
+            <TabsList>
+              <TabsTrigger value="regras">Regras</TabsTrigger>
+              <TabsTrigger value="marca">Marca</TabsTrigger>
+              <TabsTrigger value="contrato">Modelo de Contrato</TabsTrigger>
+              <TabsTrigger value="cora">Cora (Boletos)</TabsTrigger>
+            </TabsList>
+            <TabsContent value="regras" className="mt-6">
+              <CrediarioSettingsSection />
+            </TabsContent>
+            <TabsContent value="marca" className="mt-6">
+              <CrediarioMarcaSection />
+            </TabsContent>
+            <TabsContent value="contrato" className="mt-6">
+              <CrediarioContractTemplateSection />
+            </TabsContent>
+            <TabsContent value="cora" className="mt-6 space-y-8">
+              <CrediarioCoraEncargosCard />
+              <CrediarioWebhookSection />
+            </TabsContent>
+          </Tabs>
+        </TabsContent>
 
-      <div className="mt-10 border-t pt-8">
-        <CrediarioContractTemplateSection />
-      </div>
-
-      <div className="mt-10 border-t pt-8">
-        <CrediarioWebhookSection />
-      </div>
-
-      <div className="mt-10 border-t pt-8">
-        <RolePermissionsManager />
-      </div>
+        <TabsContent value="funcoes" className="mt-6">
+          <RolePermissionsManager />
+        </TabsContent>
+      </Tabs>
     </AppLayout>
   );
 }
