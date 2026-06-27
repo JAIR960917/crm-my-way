@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
-  Search, Loader2, User2, CheckCircle2, XCircle, Calculator, Printer, AlertTriangle, History,
+  Search, Loader2, User2, CheckCircle2, XCircle, Calculator, Printer, AlertTriangle, History, ShieldAlert,
 } from "lucide-react";
 import {
   maskCpf, brl, pricePmt, suggestedEntry, availableInstallments,
@@ -165,10 +165,14 @@ export default function CrediarioConsultaPage() {
     return SEGMENTOS_BLOQUEADOS.some((s) => c.includes(s));
   });
   const bloqueadoPorSegmento = pendenciasBloqueadoras.length > 0;
-  const aprovado = result && settings ? result.score >= settings.min_score && !bloqueadoPorSegmento : false;
+  const aprovado = result && settings ? result.score >= settings.min_score : false;
   const minEntrada = result && settings && total > 0 ? minEntryForScore(total, result.score, settings) : 0;
   const sugerida = result && settings && total > 0 ? suggestedEntry(total, result.score, settings) : 0;
   const entradaAbaixoDoMinimo = total > 0 && entradaTotalPaga < minEntrada - 0.01;
+  // Pendência em credor do mesmo segmento não bloqueia mais a venda — exige
+  // autorização do admin (manual ou via código) antes da assinatura, igual
+  // ao fluxo de entrada abaixo do mínimo.
+  const precisaAutorizacao = entradaAbaixoDoMinimo || bloqueadoPorSegmento;
   const financiado = Math.max(total - entradaTotalPaga, 0);
   const taxaScore = result && settings ? rateForScore(result.score, settings) : 0;
 
@@ -249,6 +253,14 @@ export default function CrediarioConsultaPage() {
       const { data: u } = await supabase.auth.getUser();
       const userId = u.user!.id;
 
+      const motivosAutorizacao: string[] = [];
+      if (entradaAbaixoDoMinimo) {
+        motivosAutorizacao.push(`Entrada ${brl(entradaTotalPaga)} abaixo do mínimo ${brl(minEntrada)} (score ${result.score})`);
+      }
+      if (bloqueadoPorSegmento) {
+        motivosAutorizacao.push(`Pendência em credor do mesmo segmento: ${pendenciasBloqueadoras.map((p) => p.credor).join(", ")}`);
+      }
+
       // 1) registra a venda
       const empresaIdVenda = endereco.empresaId ?? empresaId ?? null;
       const cidadeLoja = empresasDisponiveis.find((e) => e.id === empresaIdVenda)?.cidade || cidadeUsuario || "";
@@ -271,10 +283,8 @@ export default function CrediarioConsultaPage() {
           cidade: cidadeVenda,
           company_id: empresaIdVenda,
           primeiro_vencimento: endereco.primeiroVencimento || null,
-          aprovacao_admin: entradaAbaixoDoMinimo ? "pendente" : null,
-          aprovacao_motivo: entradaAbaixoDoMinimo
-            ? `Entrada ${brl(entradaTotalPaga)} abaixo do mínimo ${brl(minEntrada)} (score ${result.score})`
-            : null,
+          aprovacao_admin: precisaAutorizacao ? "pendente" : null,
+          aprovacao_motivo: motivosAutorizacao.length ? motivosAutorizacao.join(" — ") : null,
         })
         .select("id")
         .single();
@@ -452,14 +462,15 @@ export default function CrediarioConsultaPage() {
           </Card>
 
           {bloqueadoPorSegmento && (
-            <Card className="mt-6 shadow-card overflow-hidden border-destructive">
-              <div className="h-1 bg-destructive" />
+            <Card className="mt-6 shadow-card overflow-hidden border-warning">
+              <div className="h-1 bg-warning" />
               <CardContent className="p-6 flex items-start gap-3">
-                <XCircle className="h-5 w-5 text-destructive mt-0.5" />
+                <ShieldAlert className="h-5 w-5 text-warning mt-0.5" />
                 <div>
-                  <p className="font-semibold text-destructive">Venda bloqueada</p>
+                  <p className="font-semibold">Pendência em credor do mesmo segmento</p>
                   <p className="text-sm text-muted-foreground">
-                    Cliente possui pendência financeira em credor do mesmo segmento (Ótica, Móveis, Eletro, Calçados, Roupa ou Vestuário). Não é permitido realizar venda.
+                    Cliente possui pendência financeira em credor do mesmo segmento (Ótica, Móveis, Eletro, Calçados, Roupa ou Vestuário).
+                    A venda pode ser registrada, mas a nota promissória só poderá ser assinada e os boletos emitidos após autorização de um administrador.
                   </p>
                   <ul className="mt-2 text-xs text-muted-foreground list-disc pl-5">
                     {pendenciasBloqueadoras.map((p, i) => (
@@ -624,6 +635,11 @@ export default function CrediarioConsultaPage() {
                   {entradaAbaixoDoMinimo && (
                     <p className="md:col-span-3 text-xs text-warning">
                       Entrada abaixo do mínimo para este score. A venda pode ser registrada, mas a nota promissória só poderá ser assinada e os boletos emitidos após autorização de um administrador.
+                    </p>
+                  )}
+                  {bloqueadoPorSegmento && (
+                    <p className="md:col-span-3 text-xs text-warning">
+                      Cliente com pendência em credor do mesmo segmento. A venda pode ser registrada, mas a nota promissória só poderá ser assinada e os boletos emitidos após autorização de um administrador.
                     </p>
                   )}
                 </div>
