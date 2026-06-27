@@ -1871,6 +1871,21 @@ export default function WhatsAppInbox() {
                                 Reabrir atendimento
                               </Button>
                             </div>
+                          ) : isAdmin ? (
+                            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-950 dark:text-blue-100">
+                              <span>
+                                Conversa encerrada. Como administrador, você pode reabri-la a qualquer momento.
+                              </span>
+                              <Button
+                                size="sm"
+                                className="h-7 gap-1.5 text-xs"
+                                disabled={conversationActionLoading !== null}
+                                onClick={() => void handleReopenConversation()}
+                              >
+                                <UserCheck className="h-3.5 w-3.5" />
+                                Reabrir atendimento
+                              </Button>
+                            </div>
                           ) : (
                             <div className="rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                               Conversa encerrada — ela some das listas e volta para Pendentes se o cliente
