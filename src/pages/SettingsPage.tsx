@@ -16,6 +16,7 @@ import RolePermissionsManager from "@/components/settings/RolePermissionsManager
 import CompanyEyeExamDaysManager from "@/components/settings/CompanyEyeExamDaysManager";
 import CrediarioSettingsSection from "@/components/settings/CrediarioSettingsSection";
 import CrediarioContractTemplateSection from "@/components/settings/CrediarioContractTemplateSection";
+import CrediarioWebhookSection from "@/components/settings/CrediarioWebhookSection";
 
 type SettingField = {
   key: string;
@@ -679,6 +680,10 @@ export default function SettingsPage() {
 
       <div className="mt-10 border-t pt-8">
         <CrediarioContractTemplateSection />
+      </div>
+
+      <div className="mt-10 border-t pt-8">
+        <CrediarioWebhookSection />
       </div>
 
       <div className="mt-10 border-t pt-8">
