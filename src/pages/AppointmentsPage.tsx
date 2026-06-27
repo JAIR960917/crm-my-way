@@ -1165,6 +1165,7 @@ export default function AppointmentsPage() {
                 <SpecialistScheduleCalendar
                   focusDate={focusDate}
                   entries={specialistSchedule}
+                  onManageExamDay={(d) => setExamDayDialogDate(d)}
                 />
               )}
             </>
@@ -1286,7 +1287,6 @@ export default function AppointmentsPage() {
                   setCalendarView("day");
                 }
               }}
-              onManageExamDay={isAdmin ? (d) => setExamDayDialogDate(d) : undefined}
             />
           )}
             </>
