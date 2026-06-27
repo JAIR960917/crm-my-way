@@ -1501,6 +1501,11 @@ export default function LeadsPage() {
               )
             : "Ligação Leads"
         }
+        companyId={
+          (schedulingLead?.assigned_to
+            ? fullProfiles.find((p) => p.user_id === schedulingLead.assigned_to)?.company_id
+            : fullProfiles.find((p) => p.user_id === user?.id)?.company_id) || null
+        }
         saving={scheduleSaving}
         onSubmit={handleScheduleSubmit}
       />

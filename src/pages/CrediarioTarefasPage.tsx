@@ -210,6 +210,7 @@ export default function CrediarioTarefasPage() {
   const [formCpf, setFormCpf] = useState("");
   const [formObservacao, setFormObservacao] = useState("");
   const [formTime, setFormTime] = useState("09:00");
+  const [tratativaCompanyId, setTratativaCompanyId] = useState<string | null>(null);
 
   const { queryStart, queryEnd, label: calendarLabel } = useMemo(
     () => getCalendarQueryRange(focusDate, calendarView),
@@ -330,6 +331,7 @@ export default function CrediarioTarefasPage() {
     setFormObservacao("");
     setFormTime("09:00");
     setEditing(null);
+    setTratativaCompanyId(null);
   };
 
   const openAdd = (prefillDate?: Date) => {
@@ -353,6 +355,21 @@ export default function CrediarioTarefasPage() {
     setFormObservacao(task.observacao || "");
     setFormTime((task.scheduled_time || "09:00:00").slice(0, 5));
     setDialogOpen(true);
+
+    setTratativaCompanyId(null);
+    if (task.source === "lead" && task.leadId) {
+      void supabase.from("crm_leads").select("assigned_to").eq("id", task.leadId).maybeSingle().then(({ data: lead }) => {
+        const targetUser = lead?.assigned_to || user?.id;
+        if (!targetUser) return;
+        void supabase.from("profiles").select("company_id").eq("user_id", targetUser).maybeSingle().then(({ data: prof }) => {
+          setTratativaCompanyId(prof?.company_id ?? null);
+        });
+      });
+    } else if (task.source === "crediario" && task.scheduled_by) {
+      void supabase.from("profiles").select("company_id").eq("user_id", task.scheduled_by).maybeSingle().then(({ data: prof }) => {
+        setTratativaCompanyId(prof?.company_id ?? null);
+      });
+    }
   };
 
   const handleTaskTratativaSave = async (payload: TratativaSavePayload) => {
@@ -717,6 +734,7 @@ export default function CrediarioTarefasPage() {
                 <TratativaContatoForm
                   title="Tratativa da tarefa"
                   onSave={handleTaskTratativaSave}
+                  companyId={tratativaCompanyId}
                 />
               )}
 

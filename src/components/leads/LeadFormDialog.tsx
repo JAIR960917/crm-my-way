@@ -300,15 +300,18 @@ export default function LeadFormDialog({
   const [showPreview, setShowPreview] = useState(false);
   const [profileRoles, setProfileRoles] = useState<Record<string, string>>({});
 
-  // Derive the company name for the assigned user (or current user)
-  const assignedCompanyName = useMemo(() => {
+  // Derive the company id/name for the assigned user (or current user)
+  const assignedCompanyId = useMemo(() => {
     const targetUserId = formAssigned || user?.id;
-    if (!targetUserId) return "—";
-    const profile = profiles.find((p) => p.user_id === targetUserId);
-    if (!profile?.company_id) return "—";
-    const company = companies.find((c) => c.id === profile.company_id);
+    if (!targetUserId) return null;
+    return profiles.find((p) => p.user_id === targetUserId)?.company_id || null;
+  }, [formAssigned, user?.id, profiles]);
+
+  const assignedCompanyName = useMemo(() => {
+    if (!assignedCompanyId) return "—";
+    const company = companies.find((c) => c.id === assignedCompanyId);
     return company?.name || "—";
-  }, [formAssigned, user?.id, profiles, companies]);
+  }, [assignedCompanyId, companies]);
 
   // Timeline state
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -941,6 +944,7 @@ export default function LeadFormDialog({
                   leadId={leadId}
                   userId={user.id}
                   leadStatus={formStatus}
+                  companyId={assignedCompanyId}
                   leadSnapshot={(() => {
                     const identity = resolveLeadIdentity(formData, fields as any);
                     return {

@@ -20,6 +20,7 @@ import { CalendarCheck, Plus, Trash2, CalendarIcon, Undo2, ChevronLeft, ChevronR
 import AppointmentsCalendar from "@/components/appointments/AppointmentsCalendar";
 import AppointmentsListTable from "@/components/appointments/AppointmentsListTable";
 import SpecialistScheduleCalendar from "@/components/appointments/SpecialistScheduleCalendar";
+import DayExamSpecialistsDialog from "@/components/appointments/DayExamSpecialistsDialog";
 import {
   parseWorkPeriod,
   resolveCompanyExamColor,
@@ -48,6 +49,7 @@ import {
   logAppointmentHistory,
 } from "@/lib/appointmentUtils";
 import AppointmentHistoryPanel from "@/components/appointments/AppointmentHistoryPanel";
+import { useAllowedExamDates } from "@/hooks/use-allowed-exam-dates";
 
 type ProdutoItem = { nome: string; valor: string };
 
@@ -123,6 +125,8 @@ export default function AppointmentsPage() {
   const [userCompanyId, setUserCompanyId] = useState<string | null>(null);
   const [eyeExamDayKeys, setEyeExamDayKeys] = useState<Set<string>>(new Set());
   const [eyeExamDayDetails, setEyeExamDayDetails] = useState<Map<string, EyeExamDayCellInfo[]>>(new Map());
+  const { allowedDates: formAllowedExamDates, loadAllowedExamDates, isDateDisabled: isExamDateDisabled } = useAllowedExamDates();
+  const [examDayDialogDate, setExamDayDialogDate] = useState<Date | null>(null);
   const [pageMode, setPageMode] = useState<PageMode>("appointments");
   const [filterSpecialistId, setFilterSpecialistId] = useState<string>("all");
   const [specialists, setSpecialists] = useState<EyeExamSpecialist[]>([]);
@@ -251,6 +255,15 @@ export default function AppointmentsPage() {
   useEffect(() => {
     void fetchEyeExamDays();
   }, [fetchEyeExamDays]);
+
+  // Ao abrir o dialog de agendamento, carrega as datas (sem limitar ao mês
+  // visível no calendário da página) em que a empresa do agendamento tem
+  // especialista alocado — trava o seletor de data e impede agendar em dia
+  // sem especialista.
+  const loadAllowedExamDatesForDialog = useCallback(() => {
+    const companyId = isAdmin ? (filterCompanyId !== "all" ? filterCompanyId : null) : userCompanyId;
+    void loadAllowedExamDates(companyId);
+  }, [isAdmin, filterCompanyId, userCompanyId, loadAllowedExamDates]);
 
   const fetchSpecialistSchedule = useCallback(async () => {
     if (!isAdmin || pageMode !== "specialist-schedule") return;
@@ -803,6 +816,7 @@ export default function AppointmentsPage() {
     setFormComparecimento("Pendente"); setFormVenda("Pendente"); setFormResumo("");
     setFormRescheduleDate(undefined); setFormRescheduleTime("09:00");
     setDialogOpen(true);
+    void loadAllowedExamDatesForDialog();
   };
 
   const calendarLabel = getCalendarQueryRange(focusDate, calendarView).label;
@@ -844,6 +858,7 @@ export default function AppointmentsPage() {
     setFormRescheduleDate(undefined);
     setFormRescheduleTime(format(new Date(appt.scheduled_datetime), "HH:mm"));
     setDialogOpen(true);
+    void loadAllowedExamDatesForDialog();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1271,6 +1286,7 @@ export default function AppointmentsPage() {
                   setCalendarView("day");
                 }
               }}
+              onManageExamDay={isAdmin ? (d) => setExamDayDialogDate(d) : undefined}
             />
           )}
             </>
@@ -1375,9 +1391,12 @@ export default function AppointmentsPage() {
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar mode="single" selected={formDate} onSelect={setFormDate} locale={ptBR} className="p-3 pointer-events-auto" />
+                    <Calendar mode="single" selected={formDate} onSelect={setFormDate} disabled={isExamDateDisabled} locale={ptBR} className="p-3 pointer-events-auto" />
                   </PopoverContent>
                 </Popover>
+                {formAllowedExamDates && (
+                  <p className="text-xs text-muted-foreground">Apenas datas com especialista alocado podem ser selecionadas.</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label>Horário <span className="text-destructive">*</span></Label>
@@ -1514,9 +1533,12 @@ export default function AppointmentsPage() {
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar mode="single" selected={formRescheduleDate} onSelect={setFormRescheduleDate} locale={ptBR} className="p-3 pointer-events-auto" />
+                          <Calendar mode="single" selected={formRescheduleDate} onSelect={setFormRescheduleDate} disabled={isExamDateDisabled} locale={ptBR} className="p-3 pointer-events-auto" />
                         </PopoverContent>
                       </Popover>
+                      {formAllowedExamDates && (
+                        <p className="text-xs text-muted-foreground">Apenas datas com especialista alocado podem ser selecionadas.</p>
+                      )}
                     </div>
                     <div className="space-y-1.5">
                       <Label>Novo horário</Label>
@@ -1724,6 +1746,18 @@ export default function AppointmentsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <DayExamSpecialistsDialog
+        open={!!examDayDialogDate}
+        onOpenChange={(o) => { if (!o) setExamDayDialogDate(null); }}
+        date={examDayDialogDate}
+        companies={companies}
+        specialists={specialists}
+        onSaved={() => {
+          void fetchEyeExamDays();
+          void fetchSpecialistSchedule();
+        }}
+      />
     </AppLayout>
   );
 }

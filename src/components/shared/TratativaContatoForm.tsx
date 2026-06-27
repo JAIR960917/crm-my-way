@@ -4,13 +4,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Phone, PhoneOff, CalendarCheck, CalendarX, CalendarIcon, Clock, Check } from "lucide-react";
 import { toast } from "sonner";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import {
   FORMAS_PAGAMENTO_CONSULTA,
   FORMAS_PAGAMENTO_OCULOS,
   formaConsultaSemValor,
 } from "@/lib/appointmentUtils";
+import { useAllowedExamDates } from "@/hooks/use-allowed-exam-dates";
+import { cn } from "@/lib/utils";
 
 export type TratativaSavePayload = {
   atendeu: "sim" | "nao";
@@ -28,6 +34,7 @@ type Props = {
   onSave: (payload: TratativaSavePayload) => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
   disabled?: boolean;
+  companyId?: string | null;
 };
 
 export function consultaPagaFromForma(forma: string): boolean {
@@ -44,24 +51,30 @@ export default function TratativaContatoForm({
   onSave,
   onDirtyChange,
   disabled,
+  companyId,
 }: Props) {
   const [atendeu, setAtendeu] = useState<"sim" | "nao" | null>(null);
   const [tratativa, setTratativa] = useState("");
   const [tentativasObs, setTentativasObs] = useState("");
   const [marcou, setMarcou] = useState<"sim" | "nao" | null>(null);
-  const [dateStr, setDateStr] = useState("");
+  const [date, setDate] = useState<Date | undefined>();
   const [time, setTime] = useState("09:00");
   const [formaPagamentoOculos, setFormaPagamentoOculos] = useState("");
   const [formaPagamentoConsulta, setFormaPagamentoConsulta] = useState("");
   const [valorConsulta, setValorConsulta] = useState("");
   const [saving, setSaving] = useState(false);
+  const { allowedDates, loadAllowedExamDates, isDateDisabled } = useAllowedExamDates();
+
+  useEffect(() => {
+    if (marcou === "sim") void loadAllowedExamDates(companyId ?? null);
+  }, [marcou, companyId, loadAllowedExamDates]);
 
   const isDirty =
     atendeu !== null
     || tratativa.trim() !== ""
     || tentativasObs.trim() !== ""
     || marcou !== null
-    || dateStr !== ""
+    || !!date
     || formaPagamentoOculos !== ""
     || formaPagamentoConsulta !== ""
     || valorConsulta.trim() !== "";
@@ -75,7 +88,7 @@ export default function TratativaContatoForm({
     setTratativa("");
     setTentativasObs("");
     setMarcou(null);
-    setDateStr("");
+    setDate(undefined);
     setTime("09:00");
     setFormaPagamentoOculos("");
     setFormaPagamentoConsulta("");
@@ -101,7 +114,7 @@ export default function TratativaContatoForm({
       return;
     }
     if (atendeu === "sim" && marcou === "sim") {
-      if (!dateStr || !time || !formaPagamentoOculos || !formaPagamentoConsulta) {
+      if (!date || !time || !formaPagamentoOculos || !formaPagamentoConsulta) {
         toast.error("Preencha todos os campos do agendamento");
         return;
       }
@@ -117,10 +130,10 @@ export default function TratativaContatoForm({
     setSaving(true);
     try {
       let scheduledDatetime: string | null = null;
-      if (atendeu === "sim" && marcou === "sim" && dateStr && time) {
-        const [y, mo, d] = dateStr.split("-").map(Number);
+      if (atendeu === "sim" && marcou === "sim" && date && time) {
         const [h, m] = time.split(":").map(Number);
-        const dt = new Date(y, mo - 1, d, h || 0, m || 0, 0, 0);
+        const dt = new Date(date);
+        dt.setHours(h || 0, m || 0, 0, 0);
         scheduledDatetime = dt.toISOString();
       }
 
@@ -247,17 +260,25 @@ export default function TratativaContatoForm({
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Data <span className="text-destructive">*</span></Label>
-              <div className="relative">
-                <CalendarIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-destructive pointer-events-none" />
-                <Input
-                  type="date"
-                  value={dateStr}
-                  onChange={(e) => setDateStr(e.target.value)}
-                  onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
-                  className="pl-7 h-9 text-sm cursor-pointer"
-                  disabled={disabled}
-                />
-              </div>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={disabled}
+                    className={cn("w-full h-9 justify-start text-left text-sm font-normal", !date && "text-muted-foreground")}
+                  >
+                    <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                    {date ? format(date, "dd/MM/yyyy") : "Selecionar"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar mode="single" selected={date} onSelect={setDate} disabled={isDateDisabled} locale={ptBR} className="p-3 pointer-events-auto" />
+                </PopoverContent>
+              </Popover>
+              {allowedDates && (
+                <p className="text-[11px] text-muted-foreground">Apenas datas com especialista alocado.</p>
+              )}
             </div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Horário <span className="text-destructive">*</span></Label>
