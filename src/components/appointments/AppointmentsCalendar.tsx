@@ -18,6 +18,7 @@ import {
   type CalendarViewMode,
 } from "@/lib/appointmentCalendarUtils";
 import { WORK_PERIOD_LABELS, type EyeExamDayCellInfo } from "@/lib/eyeExamSchedule";
+import { Settings2 } from "lucide-react";
 
 export type CalendarAppointment = {
   id: string;
@@ -47,6 +48,8 @@ type Props = {
   eyeExamDayKeys?: Set<string>;
   /** Especialistas e turnos por dia (gerente/vendedor) */
   eyeExamDayDetails?: Map<string, EyeExamDayCellInfo[]>;
+  /** Admin only — abre o dialog de escala de especialistas do dia */
+  onManageExamDay?: (date: Date) => void;
 };
 
 const MONTH_MAX_VISIBLE = 5;
@@ -115,7 +118,7 @@ function EventChip({
   );
 }
 
-function MonthView({ appointments, focusDate, onSelectAppointment, onDayClick, eyeExamDayKeys, eyeExamDayDetails }: Props) {
+function MonthView({ appointments, focusDate, onSelectAppointment, onDayClick, eyeExamDayKeys, eyeExamDayDetails, onManageExamDay }: Props) {
   const byDay = useMemo(() => apptsByDay(appointments), [appointments]);
   const grid = buildMonthGrid(focusDate);
   const today = new Date();
@@ -145,12 +148,22 @@ function MonthView({ appointments, focusDate, onSelectAppointment, onDayClick, e
             <div
               key={key}
               className={cn(
-                "p-1 flex flex-col gap-0.5 bg-background",
+                "p-1 flex flex-col gap-0.5 bg-background relative",
                 showEyeExamDetails ? "min-h-[168px]" : "min-h-[140px]",
                 !inMonth && "bg-muted/20 text-muted-foreground",
               )}
               onClick={() => onDayClick?.(day)}
             >
+              {onManageExamDay && (
+                <button
+                  type="button"
+                  title="Gerenciar especialistas do dia"
+                  onClick={(e) => { e.stopPropagation(); onManageExamDay(day); }}
+                  className="absolute top-0.5 right-0.5 h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted"
+                >
+                  <Settings2 className="h-3 w-3" />
+                </button>
+              )}
               <div className="flex flex-col items-center gap-0.5 shrink-0">
                 <button
                   type="button"
