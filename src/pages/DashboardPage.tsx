@@ -77,21 +77,11 @@ export default function DashboardPage() {
   const [companyFilter, setCompanyFilter] = useState<string>(ALL);
   const [sellerFilter, setSellerFilter] = useState<string[]>([]); // empty = all
   const [vendedorIds, setVendedorIds] = useState<Set<string>>(new Set());
-  const [gerenteCompanyId, setGerenteCompanyId] = useState<string | null>(null);
-  // Lista explícita de empresas do gerente (carregada via manager_companies, igual ao LeadsPage)
-  const [gerenteCompanies, setGerenteCompanies] = useState<Company[]>([]);
-  // Profiles de todas as empresas gerenciadas (carregado explicitamente)
-  const [gerenteFullProfiles, setGerenteFullProfiles] = useState<Profile[]>([]);
 
   const canSee = isAdmin || isGerente;
 
-  // IDs das empresas do gerente — derivado da lista explícita
-  const gerenteCompanyIds = useMemo(
-    () => new Set(gerenteCompanies.map((c) => c.id)),
-    [gerenteCompanies],
-  );
-
-  const showCompanyFilter = isAdmin || (isGerente && gerenteCompanies.length > 1);
+  // Para gerente: companies e profiles já vêm filtrados pela RLS (is_my_company) do fetchAttendanceReport
+  const showCompanyFilter = isAdmin || (isGerente && companies.length > 1);
   const showSellerFilter = isAdmin || isGerente;
 
   useEffect(() => {
@@ -161,33 +151,7 @@ export default function DashboardPage() {
   };
 
   const fetchReport = async (startStr: string, endStr: string) => {
-    const [result] = await Promise.all([
-      fetchAttendanceReport(startStr, endStr),
-      // Carrega empresas do gerente em paralelo com o relatório (mesmo padrão do LeadsPage)
-      (isGerente && !isAdmin && user)
-        ? (async () => {
-            const [{ data: myProfileData }, { data: managerCos }] = await Promise.all([
-              supabase.from("profiles").select("company_id").eq("user_id", user.id).maybeSingle(),
-              supabase.from("manager_companies").select("company_id").eq("user_id", user.id),
-            ]);
-            const companyIds = new Set<string>();
-            const primaryId = (myProfileData as { company_id?: string | null } | null)?.company_id;
-            if (primaryId) { companyIds.add(primaryId); setGerenteCompanyId(primaryId); }
-            (managerCos || []).forEach((mc: { company_id?: string | null }) => {
-              if (mc.company_id) companyIds.add(mc.company_id);
-            });
-            if (companyIds.size === 0) return;
-            const ids = Array.from(companyIds);
-            const [{ data: filteredCompanies }, { data: allProfs }] = await Promise.all([
-              supabase.from("companies").select("id, name").in("id", ids).order("name"),
-              supabase.from("profiles").select("user_id, full_name, avatar_url, company_id").in("company_id", ids),
-            ]);
-            setGerenteCompanies((filteredCompanies || []) as Company[]);
-            setGerenteFullProfiles((allProfs || []) as Profile[]);
-            if (companyIds.size === 1 && primaryId) setCompanyFilter(primaryId);
-          })()
-        : Promise.resolve(),
-    ]);
+    const result = await fetchAttendanceReport(startStr, endStr);
     setProfiles(result.profiles);
     setCompanies(result.companies);
     setVendedorIds(result.vendedorIds);
@@ -359,12 +323,15 @@ export default function DashboardPage() {
     };
   }, [canSee, user, dateMode, selectedDate, startDate, endDate, companyFilter, cobDateMode, cobSelectedDate, cobStartDate, cobEndDate]);
 
-
+  // Auto-seleciona empresa quando gerente gerencia apenas uma (companies vem via RLS do fetchAttendanceReport)
+  useEffect(() => {
+    if (!isGerente || isAdmin || companies.length !== 1) return;
+    setCompanyFilter(companies[0].id);
+  }, [companies, isGerente, isAdmin]);
 
   const availableSellers = useMemo(() => {
-    // Para gerente usa a lista explícita (carregada via manager_companies + profiles.in)
-    // Para admin usa todos os profiles do relatório
-    let list: Profile[] = isGerente && !isAdmin ? gerenteFullProfiles : profiles;
+    // profiles e companies já vêm filtrados pela RLS para o perfil do usuário logado
+    let list: Profile[] = profiles;
     if (isGerente && !isAdmin) {
       list = list.filter((p) => p.user_id === user?.id || vendedorIds.has(p.user_id));
     }
@@ -372,16 +339,15 @@ export default function DashboardPage() {
     return list
       .map((p) => ({ user_id: p.user_id, full_name: p.full_name || "(sem nome)" }))
       .sort((a, b) => a.full_name.localeCompare(b.full_name));
-  }, [profiles, gerenteFullProfiles, companyFilter, isGerente, isAdmin, user?.id, vendedorIds]);
+  }, [profiles, companyFilter, isGerente, isAdmin, user?.id, vendedorIds]);
 
   const filteredRows = useMemo(() => {
     return allRows.filter((r) => {
-      if (isGerente && !isAdmin && gerenteCompanyIds.size > 0 && !gerenteCompanyIds.has(r.company_id ?? "")) return false;
       if (companyFilter !== ALL && r.company_id !== companyFilter) return false;
       if (sellerFilter.length > 0 && !sellerFilter.includes(r.user_id)) return false;
       return true;
     });
-  }, [allRows, companyFilter, sellerFilter, isGerente, isAdmin, gerenteCompanyIds]);
+  }, [allRows, companyFilter, sellerFilter]);
 
   const reportTotals = useMemo(() => {
     return filteredRows.reduce(
@@ -524,7 +490,7 @@ export default function DashboardPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={ALL}>Todas as empresas</SelectItem>
-                      {(isAdmin ? companies : gerenteCompanies).map((c) => (
+                      {companies.map((c) => (
                         <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                       ))}
                     </SelectContent>
