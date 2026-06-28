@@ -344,9 +344,6 @@ export default function DashboardPage() {
     });
   }, [isGerente, isAdmin, user?.id]);
 
-  useEffect(() => {
-    if (showCompanyFilter) setSellerFilter([]);
-  }, [companyFilter, showCompanyFilter]);
 
   const availableSellers = useMemo(() => {
     let list = profiles;
@@ -506,14 +503,14 @@ export default function DashboardPage() {
                 {showCompanyFilter && (
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-medium text-muted-foreground uppercase">Empresa</label>
-                  <Select value={companyFilter} onValueChange={setCompanyFilter}>
+                  <Select value={companyFilter} onValueChange={(v) => { setCompanyFilter(v); setSellerFilter([]); }}>
                     <SelectTrigger className="h-9 w-[220px]">
                       <Building2 className="h-3.5 w-3.5 mr-1 text-muted-foreground" />
                       <SelectValue placeholder="Todas as empresas" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={ALL}>Todas as empresas</SelectItem>
-                      {companies.map((c) => (
+                      {(isAdmin ? companies : companies.filter((c) => gerenteCompanyIds.has(c.id))).map((c) => (
                         <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                       ))}
                     </SelectContent>
