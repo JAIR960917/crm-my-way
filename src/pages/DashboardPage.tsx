@@ -161,7 +161,33 @@ export default function DashboardPage() {
   };
 
   const fetchReport = async (startStr: string, endStr: string) => {
-    const result = await fetchAttendanceReport(startStr, endStr);
+    const [result] = await Promise.all([
+      fetchAttendanceReport(startStr, endStr),
+      // Carrega empresas do gerente em paralelo com o relatório (mesmo padrão do LeadsPage)
+      (isGerente && !isAdmin && user)
+        ? (async () => {
+            const [{ data: myProfileData }, { data: managerCos }] = await Promise.all([
+              supabase.from("profiles").select("company_id").eq("user_id", user.id).maybeSingle(),
+              supabase.from("manager_companies").select("company_id").eq("user_id", user.id),
+            ]);
+            const companyIds = new Set<string>();
+            const primaryId = (myProfileData as { company_id?: string | null } | null)?.company_id;
+            if (primaryId) { companyIds.add(primaryId); setGerenteCompanyId(primaryId); }
+            (managerCos || []).forEach((mc: { company_id?: string | null }) => {
+              if (mc.company_id) companyIds.add(mc.company_id);
+            });
+            if (companyIds.size === 0) return;
+            const ids = Array.from(companyIds);
+            const [{ data: filteredCompanies }, { data: allProfs }] = await Promise.all([
+              supabase.from("companies").select("id, name").in("id", ids).order("name"),
+              supabase.from("profiles").select("user_id, full_name, avatar_url, company_id").in("company_id", ids),
+            ]);
+            setGerenteCompanies((filteredCompanies || []) as Company[]);
+            setGerenteFullProfiles((allProfs || []) as Profile[]);
+            if (companyIds.size === 1 && primaryId) setCompanyFilter(primaryId);
+          })()
+        : Promise.resolve(),
+    ]);
     setProfiles(result.profiles);
     setCompanies(result.companies);
     setVendedorIds(result.vendedorIds);
@@ -333,32 +359,6 @@ export default function DashboardPage() {
     };
   }, [canSee, user, dateMode, selectedDate, startDate, endDate, companyFilter, cobDateMode, cobSelectedDate, cobStartDate, cobEndDate]);
 
-  // Carrega explicitamente as empresas e profiles do gerente (mesmo padrão do LeadsPage)
-  useEffect(() => {
-    if (!isGerente || isAdmin || !user) return;
-    (async () => {
-      const [{ data: myProfileData }, { data: managerCos }] = await Promise.all([
-        supabase.from("profiles").select("company_id").eq("user_id", user.id).maybeSingle(),
-        supabase.from("manager_companies").select("company_id").eq("user_id", user.id),
-      ]);
-      const companyIds = new Set<string>();
-      const primaryId = (myProfileData as { company_id?: string | null } | null)?.company_id;
-      if (primaryId) { companyIds.add(primaryId); setGerenteCompanyId(primaryId); }
-      (managerCos || []).forEach((mc: { company_id?: string | null }) => {
-        if (mc.company_id) companyIds.add(mc.company_id);
-      });
-      if (companyIds.size === 0) return;
-      const ids = Array.from(companyIds);
-      const [{ data: filteredCompanies }, { data: allProfs }] = await Promise.all([
-        supabase.from("companies").select("id, name").in("id", ids).order("name"),
-        supabase.from("profiles").select("user_id, full_name, avatar_url, company_id").in("company_id", ids),
-      ]);
-      setGerenteCompanies((filteredCompanies || []) as Company[]);
-      setGerenteFullProfiles((allProfs || []) as Profile[]);
-      // Auto-seleciona quando gerencia apenas uma empresa
-      if (companyIds.size === 1 && primaryId) setCompanyFilter(primaryId);
-    })();
-  }, [isGerente, isAdmin, user?.id]);
 
 
   const availableSellers = useMemo(() => {
