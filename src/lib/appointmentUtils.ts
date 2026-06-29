@@ -7,7 +7,7 @@ export const CANAIS_AGENDAMENTO = [
   "Tráfego Pago", "Cortesia",
 ];
 
-export const FORMAS_PAGAMENTO_OCULOS = ["Cartão", "Pix/Dinheiro", "Boleto"];
+export const FORMAS_PAGAMENTO_OCULOS = ["Cartão", "Pix/Dinheiro", "Boleto", "A decidir"];
 
 export const FORMAS_PAGAMENTO_CONSULTA = [
   "Cartão",
