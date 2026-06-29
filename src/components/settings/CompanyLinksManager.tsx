@@ -16,29 +16,16 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+type LinkType = "link" | "header";
+
 type CompanyLink = {
   id: string;
   label: string;
   url: string;
-  icon: string;
-  color: string | null;
+  link_type: LinkType;
   position: number;
   active: boolean;
 };
-
-const ICON_OPTIONS: { value: string; label: string }[] = [
-  { value: "instagram", label: "Instagram" },
-  { value: "whatsapp", label: "WhatsApp" },
-  { value: "facebook", label: "Facebook" },
-  { value: "tiktok", label: "TikTok" },
-  { value: "youtube", label: "YouTube" },
-  { value: "site", label: "Site" },
-  { value: "copa", label: "Campanha Copa" },
-  { value: "phone", label: "Telefone" },
-  { value: "email", label: "E-mail" },
-  { value: "location", label: "Localização" },
-  { value: "link", label: "Link genérico" },
-];
 
 export default function CompanyLinksManager() {
   const [links, setLinks] = useState<CompanyLink[]>([]);
@@ -48,7 +35,7 @@ export default function CompanyLinksManager() {
   const fetchLinks = useCallback(async () => {
     const { data, error } = await supabase
       .from("company_links")
-      .select("id, label, url, icon, color, position, active")
+      .select("id, label, url, link_type, position, active")
       .order("position", { ascending: true });
     if (error) {
       toast.error("Erro ao carregar links");
@@ -77,8 +64,8 @@ export default function CompanyLinksManager() {
     const nextPosition = links.length > 0 ? Math.max(...links.map((l) => l.position)) + 1 : 0;
     const { data, error } = await supabase
       .from("company_links")
-      .insert({ label: "Novo link", url: "https://", icon: "link", position: nextPosition, active: true })
-      .select("id, label, url, icon, color, position, active")
+      .insert({ label: "Novo link", url: "https://", link_type: "link", position: nextPosition, active: true })
+      .select("id, label, url, link_type, position, active")
       .single();
     if (error || !data) {
       toast.error("Erro ao criar link");
@@ -94,7 +81,7 @@ export default function CompanyLinksManager() {
       return;
     }
     setLinks((prev) => prev.filter((l) => l.id !== id));
-    toast.success("Link excluído");
+    toast.success("Excluído");
   };
 
   const handleDragEnd = async (result: DropResult) => {
@@ -123,7 +110,8 @@ export default function CompanyLinksManager() {
           >
             /links <ExternalLink className="h-3 w-3" />
           </a>{" "}
-          — Instagram, WhatsApp, site, Campanha Copa, etc. Arraste para reordenar.
+          — Instagram, WhatsApp, site, Campanha Copa, etc. Use "Cabeçalho" para criar um
+          título de seção (ex.: "Avalie nossas lojas") sem link clicável. Arraste para reordenar.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -150,37 +138,38 @@ export default function CompanyLinksManager() {
                           </div>
 
                           <Select
-                            value={link.icon}
+                            value={link.link_type}
                             onValueChange={(v) => {
-                              patchLocal(link.id, { icon: v });
-                              void persist(link.id, { icon: v });
+                              patchLocal(link.id, { link_type: v as LinkType });
+                              void persist(link.id, { link_type: v as LinkType });
                             }}
                           >
-                            <SelectTrigger className="h-9 w-full sm:w-[150px] shrink-0">
+                            <SelectTrigger className="h-9 w-full sm:w-[130px] shrink-0">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {ICON_OPTIONS.map((opt) => (
-                                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                              ))}
+                              <SelectItem value="link">Link</SelectItem>
+                              <SelectItem value="header">Cabeçalho</SelectItem>
                             </SelectContent>
                           </Select>
 
                           <Input
                             value={link.label}
-                            placeholder="Rótulo (ex.: Instagram)"
-                            className="h-9 w-full sm:w-[180px]"
+                            placeholder={link.link_type === "header" ? "Título da seção" : "Rótulo (ex.: Instagram)"}
+                            className="h-9 w-full sm:w-[200px]"
                             onChange={(e) => patchLocal(link.id, { label: e.target.value })}
                             onBlur={(e) => void persist(link.id, { label: e.target.value })}
                           />
 
-                          <Input
-                            value={link.url}
-                            placeholder="https://..."
-                            className="h-9 flex-1 min-w-0"
-                            onChange={(e) => patchLocal(link.id, { url: e.target.value })}
-                            onBlur={(e) => void persist(link.id, { url: e.target.value })}
-                          />
+                          {link.link_type === "link" && (
+                            <Input
+                              value={link.url}
+                              placeholder="https://..."
+                              className="h-9 flex-1 min-w-0"
+                              onChange={(e) => patchLocal(link.id, { url: e.target.value })}
+                              onBlur={(e) => void persist(link.id, { url: e.target.value })}
+                            />
+                          )}
 
                           <div className="flex items-center gap-2 shrink-0">
                             <Label className="text-xs text-muted-foreground">Ativo</Label>

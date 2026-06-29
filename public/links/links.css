@@ -7,23 +7,21 @@ body {
   margin: 0;
   padding: 0;
   min-height: 100%;
-  background: #0c1220;
-  color: #e6e9f0;
+  background: hsl(0 70% 38%);
+  color: #fff;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 .page {
   min-height: 100vh;
   display: flex;
-  align-items: center;
   justify-content: center;
-  padding: 32px 16px;
-  background: radial-gradient(circle at top, #1a2236 0%, #0c1220 60%);
+  padding: 48px 20px 64px;
 }
 
 .card {
   width: 100%;
-  max-width: 420px;
+  max-width: 460px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -31,78 +29,73 @@ body {
 }
 
 .logo {
-  width: 88px;
-  height: 88px;
-  border-radius: 20px;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
   object-fit: cover;
   margin-bottom: 16px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  background: #fff;
+}
+
+.logo-fallback {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.logo-fallback svg {
+  width: 100%;
+  height: 100%;
+  fill: #fff;
+  opacity: 0.9;
 }
 
 h1 {
   font-size: 22px;
   font-weight: 700;
-  margin: 0 0 4px;
-}
-
-.subtitle {
-  font-size: 14px;
-  color: #9aa3b8;
   margin: 0 0 28px;
+  letter-spacing: 0.2px;
 }
 
 .links-list {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .link-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  display: block;
   width: 100%;
-  padding: 14px 18px;
-  border-radius: 14px;
-  background: #161e30;
-  border: 1px solid #232c42;
-  color: #fff;
+  padding: 16px 22px;
+  border-radius: 999px;
+  background: #fff;
+  color: #1a1a1a;
   text-decoration: none;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 15px;
-  transition: transform 0.15s ease, background 0.15s ease;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .link-item:hover,
 .link-item:focus-visible {
   transform: translateY(-2px);
-  background: #1c2640;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
 }
 
-.link-icon {
-  flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #c0162c;
-}
-
-.link-icon svg {
-  width: 20px;
-  height: 20px;
-  fill: #fff;
-}
-
-.link-label {
-  flex: 1;
-  text-align: left;
+.link-header {
+  margin: 10px 0 -2px;
+  font-weight: 700;
+  font-size: 15px;
+  color: #fff;
 }
 
 .empty-state {
-  color: #9aa3b8;
+  color: rgba(255, 255, 255, 0.85);
   font-size: 14px;
 }
