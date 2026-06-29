@@ -6,13 +6,13 @@ DO $$
 DECLARE
   field_id uuid;
 BEGIN
-  SELECT id INTO field_id FROM public.crm_form_fields WHERE is_last_visit_field = true LIMIT 1;
-  IF field_id IS NULL THEN
-    SELECT id INTO field_id FROM public.crm_form_fields
-    WHERE field_type = 'date'
-      AND label ~* 'exame de vista|último exame|ultimo exame|última consulta|ultima consulta'
-    LIMIT 1;
-  END IF;
+  -- crm_form_fields (formulário de Leads) não tem coluna is_last_visit_field
+  -- (essa flag só existe em crm_renovacao_form_fields) — identifica o campo
+  -- pelo tipo + rótulo, igual ao fallback usado no edge function.
+  SELECT id INTO field_id FROM public.crm_form_fields
+  WHERE field_type = 'date'
+    AND label ~* 'exame de vista|último exame|ultimo exame|última consulta|ultima consulta'
+  LIMIT 1;
 
   UPDATE public.crm_leads AS l
   SET data = l.data

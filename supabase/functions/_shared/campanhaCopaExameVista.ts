@@ -28,15 +28,9 @@ export function mapUltimoExameVistaToIsoDate(option: string, now: Date = new Dat
 }
 
 export async function loadLeadLastVisitFieldId(supabase: SupabaseAdmin): Promise<string | null> {
-  const { data: marked } = await supabase
-    .from("crm_form_fields")
-    .select("id")
-    .eq("is_last_visit_field", true)
-    .limit(1)
-    .maybeSingle();
-
-  if (marked?.id) return marked.id as string;
-
+  // crm_form_fields (formulário de Leads) não tem coluna is_last_visit_field
+  // (essa flag só existe em crm_renovacao_form_fields) — identifica o campo
+  // pelo tipo + rótulo.
   const { data: fields } = await supabase
     .from("crm_form_fields")
     .select("id, label")
