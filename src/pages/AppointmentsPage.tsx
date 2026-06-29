@@ -134,6 +134,10 @@ export default function AppointmentsPage() {
   const [eyeExamDayKeys, setEyeExamDayKeys] = useState<Set<string>>(new Set());
   const [eyeExamDayDetails, setEyeExamDayDetails] = useState<Map<string, EyeExamDayCellInfo[]>>(new Map());
   const { allowedDates: formAllowedExamDates, loadAllowedExamDates, isDateDisabled: isExamDateDisabled } = useAllowedExamDates();
+  // Empresa escolhida dentro do dialog de agendamento (gerente com mais de
+  // uma loja) — independe do filtro da barra de ferramentas, pra deixar
+  // claro pra qual empresa aquele agendamento específico está sendo feito.
+  const [dialogCompanyId, setDialogCompanyId] = useState<string>("");
   const [examDayDialogDate, setExamDayDialogDate] = useState<Date | null>(null);
   const [pageMode, setPageMode] = useState<PageMode>("appointments");
   const [filterSpecialistId, setFilterSpecialistId] = useState<string>("all");
@@ -282,15 +286,6 @@ export default function AppointmentsPage() {
   useEffect(() => {
     void fetchEyeExamDays();
   }, [fetchEyeExamDays]);
-
-  // Ao abrir o dialog de agendamento, carrega as datas (sem limitar ao mês
-  // visível no calendário da página) em que a empresa do agendamento tem
-  // especialista alocado — trava o seletor de data e impede agendar em dia
-  // sem especialista.
-  const loadAllowedExamDatesForDialog = useCallback(() => {
-    const companyId = isAdmin ? (filterCompanyId !== "all" ? filterCompanyId : null) : effectiveUserCompanyId;
-    void loadAllowedExamDates(companyId);
-  }, [isAdmin, filterCompanyId, effectiveUserCompanyId, loadAllowedExamDates]);
 
   const fetchSpecialistSchedule = useCallback(async () => {
     if (!isAdmin || pageMode !== "specialist-schedule") return;
@@ -843,7 +838,11 @@ export default function AppointmentsPage() {
     setFormComparecimento("Pendente"); setFormVenda("Pendente"); setFormResumo("");
     setFormRescheduleDate(undefined); setFormRescheduleTime("09:00");
     setDialogOpen(true);
-    void loadAllowedExamDatesForDialog();
+    const initialCompanyId = isAdmin
+      ? (filterCompanyId !== "all" ? filterCompanyId : "")
+      : (effectiveUserCompanyId ?? "");
+    setDialogCompanyId(initialCompanyId);
+    void loadAllowedExamDates(initialCompanyId || null);
   };
 
   const calendarLabel = getCalendarQueryRange(focusDate, calendarView).label;
@@ -885,7 +884,11 @@ export default function AppointmentsPage() {
     setFormRescheduleDate(undefined);
     setFormRescheduleTime(format(new Date(appt.scheduled_datetime), "HH:mm"));
     setDialogOpen(true);
-    void loadAllowedExamDatesForDialog();
+    const initialCompanyId = isAdmin
+      ? (filterCompanyId !== "all" ? filterCompanyId : "")
+      : (effectiveUserCompanyId ?? "");
+    setDialogCompanyId(initialCompanyId);
+    void loadAllowedExamDates(initialCompanyId || null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1405,6 +1408,26 @@ export default function AppointmentsPage() {
               </div>
             ) : (
             <>
+            {!isAdmin && isGerente && gerenteCompanies.length > 1 && (
+              <div className="space-y-1.5">
+                <Label>Empresa <span className="text-destructive">*</span></Label>
+                <Select
+                  value={dialogCompanyId}
+                  onValueChange={(v) => {
+                    setDialogCompanyId(v);
+                    setFormDate(undefined);
+                    void loadAllowedExamDates(v || null);
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Selecione a empresa" /></SelectTrigger>
+                  <SelectContent>
+                    {gerenteCompanies.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label>Nome <span className="text-destructive">*</span></Label>
               <Input value={formNome} onChange={e => setFormNome(e.target.value)} required />
