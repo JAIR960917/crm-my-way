@@ -12,7 +12,7 @@ const COBRANCAS_FUTURE_DAYS = 60;
 const MAX_WINDOW_DAYS = 30;
 const DEFAULT_MONTHS_BACK = 24;
 const MAX_MONTHS_BACK = 96;
-const WINDOW_CONCURRENCY = 8;
+const WINDOW_CONCURRENCY = 4;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,6 +54,24 @@ async function fetchSSotica(url: string, token: string): Promise<any> {
     throw new Error(`SSótica ${res.status}: ${txt.slice(0, 200)}`);
   }
   return res.json();
+}
+
+// A consulta cobre até 96 meses (8 anos) em janelas de 30 dias, em paralelo —
+// sob carga a SSótica ocasionalmente devolve erro/timeout numa janela
+// isolada (rate limit). Sem retry, essa única falha derrubava a consulta
+// inteira (HTTP 500), escondendo até as parcelas que tinham sido buscadas
+// com sucesso nas demais janelas.
+async function fetchSSoticaWithRetry(url: string, token: string, retries = 2): Promise<any> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetchSSotica(url, token);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
 }
 
 async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
@@ -129,32 +147,47 @@ Deno.serve(async (req) => {
 
     const parcelasMap = new Map<string, ReturnType<typeof parseParcelaCobrancaAtiva>>();
     const windows = buildWindows(overallStart, overallEnd);
+    let failedWindows = 0;
 
     await runPool(windows, WINDOW_CONCURRENCY, async (w) => {
-      let page = 1;
-      while (true) {
-        const url =
-          `${SSOTICA_BASE}/financeiro/contas-a-receber/periodo?cnpj=${encodeURIComponent(cnpjParam)}&inicio_periodo=${w.start}&fim_periodo=${w.end}&page=${page}&perPage=100`;
-        const json = await fetchSSotica(url, token) as { totalPages?: number; data?: any[] };
-        const items = json.data ?? [];
-        if (items.length === 0) break;
+      try {
+        let page = 1;
+        while (true) {
+          const url =
+            `${SSOTICA_BASE}/financeiro/contas-a-receber/periodo?cnpj=${encodeURIComponent(cnpjParam)}&inicio_periodo=${w.start}&fim_periodo=${w.end}&page=${page}&perPage=100`;
+          const json = await fetchSSoticaWithRetry(url, token) as { totalPages?: number; data?: any[] };
+          const items = json.data ?? [];
+          if (items.length === 0) break;
 
-        for (const parcela of items) {
-          const parsed = parseParcelaCobrancaAtiva(parcela, today, clienteMatch);
-          if (!parsed) continue;
-          const key = parsed.parcela_id != null
-            ? `pid:${parsed.parcela_id}`
-            : `tit:${parsed.titulo_id ?? ""}-num:${parsed.numero_parcela ?? ""}-venc:${parsed.vencimento}`;
-          if (!parcelasMap.has(key)) {
-            parcelasMap.set(key, { ...parsed, ssotica_company_id: String(ssoticaCompanyId) } as any);
+          for (const parcela of items) {
+            const parsed = parseParcelaCobrancaAtiva(parcela, today, clienteMatch);
+            if (!parsed) continue;
+            const key = parsed.parcela_id != null
+              ? `pid:${parsed.parcela_id}`
+              : `tit:${parsed.titulo_id ?? ""}-num:${parsed.numero_parcela ?? ""}-venc:${parsed.vencimento}`;
+            if (!parcelasMap.has(key)) {
+              parcelasMap.set(key, { ...parsed, ssotica_company_id: String(ssoticaCompanyId) } as any);
+            }
           }
-        }
 
-        const totalPages = json.totalPages ?? 1;
-        if (page >= totalPages) break;
-        page++;
+          const totalPages = json.totalPages ?? 1;
+          if (page >= totalPages) break;
+          page++;
+        }
+      } catch (err) {
+        // Uma janela falhando (rate limit/timeout pontual da SSótica) não pode
+        // derrubar a consulta inteira — loga e segue com as demais janelas.
+        failedWindows++;
+        console.error(`[ssotica-cliente-debitos] janela ${w.start}..${w.end} falhou:`, err);
       }
     });
+
+    if (failedWindows > 0 && parcelasMap.size === 0) {
+      return new Response(
+        JSON.stringify({ error: `Não foi possível consultar a SSótica agora (${failedWindows} janela(s) falharam). Tente novamente.` }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     const parcelas = Array.from(parcelasMap.values())
       .filter((p): p is NonNullable<typeof p> => !!p)
@@ -168,6 +201,7 @@ Deno.serve(async (req) => {
         parcelas,
         qtd_parcelas_atrasadas: parcelas.length,
         total_atraso: totalAtraso,
+        windows_failed: failedWindows,
         months_back: months,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
