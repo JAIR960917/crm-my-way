@@ -1296,7 +1296,7 @@ export default function AppointmentsPage() {
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={handleEditDialogOpenChange}>
         <DialogContent
-          className={cn(editingAppt ? "sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" : "sm:max-w-md")}
+          className={cn("max-h-[90vh] overflow-hidden flex flex-col", editingAppt ? "sm:max-w-3xl" : "sm:max-w-md")}
           onPointerDownOutside={(e) => {
             if (!editingAppt) e.preventDefault();
           }}
@@ -1313,8 +1313,8 @@ export default function AppointmentsPage() {
                   : "Novo Agendamento"}
             </DialogTitle>
           </DialogHeader>
-          <div className={cn(editingAppt ? "flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden" : "")}>
-          <form onSubmit={handleSubmit} className={cn("space-y-3", editingAppt ? "flex-1 overflow-y-auto pr-0 md:pr-4 max-h-[70vh]" : "")}>
+          <div className={cn("flex-1 min-h-0 overflow-hidden", editingAppt ? "flex flex-col md:flex-row" : "flex flex-col")}>
+          <form onSubmit={handleSubmit} className="space-y-3 flex-1 overflow-y-auto pr-0 md:pr-4">
             {editingAppt && isAppointmentInactive(editingAppt) && (
               <div className="rounded-md border border-muted-foreground/40 bg-muted/70 px-3 py-2 text-xs text-muted-foreground">
                 {editingAppt.returned_at
