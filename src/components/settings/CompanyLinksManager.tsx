@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import { toast } from "sonner";
-import { Plus, Trash2, GripVertical, ExternalLink } from "lucide-react";
+import { Plus, Trash2, GripVertical, ExternalLink, Heading } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -60,15 +60,21 @@ export default function CompanyLinksManager() {
     setSavingId(null);
   };
 
-  const handleAdd = async () => {
+  const handleAdd = async (type: LinkType) => {
     const nextPosition = links.length > 0 ? Math.max(...links.map((l) => l.position)) + 1 : 0;
     const { data, error } = await supabase
       .from("company_links")
-      .insert({ label: "Novo link", url: "https://", link_type: "link", position: nextPosition, active: true })
+      .insert({
+        label: type === "header" ? "Nova categoria" : "Novo link",
+        url: "https://",
+        link_type: type,
+        position: nextPosition,
+        active: true,
+      })
       .select("id, label, url, link_type, position, active")
       .single();
     if (error || !data) {
-      toast.error("Erro ao criar link");
+      toast.error(type === "header" ? "Erro ao criar categoria" : "Erro ao criar link");
       return;
     }
     setLinks((prev) => [...prev, data as CompanyLink]);
@@ -110,8 +116,9 @@ export default function CompanyLinksManager() {
           >
             /links <ExternalLink className="h-3 w-3" />
           </a>{" "}
-          — Instagram, WhatsApp, site, Campanha Copa, etc. Use "Cabeçalho" para criar um
-          título de seção (ex.: "Avalie nossas lojas") sem link clicável. Arraste para reordenar.
+          — Instagram, WhatsApp, site, Campanha Copa, etc. Use "Adicionar categoria" para criar
+          um título de seção (ex.: "Trabalhe conosco", "Avalie nossa loja") sem link clicável,
+          agrupando os links abaixo dele. Arraste para reordenar.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -202,9 +209,14 @@ export default function CompanyLinksManager() {
           </DragDropContext>
         )}
 
-        <Button type="button" variant="outline" size="sm" onClick={handleAdd}>
-          <Plus className="h-4 w-4 mr-1" /> Adicionar link
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => handleAdd("link")}>
+            <Plus className="h-4 w-4 mr-1" /> Adicionar link
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => handleAdd("header")}>
+            <Heading className="h-4 w-4 mr-1" /> Adicionar categoria
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
