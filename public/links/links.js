@@ -5,18 +5,6 @@
   var emptyEl = document.getElementById("empty-state");
   var logoEl = document.getElementById("logo");
   var nameEl = document.getElementById("system-name");
-  var shareBtn = document.getElementById("share-btn");
-
-  if (shareBtn) {
-    shareBtn.addEventListener("click", function () {
-      var shareData = { title: document.title, url: window.location.href };
-      if (navigator.share) {
-        navigator.share(shareData).catch(function () { /* usuário cancelou */ });
-      } else if (navigator.clipboard) {
-        navigator.clipboard.writeText(window.location.href);
-      }
-    });
-  }
 
   function getConfig() {
     var cfg = window.__CRM_RUNTIME_CONFIG__ || {};

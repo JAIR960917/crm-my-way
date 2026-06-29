@@ -31,7 +31,7 @@ body {
   text-align: center;
   background: hsl(0 70% 38%);
   border-radius: 28px;
-  padding: 56px 0 0;
+  padding: 36px 0 0;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
   overflow: hidden;
 }
@@ -59,36 +59,6 @@ body {
 .card-scroll::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.35);
   border-radius: 3px;
-}
-
-.corner-btn {
-  position: absolute;
-  top: 16px;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: none;
-  background: hsl(0 60% 32%);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.corner-btn svg {
-  width: 16px;
-  height: 16px;
-  fill: #fff;
-}
-
-.corner-btn-left {
-  left: 16px;
-  cursor: default;
-}
-
-.corner-btn-right {
-  right: 16px;
 }
 
 .logo {
