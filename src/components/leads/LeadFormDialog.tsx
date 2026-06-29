@@ -967,20 +967,14 @@ export default function LeadFormDialog({
                     try {
                       if (!leadId) return;
 
-                      let newStatus = resolveLeadStatusFromData(
+                      // Se nenhuma outra regra do funil resolver um status diferente,
+                      // newStatus fica null e o lead permanece na coluna atual — não
+                      // existe "status de fallback" genérico aqui, só a regra explícita.
+                      const newStatus = resolveLeadStatusFromData(
                         formData,
                         fields as any,
                         { excludeFieldsMappingTo: [previousStatus], fallbackStatus: undefined },
                       );
-
-                      if (!newStatus) {
-                        const { data: statuses } = await supabase
-                          .from("crm_statuses")
-                          .select("key, position")
-                          .order("position", { ascending: true });
-                        const first = (statuses ?? []).find((s: any) => s.key !== previousStatus);
-                        if (first) newStatus = (first as any).key;
-                      }
 
                       if (newStatus && newStatus !== previousStatus) {
                         // A tratativa marcou data.tratativa_status_key = previousStatus

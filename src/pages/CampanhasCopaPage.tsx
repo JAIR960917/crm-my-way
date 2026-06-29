@@ -13,6 +13,7 @@ import CampanhaCopaPixelConfigCard from "@/components/campanha-copa/CampanhaCopa
 import CampanhaCopaFormularioConfigCard from "@/components/campanha-copa/CampanhaCopaFormularioConfigCard";
 import CampanhaCopaSuccessConfigCard from "@/components/campanha-copa/CampanhaCopaSuccessConfigCard";
 import CampanhaCopaCidadeLojaConfigCard from "@/components/campanha-copa/CampanhaCopaCidadeLojaConfigCard";
+import CampanhaCopaTrackingLinksCard from "@/components/campanha-copa/CampanhaCopaTrackingLinksCard";
 import { supabase } from "@/integrations/supabase/client";
 import {
   CAMPANHA_COPA_BANNER_URL_KEY,
@@ -663,6 +664,10 @@ export default function CampanhasCopaPage() {
             </CardHeader>
           </Card>
         </div>
+
+        {isAdmin && (
+          <CampanhaCopaTrackingLinksCard />
+        )}
 
         {isAdmin && (
           <CampanhaCopaCidadeLojaConfigCard onSaved={() => void load()} />

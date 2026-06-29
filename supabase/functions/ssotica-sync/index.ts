@@ -680,12 +680,17 @@ function isRemocaoCobrancaJuridica(situacao: string): boolean {
 }
 
 // Situações SSÓtica (parcela ou cliente) que não devem entrar na Cobrança.
+// "Escritório de Cobrança Currais Novos" já foi definitivamente repassado a
+// esse escritório externo — não deve aparecer nem em Cobrança nem ser
+// "resolvido" para Renovação pela auditoria de sem-dívida-ativa.
 function isSituacaoCobrancaExcluida(situacao: string): boolean {
   if (!situacao) return false;
   return situacao === "folha de pagamento"
     || situacao.includes("folha de pagamento")
     || situacao === "acerta com walyson"
-    || situacao.includes("acerta com walyson");
+    || situacao.includes("acerta com walyson")
+    || situacao.startsWith("escritorio de cobranca currais novos")
+    || situacao.startsWith("escritorio cobranca currais novos");
 }
 
 function getClienteSituacaoNormalizada(cliente: any): string {
@@ -885,6 +890,16 @@ async function syncContasReceber(
   function clampToLockedEntryDyn(key: string): string {
     return lockedKeys.has(key) ? lockedEntryKey() : key;
   }
+  // Colunas de entrada de negativado/ajuizado — usadas para saber se um card
+  // ainda está "na porta de entrada" (pode escalar livremente, ex.: negativado
+  // → ajuizado) ou já foi avançado dali pelo cobranca-flow-advance (não volta).
+  const entryColumnKeys = new Set<string>(
+    [
+      situacaoMapping["negativado_serasa"],
+      situacaoMapping["ajuizado_saniely"],
+      situacaoMapping["ajuizado_navde"],
+    ].filter((k): k is string => !!k),
+  );
   function colunaKeyForDiasAtraso(dias: number): string {
     // Parcelas de 10 até 29 dias de atraso ficam retidas na coluna mapeada
     // como "1_dia_atraso" ("10 dias de atraso") — entram ao completar 10 dias,
@@ -1273,19 +1288,17 @@ async function syncContasReceber(
       const s = String(p?.situacao ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
       return s === "em atraso" || s === "atrasado" || s === "atrasada";
     });
-    // Quantidade de parcelas efetivamente em atraso (dias_atraso >= 1) — usado
-    // pelas regras de "2 parcelas em atraso" / "3 parcelas em atraso".
-    const parcelasEmAtrasoCount = parcelasMerged.filter((p) => Number(p?.dias_atraso ?? 0) >= 1).length;
-
     // Regra de coluna (configurável via tabela crm_cobranca_situacao_mapping):
     //  • Ajuizado(A) Saniely / Návde → coluna mapeada (fallback: última coluna)
     //  • Negativado Serasa            → coluna mapeada (fallback: COLUNA 10 por position)
-    //  • Demais (a vencer / vencido)  → escala por dias com cap em "31 dias"
-    //
-    // Observação: a situação "Em atraso" não é mais um caso especial — a coluna
-    // de destino vem do cálculo por dias_atraso (ver mapping configurável de
-    // "1 dia antes do vencimento" e "1 dia de atraso" na tela de Fluxo).
+    //  • Demais (a vencer / vencido)  → pela IDADE da parcela mais atrasada
+    //    (maisAntiga.dias_atraso), não pela quantidade de parcelas em atraso:
+    //      < 30 dias        → "10 dias de atraso" (colunaKeyForDiasAtraso)
+    //      30 a 60 dias     → "Envio de notificação 1 parcela em atraso"
+    //      61 a 89 dias     → "Envio de notificação 2 parcelas em atraso"
+    //      >= 90 dias e situação "Em atraso" → "Envio de notificação 3 parcelas em atraso"
     let colunaKeyAlvo: string;
+    const diasAtrasoMaisAntiga = Number(maisAntiga.dias_atraso ?? 0);
     if (hasAjuizadoMerged) {
       const variantKey = ajuizadoVariantMerged ?? "ajuizado_saniely";
       colunaKeyAlvo = situacaoMapping[variantKey]
@@ -1296,30 +1309,49 @@ async function syncContasReceber(
       colunaKeyAlvo = situacaoMapping["negativado_serasa"]
         ?? cobStatusList[7]?.key
         ?? coluna8Key;
-    } else if (parcelasEmAtrasoCount >= 3 && situacaoMapping["3_parcelas_atraso"]) {
+    } else if (diasAtrasoMaisAntiga >= 90 && hasEmAtrasoMerged && situacaoMapping["3_parcelas_atraso"]) {
       colunaKeyAlvo = situacaoMapping["3_parcelas_atraso"];
-    } else if (parcelasEmAtrasoCount === 2 && situacaoMapping["2_parcelas_atraso"]) {
+    } else if (diasAtrasoMaisAntiga >= 61 && diasAtrasoMaisAntiga <= 89 && situacaoMapping["2_parcelas_atraso"]) {
       colunaKeyAlvo = situacaoMapping["2_parcelas_atraso"];
+    } else if (diasAtrasoMaisAntiga >= 30 && diasAtrasoMaisAntiga <= 60 && situacaoMapping["mais_30_dias_sem_negativacao"]) {
+      colunaKeyAlvo = situacaoMapping["mais_30_dias_sem_negativacao"];
     } else {
-      colunaKeyAlvo = clampToLockedEntryDyn(colunaKeyForDiasAtraso(maisAntiga.dias_atraso));
+      colunaKeyAlvo = clampToLockedEntryDyn(colunaKeyForDiasAtraso(diasAtrasoMaisAntiga));
     }
 
     const telefone = cliente.telefone_principal ?? cliente.telefone ?? "";
     const documento = cliente.documento ?? cliente.cpf_cnpj ?? cliente.cpf ?? "";
 
     // Decide o status final que será gravado:
-    //  • Casos especiais (Serasa / Ajuizado) sempre forçam a coluna fixa.
     //  • Card já existente em coluna travada (>= COLUNA 9) NÃO é movido pelo
     //    sync — quem move dali é o fluxo manual (cobranca-flow-advance).
+    //  • Negativado/Ajuizado: a coluna de entrada (informe de negativação /
+    //    ajuizado) só é aplicada a cards que ainda NÃO chegaram lá. Uma vez
+    //    que o card saiu dessa coluna (avançado pelo cobranca-flow-advance),
+    //    o sync NÃO pode empurrá-lo de volta enquanto a mesma cobrança
+    //    existir — mesmo que a situação "Negativado Serasa"/"Ajuizado"
+    //    continue presente nas parcelas. Só uma cobrança nova (cliente saiu
+    //    da tela e voltou com dívida nova) entra de novo por essa coluna.
     let colunaKey = colunaKeyAlvo;
-    if (existingCobranca && !hasAjuizadoMerged && !hasNegativadoSerasaMerged) {
-      if (lockedKeys.has(existingCobranca.status)) {
-        // Cards após a COLUNA 8 (60 dias) só podem permanecer lá se houver
-        // parcela "Negativado Serasa". Como não há, voltam para a COLUNA 8
-        // e aguardam tratativa da Brenda.
-        colunaKey = colunasApos8.has(existingCobranca.status)
-          ? coluna8Key
-          : existingCobranca.status; // mantém a coluna atual (travada)
+    if (existingCobranca) {
+      if (!hasAjuizadoMerged && !hasNegativadoSerasaMerged) {
+        if (lockedKeys.has(existingCobranca.status)) {
+          // Cards após a COLUNA 8 (60 dias) só podem permanecer lá se houver
+          // parcela "Negativado Serasa". Como não há, voltam para a COLUNA 8
+          // e aguardam tratativa da Brenda.
+          colunaKey = colunasApos8.has(existingCobranca.status)
+            ? coluna8Key
+            : existingCobranca.status; // mantém a coluna atual (travada)
+        }
+      } else if (
+        existingCobranca.status !== colunaKeyAlvo
+        && lockedKeys.has(existingCobranca.status)
+        && !entryColumnKeys.has(existingCobranca.status)
+      ) {
+        // Já saiu da coluna de entrada (negativado/ajuizado) para uma coluna
+        // posterior — não retorna. Se ainda estiver NA própria coluna de
+        // entrada, deixa livre pra escalar (ex.: negativado → ajuizado).
+        colunaKey = existingCobranca.status;
       }
     }
 

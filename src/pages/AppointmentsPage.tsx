@@ -123,9 +123,21 @@ export default function AppointmentsPage() {
   const [listDay, setListDay] = useState<Date | null>(null);
   const [filterCompanyId, setFilterCompanyId] = useState<string>("all");
   const [userCompanyId, setUserCompanyId] = useState<string | null>(null);
+  // Gerente com mais de uma empresa em manager_companies — precisa escolher
+  // qual empresa quer ver/agendar, já que cada uma tem sua própria escala de
+  // especialistas (sem isso, só a empresa do profiles.company_id aparecia).
+  const [gerenteCompanies, setGerenteCompanies] = useState<Company[]>([]);
+  const [gerenteSelectedCompanyId, setGerenteSelectedCompanyId] = useState<string>("");
+  const effectiveUserCompanyId = gerenteCompanies.length > 1
+    ? (gerenteSelectedCompanyId || gerenteCompanies[0]?.id || null)
+    : userCompanyId;
   const [eyeExamDayKeys, setEyeExamDayKeys] = useState<Set<string>>(new Set());
   const [eyeExamDayDetails, setEyeExamDayDetails] = useState<Map<string, EyeExamDayCellInfo[]>>(new Map());
   const { allowedDates: formAllowedExamDates, loadAllowedExamDates, isDateDisabled: isExamDateDisabled } = useAllowedExamDates();
+  // Empresa escolhida dentro do dialog de agendamento (gerente com mais de
+  // uma loja) — independe do filtro da barra de ferramentas, pra deixar
+  // claro pra qual empresa aquele agendamento específico está sendo feito.
+  const [dialogCompanyId, setDialogCompanyId] = useState<string>("");
   const [examDayDialogDate, setExamDayDialogDate] = useState<Date | null>(null);
   const [pageMode, setPageMode] = useState<PageMode>("appointments");
   const [filterSpecialistId, setFilterSpecialistId] = useState<string>("all");
@@ -183,7 +195,7 @@ export default function AppointmentsPage() {
 
 
   const fetchEyeExamDays = useCallback(async () => {
-    if (!isAdmin && !userCompanyId) {
+    if (!isAdmin && !effectiveUserCompanyId) {
       setEyeExamDayKeys(new Set());
       setEyeExamDayDetails(new Map());
       return;
@@ -206,8 +218,8 @@ export default function AppointmentsPage() {
       .lte("exam_date", format(queryEnd, "yyyy-MM-dd"));
     if (isAdmin && filterCompanyId !== "all") {
       query = query.eq("company_id", filterCompanyId);
-    } else if (!isAdmin && userCompanyId) {
-      query = query.eq("company_id", userCompanyId);
+    } else if (!isAdmin && effectiveUserCompanyId) {
+      query = query.eq("company_id", effectiveUserCompanyId);
     }
     const { data } = await query;
     const keys = new Set<string>();
@@ -239,31 +251,41 @@ export default function AppointmentsPage() {
 
     setEyeExamDayKeys(keys);
     setEyeExamDayDetails(details);
-  }, [focusDate, calendarView, isAdmin, filterCompanyId, userCompanyId]);
+  }, [focusDate, calendarView, isAdmin, filterCompanyId, effectiveUserCompanyId]);
 
   useEffect(() => {
     if (!user) return;
     if (isAdmin) return;
-    void supabase
-      .from("profiles")
-      .select("company_id")
-      .eq("user_id", user.id)
-      .maybeSingle()
-      .then(({ data }) => setUserCompanyId(data?.company_id ?? null));
+    void (async () => {
+      const [{ data: profile }, { data: extra }] = await Promise.all([
+        supabase.from("profiles").select("company_id").eq("user_id", user.id).maybeSingle(),
+        supabase.from("manager_companies").select("company_id").eq("user_id", user.id),
+      ]);
+      const ids = new Set<string>();
+      if (profile?.company_id) ids.add(profile.company_id);
+      (extra || []).forEach((row: { company_id: string | null }) => {
+        if (row.company_id) ids.add(row.company_id);
+      });
+      const idsArr = Array.from(ids);
+      setUserCompanyId(idsArr[0] ?? null);
+      if (idsArr.length > 1) {
+        const { data: comps } = await supabase
+          .from("companies")
+          .select("id, name, exam_schedule_color")
+          .in("id", idsArr)
+          .order("name");
+        setGerenteCompanies((comps || []) as Company[]);
+        setGerenteSelectedCompanyId((prev) => (prev && idsArr.includes(prev) ? prev : idsArr[0]));
+      } else {
+        setGerenteCompanies([]);
+        setGerenteSelectedCompanyId("");
+      }
+    })();
   }, [user, isAdmin]);
 
   useEffect(() => {
     void fetchEyeExamDays();
   }, [fetchEyeExamDays]);
-
-  // Ao abrir o dialog de agendamento, carrega as datas (sem limitar ao mês
-  // visível no calendário da página) em que a empresa do agendamento tem
-  // especialista alocado — trava o seletor de data e impede agendar em dia
-  // sem especialista.
-  const loadAllowedExamDatesForDialog = useCallback(() => {
-    const companyId = isAdmin ? (filterCompanyId !== "all" ? filterCompanyId : null) : userCompanyId;
-    void loadAllowedExamDates(companyId);
-  }, [isAdmin, filterCompanyId, userCompanyId, loadAllowedExamDates]);
 
   const fetchSpecialistSchedule = useCallback(async () => {
     if (!isAdmin || pageMode !== "specialist-schedule") return;
@@ -816,7 +838,11 @@ export default function AppointmentsPage() {
     setFormComparecimento("Pendente"); setFormVenda("Pendente"); setFormResumo("");
     setFormRescheduleDate(undefined); setFormRescheduleTime("09:00");
     setDialogOpen(true);
-    void loadAllowedExamDatesForDialog();
+    const initialCompanyId = isAdmin
+      ? (filterCompanyId !== "all" ? filterCompanyId : "")
+      : (effectiveUserCompanyId ?? "");
+    setDialogCompanyId(initialCompanyId);
+    void loadAllowedExamDates(initialCompanyId || null);
   };
 
   const calendarLabel = getCalendarQueryRange(focusDate, calendarView).label;
@@ -858,7 +884,11 @@ export default function AppointmentsPage() {
     setFormRescheduleDate(undefined);
     setFormRescheduleTime(format(new Date(appt.scheduled_datetime), "HH:mm"));
     setDialogOpen(true);
-    void loadAllowedExamDatesForDialog();
+    const initialCompanyId = isAdmin
+      ? (filterCompanyId !== "all" ? filterCompanyId : "")
+      : (effectiveUserCompanyId ?? "");
+    setDialogCompanyId(initialCompanyId);
+    void loadAllowedExamDates(initialCompanyId || null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1115,6 +1145,18 @@ export default function AppointmentsPage() {
               </SelectContent>
             </Select>
           )}
+          {!isAdmin && isGerente && gerenteCompanies.length > 1 && (
+            <Select value={effectiveUserCompanyId ?? ""} onValueChange={setGerenteSelectedCompanyId}>
+              <SelectTrigger className="h-8 w-[200px] text-xs">
+                <SelectValue placeholder="Empresa" />
+              </SelectTrigger>
+              <SelectContent>
+                {gerenteCompanies.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           {pageMode === "appointments" && (
             <Button size="sm" onClick={openAdd}>
               <Plus className="mr-1 h-4 w-4" /> Novo Agendamento
@@ -1296,7 +1338,7 @@ export default function AppointmentsPage() {
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={handleEditDialogOpenChange}>
         <DialogContent
-          className={cn(editingAppt ? "sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" : "sm:max-w-md")}
+          className={cn("max-h-[90vh] overflow-hidden flex flex-col", editingAppt ? "sm:max-w-3xl" : "sm:max-w-md")}
           onPointerDownOutside={(e) => {
             if (!editingAppt) e.preventDefault();
           }}
@@ -1313,8 +1355,8 @@ export default function AppointmentsPage() {
                   : "Novo Agendamento"}
             </DialogTitle>
           </DialogHeader>
-          <div className={cn(editingAppt ? "flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden" : "")}>
-          <form onSubmit={handleSubmit} className={cn("space-y-3", editingAppt ? "flex-1 overflow-y-auto pr-0 md:pr-4 max-h-[70vh]" : "")}>
+          <div className={cn("flex-1 min-h-0 overflow-hidden", editingAppt ? "flex flex-col md:flex-row" : "flex flex-col")}>
+          <form onSubmit={handleSubmit} className="space-y-3 flex-1 overflow-y-auto pr-0 md:pr-4">
             {editingAppt && isAppointmentInactive(editingAppt) && (
               <div className="rounded-md border border-muted-foreground/40 bg-muted/70 px-3 py-2 text-xs text-muted-foreground">
                 {editingAppt.returned_at
@@ -1366,6 +1408,26 @@ export default function AppointmentsPage() {
               </div>
             ) : (
             <>
+            {!isAdmin && isGerente && gerenteCompanies.length > 1 && (
+              <div className="space-y-1.5">
+                <Label>Empresa <span className="text-destructive">*</span></Label>
+                <Select
+                  value={dialogCompanyId}
+                  onValueChange={(v) => {
+                    setDialogCompanyId(v);
+                    setFormDate(undefined);
+                    void loadAllowedExamDates(v || null);
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Selecione a empresa" /></SelectTrigger>
+                  <SelectContent>
+                    {gerenteCompanies.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label>Nome <span className="text-destructive">*</span></Label>
               <Input value={formNome} onChange={e => setFormNome(e.target.value)} required />

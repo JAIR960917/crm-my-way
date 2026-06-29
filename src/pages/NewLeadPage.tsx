@@ -82,11 +82,16 @@ export default function NewLeadPage() {
   const [agFormaPagamentoConsulta, setAgFormaPagamentoConsulta] = useState("");
   const [agValorConsulta, setAgValorConsulta] = useState("");
   const [myCompanyId, setMyCompanyId] = useState<string | null>(null);
+  // Usuário (gerente) com mais de uma empresa em manager_companies — precisa
+  // escolher qual empresa quer agendar, já que cada uma tem sua própria
+  // escala de especialistas.
+  const [agCompanyId, setAgCompanyId] = useState<string>("");
+  const effectiveAgCompanyId = companies.length > 1 ? (agCompanyId || companies[0]?.id || null) : myCompanyId;
   const { allowedDates: agAllowedDates, loadAllowedExamDates: loadAgAllowedExamDates, isDateDisabled: isAgDateDisabled } = useAllowedExamDates();
 
   useEffect(() => {
-    if (agendou === "sim") void loadAgAllowedExamDates(myCompanyId);
-  }, [agendou, myCompanyId, loadAgAllowedExamDates]);
+    if (agendou === "sim") void loadAgAllowedExamDates(effectiveAgCompanyId);
+  }, [agendou, effectiveAgCompanyId, loadAgAllowedExamDates]);
 
   // Duplicate phone detection
   const [duplicateInfo, setDuplicateInfo] = useState<
@@ -813,6 +818,20 @@ export default function NewLeadPage() {
             {agendou === "sim" && (
               <div className="space-y-4 rounded-lg border border-primary/30 bg-primary/5 p-4">
                 <p className="text-sm font-medium text-primary">📅 Dados do Agendamento</p>
+
+                {companies.length > 1 && (
+                  <div className="space-y-2">
+                    <Label>Empresa <span className="text-destructive">*</span></Label>
+                    <Select value={effectiveAgCompanyId ?? ""} onValueChange={setAgCompanyId}>
+                      <SelectTrigger><SelectValue placeholder="Selecione a empresa" /></SelectTrigger>
+                      <SelectContent>
+                        {companies.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label>Data <span className="text-destructive">*</span></Label>

@@ -18,7 +18,7 @@ const MAX_BYTES = 5 * 1024 * 1024;
 
 // Chaves de system_settings que este endpoint pode atualizar — evita que o
 // body injete uma settingKey arbitrária.
-const ALLOWED_SETTING_KEYS = new Set(["logo_url", "pwa_icon_url", "pwa_splash_url"]);
+const ALLOWED_SETTING_KEYS = new Set(["logo_url", "pwa_icon_url", "pwa_splash_url", "links_logo_url"]);
 
 function decodeBase64(data: string): Uint8Array {
   const binary = atob(data);

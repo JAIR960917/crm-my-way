@@ -52,8 +52,9 @@ type Props = {
 };
 
 function formatApptDateTime(datetime: string) {
+  // Só o horário — a data já aparece no cabeçalho da lista (um único dia por vez).
   try {
-    return format(new Date(datetime), "dd/MM/yyyy HH:mm", { locale: ptBR });
+    return format(new Date(datetime), "HH:mm", { locale: ptBR });
   } catch {
     return "—";
   }
