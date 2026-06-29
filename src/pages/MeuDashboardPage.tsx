@@ -89,17 +89,21 @@ export default function MeuDashboardPage() {
 
       const scopeOr = async (): Promise<string> => {
         if (!isGerenteView) return `assigned_to.eq.${uid},created_by.eq.${uid}`;
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("company_id")
-          .eq("user_id", uid)
-          .maybeSingle();
-        const companyId = (profile as { company_id?: string | null } | null)?.company_id;
-        if (!companyId) return `assigned_to.eq.${uid},created_by.eq.${uid}`;
+        const [{ data: profile }, { data: extra }] = await Promise.all([
+          supabase.from("profiles").select("company_id").eq("user_id", uid).maybeSingle(),
+          supabase.from("manager_companies").select("company_id").eq("user_id", uid),
+        ]);
+        const companyIds = new Set<string>();
+        const ownCompanyId = (profile as { company_id?: string | null } | null)?.company_id;
+        if (ownCompanyId) companyIds.add(ownCompanyId);
+        (extra || []).forEach((row: { company_id: string | null }) => {
+          if (row.company_id) companyIds.add(row.company_id);
+        });
+        if (companyIds.size === 0) return `assigned_to.eq.${uid},created_by.eq.${uid}`;
         const { data: team } = await supabase
           .from("profiles")
           .select("user_id")
-          .eq("company_id", companyId);
+          .in("company_id", Array.from(companyIds));
         const teamIds = Array.from(new Set((team || []).map((p: { user_id: string }) => p.user_id)));
         if (teamIds.length === 0) return `assigned_to.eq.${uid},created_by.eq.${uid}`;
         return teamIds.flatMap((id) => [`assigned_to.eq.${id}`, `created_by.eq.${id}`]).join(",");

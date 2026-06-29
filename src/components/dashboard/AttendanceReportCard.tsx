@@ -59,7 +59,7 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
   const [allRows, setAllRows] = useState<SellerRow[]>([]);
   const [uniqueTotals, setUniqueTotals] = useState<AttendanceReportTotals | null>(null);
   const [vendedorIds, setVendedorIds] = useState<Set<string>>(new Set());
-  const [myCompanyId, setMyCompanyId] = useState<string | null>(null);
+  const [myCompanyIds, setMyCompanyIds] = useState<string[]>([]);
   const [dateMode, setDateMode] = useState<"day" | "range">("day");
   const [selectedDate, setSelectedDate] = useState(formatDateForInput(new Date()));
   const [startDate, setStartDate] = useState(formatDateForInput(new Date()));
@@ -67,7 +67,7 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
   const [companyFilter, setCompanyFilter] = useState<string>(ALL);
   const [sellerFilter, setSellerFilter] = useState<string[]>([]);
 
-  const showCompanyFilter = mode === "admin";
+  const showCompanyFilter = mode === "admin" || mode === "gerente";
   const showSellerFilter = mode === "admin" || mode === "gerente";
   const showSellerTable = mode !== "vendedor";
 
@@ -78,18 +78,19 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
 
   useEffect(() => {
     if (mode !== "gerente") return;
-    supabase
-      .from("profiles")
-      .select("company_id")
-      .eq("user_id", userId)
-      .maybeSingle()
-      .then(({ data }) => {
-        const cid = (data as { company_id?: string | null } | null)?.company_id;
-        if (cid) {
-          setMyCompanyId(cid);
-          setCompanyFilter(cid);
-        }
+    void (async () => {
+      const [{ data: profile }, { data: extra }] = await Promise.all([
+        supabase.from("profiles").select("company_id").eq("user_id", userId).maybeSingle(),
+        supabase.from("manager_companies").select("company_id").eq("user_id", userId),
+      ]);
+      const ids = new Set<string>();
+      const ownCompanyId = (profile as { company_id?: string | null } | null)?.company_id;
+      if (ownCompanyId) ids.add(ownCompanyId);
+      (extra || []).forEach((row: { company_id: string | null }) => {
+        if (row.company_id) ids.add(row.company_id);
       });
+      setMyCompanyIds(Array.from(ids));
+    })();
   }, [mode, userId]);
 
   const fetchReport = async (startStr: string, endStr: string) => {
@@ -138,22 +139,25 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
 
   const availableSellers = useMemo(() => {
     let list = profiles;
-    if (mode === "gerente" && myCompanyId) {
+    if (mode === "gerente" && myCompanyIds.length > 0) {
       list = list.filter(
-        (p) => p.company_id === myCompanyId && (p.user_id === userId || vendedorIds.has(p.user_id)),
+        (p) =>
+          p.company_id && myCompanyIds.includes(p.company_id)
+          && (p.user_id === userId || vendedorIds.has(p.user_id)),
       );
-    } else if (companyFilter !== ALL) {
+    }
+    if (companyFilter !== ALL) {
       list = list.filter((p) => p.company_id === companyFilter);
     }
     return list
       .map((p) => ({ user_id: p.user_id, full_name: p.full_name || "(sem nome)" }))
       .sort((a, b) => a.full_name.localeCompare(b.full_name));
-  }, [profiles, companyFilter, mode, myCompanyId, userId, vendedorIds]);
+  }, [profiles, companyFilter, mode, myCompanyIds, userId, vendedorIds]);
 
   const filteredRows = useMemo(() => {
     const filtered = allRows.filter((r) => {
       if (mode === "vendedor") return r.user_id === userId;
-      if (mode === "gerente" && myCompanyId && r.company_id !== myCompanyId) return false;
+      if (mode === "gerente" && myCompanyIds.length > 0 && !(r.company_id && myCompanyIds.includes(r.company_id))) return false;
       if (companyFilter !== ALL && r.company_id !== companyFilter) return false;
       if (sellerFilter.length > 0 && !sellerFilter.includes(r.user_id)) return false;
       return true;
@@ -188,7 +192,7 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
     }
 
     return filtered;
-  }, [allRows, companyFilter, sellerFilter, mode, userId, myCompanyId, availableSellers, profiles, companies]);
+  }, [allRows, companyFilter, sellerFilter, mode, userId, myCompanyIds, availableSellers, profiles, companies]);
 
   const reportTotals = useMemo(() => {
     const empty = {
@@ -226,10 +230,15 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
       }),
       empty,
     );
+    // uniqueTotals é calculado sem filtro de empresa (sistema todo) — só serve
+    // pra admin vendo "todas as empresas". Pra gerente sempre soma as linhas
+    // já filtradas pelas empresas dele, senão mostraria números de empresas
+    // que não são dele.
     const useUniqueLeadTotals =
       uniqueTotals &&
       sellerFilter.length === 0 &&
-      (mode !== "admin" || companyFilter === ALL);
+      mode === "admin" &&
+      companyFilter === ALL;
     if (!useUniqueLeadTotals) return summed;
     return {
       ...summed,
@@ -246,6 +255,11 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
     setSellerFilter((prev) => (prev.includes(uid) ? prev.filter((x) => x !== uid) : [...prev, uid]));
   };
 
+  const selectableCompanies = useMemo(() => {
+    if (mode !== "gerente") return companies;
+    return companies.filter((c) => myCompanyIds.includes(c.id));
+  }, [companies, mode, myCompanyIds]);
+
   const sellerLabel =
     sellerFilter.length === 0
       ? "Todos os vendedores"
@@ -257,7 +271,7 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
     mode === "vendedor"
       ? "Suas métricas de atendimento em tempo real."
       : mode === "gerente"
-        ? "Suas métricas e as dos vendedores da sua empresa."
+        ? "Suas métricas e as dos vendedores das suas empresas. Filtre por empresa e selecione vendedores específicos."
         : "Filtre por empresa e selecione vendedores específicos para detalhar as métricas.";
 
   return (
@@ -278,8 +292,8 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
                     <SelectValue placeholder="Todas as empresas" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ALL}>Todas as empresas</SelectItem>
-                    {companies.map((c) => (
+                    <SelectItem value={ALL}>{mode === "gerente" ? "Todas as minhas empresas" : "Todas as empresas"}</SelectItem>
+                    {selectableCompanies.map((c) => (
                       <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -375,7 +389,7 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Vendedor</TableHead>
-                    {mode === "admin" && <TableHead>Empresa</TableHead>}
+                    {(mode === "admin" || (mode === "gerente" && myCompanyIds.length > 1)) && <TableHead>Empresa</TableHead>}
                     <TableHead className="text-center">Adicionados</TableHead>
                     <TableHead className="text-center">Tratados</TableHead>
                     <TableHead className="text-center text-destructive">Não atenderam</TableHead>
@@ -399,7 +413,7 @@ export default function AttendanceReportCard({ mode, userId }: Props) {
                           <span className="font-medium">{row.full_name}</span>
                         </div>
                       </TableCell>
-                      {mode === "admin" && <TableCell className="text-muted-foreground text-sm">{row.company_name}</TableCell>}
+                      {(mode === "admin" || (mode === "gerente" && myCompanyIds.length > 1)) && <TableCell className="text-muted-foreground text-sm">{row.company_name}</TableCell>}
                       <TableCell className="text-center font-semibold">{row.adicionados}</TableCell>
                       <TableCell className="text-center font-semibold">{row.tratados}</TableCell>
                       <TableCell className="text-center">
