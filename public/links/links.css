@@ -7,7 +7,7 @@ body {
   margin: 0;
   padding: 0;
   min-height: 100%;
-  background: hsl(0 70% 38%);
+  background: hsl(0 70% 28%);
   color: #fff;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
@@ -16,41 +16,62 @@ body {
   min-height: 100vh;
   display: flex;
   justify-content: center;
-  padding: 48px 20px 64px;
+  padding: 28px 16px;
 }
 
 .card {
+  position: relative;
   width: 100%;
   max-width: 460px;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
+  background: hsl(0 70% 38%);
+  border-radius: 28px;
+  padding: 56px 24px 40px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
 }
 
-.logo {
-  width: 72px;
-  height: 72px;
+.corner-btn {
+  position: absolute;
+  top: 16px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  object-fit: cover;
-  margin-bottom: 16px;
-  background: #fff;
-}
-
-.logo-fallback {
-  width: 64px;
-  height: 64px;
+  border: none;
+  background: hsl(0 60% 32%);
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 12px;
+  cursor: pointer;
 }
 
-.logo-fallback svg {
-  width: 100%;
-  height: 100%;
+.corner-btn svg {
+  width: 16px;
+  height: 16px;
   fill: #fff;
-  opacity: 0.9;
+}
+
+.corner-btn-left {
+  left: 16px;
+  cursor: default;
+}
+
+.corner-btn-right {
+  right: 16px;
+}
+
+.logo {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  object-fit: contain;
+  background: #fff;
+  padding: 6px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 h1 {

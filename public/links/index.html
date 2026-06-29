@@ -13,10 +13,17 @@
 <body>
   <div class="page">
     <main class="card">
+      <button type="button" class="corner-btn corner-btn-left" aria-hidden="true" tabindex="-1">
+        <svg viewBox="0 0 24 24"><path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2z" /></svg>
+      </button>
+      <button type="button" class="corner-btn corner-btn-right" id="share-btn" title="Compartilhar">
+        <svg viewBox="0 0 24 24">
+          <path
+            d="M18 8a3 3 0 1 0-2.83-4H15a3 3 0 0 0 .08 3.32L8.91 10.7a3 3 0 1 0 0 2.6l6.17 3.38A3 3 0 1 0 18 16a2.98 2.98 0 0 0-1.91.69l-6.17-3.38a3.01 3.01 0 0 0 0-.62l6.17-3.38c.54.43 1.2.69 1.91.69z" />
+        </svg>
+      </button>
+
       <img id="logo" class="logo" src="" alt="" hidden />
-      <div id="logo-fallback" class="logo-fallback">
-        <svg viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5.25 3.4 9.74 8 11 4.6-1.26 8-5.75 8-11V5l-8-3z" /></svg>
-      </div>
       <h1 id="system-name">Joonker</h1>
 
       <div id="links-list" class="links-list" aria-live="polite"></div>

@@ -4,8 +4,19 @@
   var listEl = document.getElementById("links-list");
   var emptyEl = document.getElementById("empty-state");
   var logoEl = document.getElementById("logo");
-  var logoFallbackEl = document.getElementById("logo-fallback");
   var nameEl = document.getElementById("system-name");
+  var shareBtn = document.getElementById("share-btn");
+
+  if (shareBtn) {
+    shareBtn.addEventListener("click", function () {
+      var shareData = { title: document.title, url: window.location.href };
+      if (navigator.share) {
+        navigator.share(shareData).catch(function () { /* usuário cancelou */ });
+      } else if (navigator.clipboard) {
+        navigator.clipboard.writeText(window.location.href);
+      }
+    });
+  }
 
   function getConfig() {
     var cfg = window.__CRM_RUNTIME_CONFIG__ || {};
@@ -90,11 +101,10 @@
       document.title = name;
 
       var logoUrl = resolveLogoUrl(data.logo_url || "", cfg.supabaseUrl);
+      logoEl.hidden = !logoUrl;
       if (logoUrl) {
         logoEl.src = logoUrl;
         logoEl.alt = name;
-        logoEl.hidden = false;
-        logoFallbackEl.hidden = true;
         var favicon = document.getElementById("page-favicon");
         if (favicon) favicon.href = logoUrl;
       }

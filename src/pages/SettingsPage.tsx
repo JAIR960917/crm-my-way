@@ -54,6 +54,7 @@ export default function SettingsPage() {
           "maintenance_admin_2",
           "maintenance_title",
           "maintenance_message",
+          "links_logo_url",
         ]);
       const extra: Record<string, string> = {};
       (data || []).forEach((r: any) => { extra[r.setting_key] = r.setting_value; });
@@ -73,6 +74,7 @@ export default function SettingsPage() {
         maintenance_admin_2: extra.maintenance_admin_2 || "",
         maintenance_title: extra.maintenance_title || "Sistema em manutenção",
         maintenance_message: extra.maintenance_message || "Estamos realizando uma manutenção no sistema. Volte em breve — agradecemos a sua paciência.",
+        links_logo_url: extra.links_logo_url || "",
       });
     };
     loadExtraSettings();
@@ -189,6 +191,53 @@ export default function SettingsPage() {
       .update({ setting_value: "", updated_at: new Date().toISOString() })
       .eq("setting_key", "logo_url");
     await refresh();
+    toast.success("Logo removida");
+  };
+
+  const [linksLogoUploading, setLinksLogoUploading] = useState(false);
+
+  const handleLinksLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Arquivo muito grande (máx. 5 MB)");
+      e.target.value = "";
+      return;
+    }
+
+    setLinksLogoUploading(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+      const fileName = `links_logo_${Date.now()}.${ext}`;
+      const data = await fileToBase64(file);
+      const contentType = file.type || "image/png";
+
+      const { data: result, error } = await supabase.functions.invoke("upload-system-logo", {
+        body: { fileName, contentType, data, settingKey: "links_logo_url" },
+      });
+
+      if (error) throw new Error(error.message);
+      if (result?.error) throw new Error(result.error);
+
+      const publicUrl = resolveStoragePublicUrl(result.publicUrl as string);
+      setValues((prev) => ({ ...prev, links_logo_url: publicUrl }));
+      toast.success("Logo da página /links atualizada!");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao enviar logo";
+      toast.error(msg);
+    } finally {
+      setLinksLogoUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleRemoveLinksLogo = async () => {
+    setValues((prev) => ({ ...prev, links_logo_url: "" }));
+    await supabase
+      .from("system_settings")
+      .update({ setting_value: "", updated_at: new Date().toISOString() })
+      .eq("setting_key", "links_logo_url");
     toast.success("Logo removida");
   };
 
@@ -346,6 +395,56 @@ export default function SettingsPage() {
                   accept="image/*"
                   className="hidden"
                   onChange={handleLogoUpload}
+                />
+              </label>
+              <p className="text-[11px] text-muted-foreground mt-1">PNG, JPG ou SVG</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Logo da página pública /links */}
+        <div className="space-y-2">
+          <Label>Logo da página /links</Label>
+          <p className="text-[11px] text-muted-foreground">
+            Exibida no topo de{" "}
+            <a href="/links" target="_blank" rel="noopener noreferrer" className="text-primary underline">/links</a>.
+            Se não enviar uma, usa a Logo do Sistema acima. Prefira uma imagem quadrada/redonda.
+          </p>
+          <div className="flex items-center gap-4">
+            {values.links_logo_url ? (
+              <div className="relative">
+                <img
+                  src={resolveStoragePublicUrl(values.links_logo_url)}
+                  alt="Logo da página /links"
+                  className="h-16 w-16 rounded-full object-contain border bg-card"
+                />
+                <Button
+                  variant="destructive"
+                  size="icon"
+                  className="absolute -top-2 -right-2 h-6 w-6"
+                  onClick={handleRemoveLinksLogo}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            ) : (
+              <div className="h-16 w-16 rounded-full border-2 border-dashed border-muted-foreground/30 flex items-center justify-center">
+                <Upload className="h-5 w-5 text-muted-foreground/50" />
+              </div>
+            )}
+            <div>
+              <label className="cursor-pointer">
+                <Button variant="outline" size="sm" asChild disabled={linksLogoUploading}>
+                  <span>
+                    <Upload className="mr-1.5 h-3.5 w-3.5" />
+                    {linksLogoUploading ? "Enviando..." : "Enviar Logo"}
+                  </span>
+                </Button>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleLinksLogoUpload}
                 />
               </label>
               <p className="text-[11px] text-muted-foreground mt-1">PNG, JPG ou SVG</p>

@@ -72,6 +72,10 @@ serve(async (req) => {
     const rawFileName = typeof body?.fileName === "string" ? body.fileName : "";
     const contentType = typeof body?.contentType === "string" ? body.contentType : "image/png";
     const dataB64 = typeof body?.data === "string" ? body.data : "";
+    // Permite reaproveitar este upload para outras logos (ex.: página /links)
+    // sem duplicar a função — restrito a uma allowlist de chaves conhecidas.
+    const ALLOWED_SETTING_KEYS = new Set(["logo_url", "links_logo_url"]);
+    const settingKey = ALLOWED_SETTING_KEYS.has(body?.settingKey) ? body.settingKey as string : "logo_url";
 
     // Sanitiza: apenas alfanuméricos, ponto, hífen e underscore; sem path traversal
     const fileName = rawFileName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 128);
@@ -119,8 +123,10 @@ serve(async (req) => {
 
     const { error: settingsError } = await supabaseAdmin
       .from("system_settings")
-      .update({ setting_value: publicUrl, updated_at: new Date().toISOString() })
-      .eq("setting_key", "logo_url");
+      .upsert(
+        { setting_key: settingKey, setting_value: publicUrl, updated_at: new Date().toISOString() },
+        { onConflict: "setting_key" },
+      );
 
     if (settingsError) {
       console.error("[upload-system-logo] settings update:", settingsError);

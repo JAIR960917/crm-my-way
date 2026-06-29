@@ -32,14 +32,14 @@ serve(async (req) => {
     supabase
       .from("system_settings")
       .select("setting_key, setting_value")
-      .in("setting_key", ["system_name", "logo_url"]),
+      .in("setting_key", ["system_name", "logo_url", "links_logo_url"]),
   ]);
 
   const settingsMap = new Map((settingsRows || []).map((r) => [r.setting_key, r.setting_value || ""]));
 
   return jsonResponse({
     system_name: settingsMap.get("system_name") || "Óticas Joonker",
-    logo_url: settingsMap.get("logo_url") || "",
+    logo_url: settingsMap.get("links_logo_url") || settingsMap.get("logo_url") || "",
     links: links || [],
   });
 });
