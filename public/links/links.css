@@ -36,7 +36,7 @@ body {
   text-align: center;
   background: var(--pg-card);
   border-radius: 28px;
-  padding: 36px 0 0;
+  padding: 24px 0 0;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
   overflow: hidden;
 }
