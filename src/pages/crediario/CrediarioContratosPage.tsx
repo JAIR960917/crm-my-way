@@ -18,7 +18,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
-  FileSignature, Search, FileDown, Eye, ShieldCheck, Loader2, FileText, CloudDownload, RefreshCw, CheckCircle2, AlertCircle,
+  FileSignature, Search, FileDown, Eye, ShieldCheck, Loader2, FileText, CloudDownload, RefreshCw, CheckCircle2, AlertCircle, FilePlus2,
 } from "lucide-react";
 import { maskCpf } from "@/lib/crediarioFinance";
 import { downloadContractPdf } from "@/lib/crediarioPdf";
@@ -110,6 +110,7 @@ export default function CrediarioContratosPage() {
   const [zapPendentes, setZapPendentes] = useState<ZapPendente[]>([]);
   const [zapTotalZapsign, setZapTotalZapsign] = useState(0);
   const [syncingToken, setSyncingToken] = useState<string | null>(null);
+  const [importingToken, setImportingToken] = useState<string | null>(null);
 
   const handleView = async (c: ContractRow) => {
     if (c.status !== "assinado") {
@@ -331,6 +332,45 @@ export default function CrediarioContratosPage() {
     toast.success(`Sincronização concluída: ${ok} atualizados${fail > 0 ? `, ${fail} com erro` : ""}`);
   };
 
+  const handleImportarPendente = async (p: ZapPendente) => {
+    setImportingToken(p.token);
+    try {
+      const { data, error } = await supabase.functions.invoke("zapsign-importar-pendente", {
+        body: { token: p.token },
+      });
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error ?? "Erro ao importar");
+      const contrato = data.contrato as ContractRow;
+      setList((prev) => [{ ...contrato, created_by_name: "—" }, ...prev]);
+      setZapPendentes((prev) => prev.filter((x) => x.token !== p.token));
+      toast.success("Contrato importado", { description: contrato.nome });
+    } catch (e: unknown) {
+      toast.error("Erro ao importar", { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setImportingToken(null);
+    }
+  };
+
+  const handleImportarTodos = async () => {
+    const semContrato = zapPendentes.filter((p) => !p.contrato_id);
+    if (semContrato.length === 0) return;
+    let ok = 0;
+    let fail = 0;
+    for (const p of semContrato) {
+      try {
+        const { data, error } = await supabase.functions.invoke("zapsign-importar-pendente", {
+          body: { token: p.token },
+        });
+        if (error || !data?.ok) { fail++; continue; }
+        ok++;
+        const contrato = data.contrato as ContractRow;
+        setList((prev) => [{ ...contrato, created_by_name: "—" }, ...prev]);
+        setZapPendentes((prev) => prev.filter((x) => x.token !== p.token));
+      } catch { fail++; }
+    }
+    toast.success(`Importação concluída: ${ok} importados${fail > 0 ? `, ${fail} com erro` : ""}`);
+  };
+
   return (
     <AppLayout>
       {/* Dialog: Contratos assinados na ZapSign mas não no sistema */}
@@ -362,15 +402,24 @@ export default function CrediarioContratosPage() {
             ) : (
               <div className="space-y-2 pr-1">
                 {zapPendentes.length > 1 && (
-                  <div className="flex justify-end pb-2">
+                  <div className="flex justify-end gap-2 pb-2 flex-wrap">
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={handleSincronizarTodos}
-                      disabled={syncingToken !== null}
+                      disabled={syncingToken !== null || importingToken !== null}
                     >
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Sincronizar todos ({zapPendentes.filter((p) => p.contrato_id).length})
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleImportarTodos}
+                      disabled={syncingToken !== null || importingToken !== null}
+                    >
+                      <FilePlus2 className="h-4 w-4 mr-2" />
+                      Importar todos ({zapPendentes.filter((p) => !p.contrato_id).length})
                     </Button>
                   </div>
                 )}
@@ -395,19 +444,36 @@ export default function CrediarioContratosPage() {
                         )}
                       </div>
                     </div>
-                    <Button
-                      size="sm"
-                      onClick={() => handleSincronizarPendente(p)}
-                      disabled={syncingToken !== null || !p.contrato_id}
-                      title={!p.contrato_id ? "Sem contrato local associado" : "Atualizar status para Assinado"}
-                    >
-                      {syncingToken === p.token ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4 mr-1" />
-                      )}
-                      Sincronizar
-                    </Button>
+                    {p.contrato_id ? (
+                      <Button
+                        size="sm"
+                        onClick={() => handleSincronizarPendente(p)}
+                        disabled={syncingToken !== null || importingToken !== null}
+                        title="Atualizar status para Assinado"
+                      >
+                        {syncingToken === p.token ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4 mr-1" />
+                        )}
+                        Sincronizar
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleImportarPendente(p)}
+                        disabled={syncingToken !== null || importingToken !== null}
+                        title="Criar um novo contrato no sistema a partir deste documento assinado"
+                      >
+                        {importingToken === p.token ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <FilePlus2 className="h-4 w-4 mr-1" />
+                        )}
+                        Importar
+                      </Button>
+                    )}
                   </div>
                 ))}
               </div>
