@@ -2,12 +2,17 @@
   box-sizing: border-box;
 }
 
+:root {
+  --pg-bg: #6b1212;
+  --pg-card: #9c1c1c;
+}
+
 html,
 body {
   margin: 0;
   padding: 0;
   min-height: 100%;
-  background: hsl(0 70% 28%);
+  background: var(--pg-bg);
   color: #fff;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
@@ -29,9 +34,9 @@ body {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  background: hsl(0 70% 38%);
+  background: var(--pg-card);
   border-radius: 28px;
-  padding: 36px 0 0;
+  padding: 24px 0 0;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
   overflow: hidden;
 }
@@ -86,6 +91,7 @@ h1 {
   gap: 14px;
 }
 
+/* ── Link (pill button) ── */
 .link-item {
   display: block;
   width: 100%;
@@ -107,11 +113,47 @@ h1 {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
 }
 
+/* ── Header (category label) ── */
 .link-header {
   margin: 10px 0 -2px;
   font-weight: 700;
   font-size: 15px;
   color: #fff;
+}
+
+/* ── Banner (full-bleed image) ── */
+.link-banner {
+  width: calc(100% + 48px);
+  margin: 0 -24px;
+  display: block;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.link-banner img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* ── Title ── */
+.link-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+  margin: 4px 0 0;
+  line-height: 1.3;
+}
+
+/* ── Paragraph ── */
+.link-paragraph {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.88);
+  text-align: center;
+  margin: 0;
+  line-height: 1.55;
+  white-space: pre-line;
 }
 
 .empty-state {
