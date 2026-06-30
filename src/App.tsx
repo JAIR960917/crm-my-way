@@ -70,6 +70,7 @@ import SiteAnalyticsPage from "./pages/SiteAnalyticsPage";
 import SiteFormBuilderPage from "./pages/SiteFormBuilderPage";
 import SiteLeadsPage from "./pages/SiteLeadsPage";
 import SiteConfigPage from "./pages/SiteConfigPage";
+import LinksAdminPage from "./pages/LinksAdminPage";
 import MaintenancePage from "./pages/MaintenancePage";
 import NotFound from "./pages/NotFound";
 
@@ -177,6 +178,7 @@ const AppRoutes = () => {
       <Route path="/formulario-renovacao" element={<RoleGate><RenovacaoFormBuilderPage /></RoleGate>} />
       <Route path="/novo-lead" element={<RoleGate><NewLeadPage /></RoleGate>} />
       <Route path="/configuracoes" element={<RoleGate><SettingsPage /></RoleGate>} />
+      <Route path="/links-admin" element={<RoleGate><LinksAdminPage /></RoleGate>} />
       <Route path="/perfil" element={<RoleGate><ProfilePage /></RoleGate>} />
       <Route path="/notificacoes" element={<RoleGate><NotificationSettingsPage /></RoleGate>} />
       <Route path="/whatsapp" element={<RoleGate><WhatsAppPage /></RoleGate>} />

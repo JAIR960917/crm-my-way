@@ -49,6 +49,7 @@ export const APP_PAGES: AppPage[] = [
   { key: "site_leads",           label: "Leads do Site",          path: "/site-leads" },
   { key: "site_config",          label: "Configurações do Site",  path: "/site-configuracoes" },
   { key: "configuracoes",        label: "Configurações",          path: "/configuracoes" },
+  { key: "links_admin",          label: "Links Públicos",         path: "/links-admin" },
 
   // Crediário (módulo absorvido do antigo app de venda no boleto)
   { key: "crediario_dashboard",            label: "Painel / Dashboard do Crediário", path: "/crediario" },

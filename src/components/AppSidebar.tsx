@@ -24,7 +24,7 @@ import {
   CalendarCheck, UserCheck, Upload, Receipt, Plug, CalendarHeart,
   History, BarChart3, FileBarChart, RefreshCw, Workflow, Activity,
   ChevronDown, SlidersHorizontal, CalendarClock,
-  Trophy, Boxes, Package, Banknote, TrendingUp, TrendingDown, Globe,
+  Trophy, Boxes, Package, Banknote, TrendingUp, TrendingDown, Globe, Link2,
   Wallet, FileSignature, ShieldCheck, KeyRound, FileBarChart2, AlertTriangle, ScanLine,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -72,6 +72,7 @@ const configNavItems: NavItem[] = [
   { path: "/formulario",           label: "Formulário Lead",        icon: FileText },
   { path: "/formulario-renovacao", label: "Formulário Renovação",   icon: CalendarHeart },
   { path: "/configuracoes",        label: "Configurações",          icon: Settings },
+  { path: "/links-admin",          label: "Links Públicos (/links)", icon: Link2 },
   { path: "/cobrancas/fluxo",      label: "Fluxo Cobrança",         icon: Workflow },
   { path: "/notificacoes",         label: "Notificações",           icon: Bell },
   { path: "/importar",             label: "Importar Leads",         icon: Upload },
