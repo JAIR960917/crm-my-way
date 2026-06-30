@@ -32,7 +32,7 @@ serve(async (req) => {
     supabase
       .from("system_settings")
       .select("setting_key, setting_value")
-      .in("setting_key", ["system_name", "logo_url", "links_logo_url"]),
+      .in("setting_key", ["system_name", "logo_url", "links_logo_url", "links_bg_color", "links_card_color"]),
   ]);
 
   const settingsMap = new Map((settingsRows || []).map((r) => [r.setting_key, r.setting_value || ""]));
@@ -40,6 +40,8 @@ serve(async (req) => {
   return jsonResponse({
     system_name: settingsMap.get("system_name") || "Óticas Joonker",
     logo_url: settingsMap.get("links_logo_url") || settingsMap.get("logo_url") || "",
+    bg_color: settingsMap.get("links_bg_color") || "",
+    card_color: settingsMap.get("links_card_color") || "",
     links: links || [],
   });
 });

@@ -76,7 +76,8 @@ serve(async (req) => {
     const rawFileName = typeof body?.fileName === "string" ? body.fileName : "";
     const contentType = typeof body?.contentType === "string" ? body.contentType : "image/png";
     const dataB64 = typeof body?.data === "string" ? body.data : "";
-    const settingKey = ALLOWED_SETTING_KEYS.has(body?.settingKey) ? body.settingKey as string : "logo_url";
+    const returnUrlOnly = body?.returnUrlOnly === true;
+    const settingKey = returnUrlOnly ? null : (ALLOWED_SETTING_KEYS.has(body?.settingKey) ? body.settingKey as string : "logo_url");
 
     // Sanitiza: apenas alfanuméricos, ponto, hífen e underscore; sem path traversal
     const fileName = rawFileName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 128);
@@ -125,19 +126,21 @@ serve(async (req) => {
     const PUBLIC_URL = Deno.env.get("SUPABASE_PUBLIC_URL") || SUPABASE_URL;
     const publicUrl = urlData.publicUrl.replace(SUPABASE_URL, PUBLIC_URL);
 
-    const { error: settingsError } = await supabaseAdmin
-      .from("system_settings")
-      .upsert(
-        { setting_key: settingKey, setting_value: publicUrl, updated_at: new Date().toISOString() },
-        { onConflict: "setting_key" },
-      );
+    if (settingKey) {
+      const { error: settingsError } = await supabaseAdmin
+        .from("system_settings")
+        .upsert(
+          { setting_key: settingKey, setting_value: publicUrl, updated_at: new Date().toISOString() },
+          { onConflict: "setting_key" },
+        );
 
-    if (settingsError) {
-      console.error("[upload-system-logo] settings update:", settingsError);
-      return new Response(JSON.stringify({ error: "Erro ao salvar a configuração." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      if (settingsError) {
+        console.error("[upload-system-logo] settings update:", settingsError);
+        return new Response(JSON.stringify({ error: "Erro ao salvar a configuração." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     return new Response(JSON.stringify({ publicUrl }), {

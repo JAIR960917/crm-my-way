@@ -37,7 +37,13 @@
     return url;
   }
 
-  function renderLinks(links) {
+  function applyColors(bgColor, cardColor) {
+    var root = document.documentElement;
+    if (bgColor) root.style.setProperty("--pg-bg", bgColor);
+    if (cardColor) root.style.setProperty("--pg-card", cardColor);
+  }
+
+  function renderLinks(links, supabaseUrl) {
     listEl.innerHTML = "";
     var hasAny = links && links.length > 0;
     if (!hasAny) {
@@ -45,20 +51,55 @@
       return;
     }
     emptyEl.hidden = true;
+
     links.forEach(function (link) {
-      if (link.link_type === "header") {
+      var type = link.link_type || "link";
+
+      if (type === "header") {
         var h = document.createElement("p");
         h.className = "link-header";
-        h.textContent = link.label;
+        h.textContent = link.label || "";
         listEl.appendChild(h);
         return;
       }
+
+      if (type === "banner") {
+        var url = resolveLogoUrl(link.url || "", supabaseUrl);
+        if (!url) return;
+        var wrap = document.createElement("div");
+        wrap.className = "link-banner";
+        var img = document.createElement("img");
+        img.src = url;
+        img.alt = link.label || "";
+        img.loading = "lazy";
+        wrap.appendChild(img);
+        listEl.appendChild(wrap);
+        return;
+      }
+
+      if (type === "title") {
+        var t = document.createElement("p");
+        t.className = "link-title";
+        t.textContent = link.label || "";
+        listEl.appendChild(t);
+        return;
+      }
+
+      if (type === "paragraph") {
+        var p = document.createElement("p");
+        p.className = "link-paragraph";
+        p.textContent = link.label || "";
+        listEl.appendChild(p);
+        return;
+      }
+
+      // Default: link (pill button)
       var a = document.createElement("a");
       a.className = "link-item";
-      a.href = link.url;
+      a.href = link.url || "#";
       a.target = "_blank";
       a.rel = "noopener noreferrer";
-      a.textContent = link.label;
+      a.textContent = link.label || "";
       listEl.appendChild(a);
     });
   }
@@ -66,7 +107,7 @@
   async function load() {
     var cfg = getConfig();
     if (!cfg.supabaseUrl || !cfg.anonKey) {
-      renderLinks([]);
+      renderLinks([], "");
       return;
     }
     try {
@@ -79,7 +120,7 @@
         },
       });
       if (!res.ok) {
-        renderLinks([]);
+        renderLinks([], "");
         return;
       }
       var data = await res.json();
@@ -87,6 +128,8 @@
       var name = (data.system_name || "Joonker").replace(/^CRM\s+/i, "");
       nameEl.textContent = name;
       document.title = name;
+
+      applyColors(data.bg_color || "", data.card_color || "");
 
       var logoUrl = resolveLogoUrl(data.logo_url || "", cfg.supabaseUrl);
       logoEl.hidden = !logoUrl;
@@ -97,9 +140,9 @@
         if (favicon) favicon.href = logoUrl;
       }
 
-      renderLinks(data.links || []);
+      renderLinks(data.links || [], cfg.supabaseUrl);
     } catch (_err) {
-      renderLinks([]);
+      renderLinks([], "");
     }
   }
 
