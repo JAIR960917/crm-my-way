@@ -12,13 +12,28 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, PaginationEllipsis,
 } from "@/components/ui/pagination";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
-  FileSignature, Search, FileDown, Eye, ShieldCheck, Loader2, FileText,
+  FileSignature, Search, FileDown, Eye, ShieldCheck, Loader2, FileText, CloudDownload, RefreshCw, CheckCircle2, AlertCircle,
 } from "lucide-react";
 import { maskCpf } from "@/lib/crediarioFinance";
 import { downloadContractPdf } from "@/lib/crediarioPdf";
+
+interface ZapPendente {
+  token: string;
+  open_id: number;
+  name: string;
+  external_id: string | null;
+  signed_at: string | null;
+  contrato_id: string | null;
+  status_local: string | null;
+  nome_local: string | null;
+  cpf_local: string | null;
+}
 
 interface ContractRow {
   id: string;
@@ -88,6 +103,13 @@ export default function CrediarioContratosPage() {
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const perPage = 30;
+
+  // Busca ZapSign pendentes
+  const [zapDialogOpen, setZapDialogOpen] = useState(false);
+  const [zapLoading, setZapLoading] = useState(false);
+  const [zapPendentes, setZapPendentes] = useState<ZapPendente[]>([]);
+  const [zapTotalZapsign, setZapTotalZapsign] = useState(0);
+  const [syncingToken, setSyncingToken] = useState<string | null>(null);
 
   const handleView = async (c: ContractRow) => {
     if (c.status !== "assinado") {
@@ -233,8 +255,167 @@ export default function CrediarioContratosPage() {
     );
   };
 
+  const handleBuscarPendentesZapsign = async () => {
+    setZapLoading(true);
+    setZapPendentes([]);
+    setZapDialogOpen(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("zapsign-listar-pendentes", { body: {} });
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error ?? "Erro desconhecido");
+      setZapPendentes(data.pendentes ?? []);
+      setZapTotalZapsign(data.total_zapsign ?? 0);
+    } catch (e: unknown) {
+      toast.error("Erro ao buscar pendentes na ZapSign", { description: e instanceof Error ? e.message : String(e) });
+      setZapDialogOpen(false);
+    } finally {
+      setZapLoading(false);
+    }
+  };
+
+  const handleSincronizarPendente = async (p: ZapPendente) => {
+    if (!p.contrato_id) {
+      toast.error("Contrato não encontrado no sistema", {
+        description: "Este documento existe na ZapSign mas não tem um contrato local associado.",
+      });
+      return;
+    }
+    setSyncingToken(p.token);
+    try {
+      const { data, error } = await supabase.functions.invoke("zapsign-sincronizar-status", {
+        body: { contrato_id: p.contrato_id },
+      });
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error ?? "Erro ao sincronizar");
+      toast.success("Contrato sincronizado", {
+        description: `${p.nome_local ?? p.name} → ${data.status}`,
+      });
+      // Atualiza lista local e remove da lista de pendentes
+      setList((prev) =>
+        prev.map((c) =>
+          c.id === p.contrato_id
+            ? { ...c, status: data.status, signed_at: data.status === "assinado" ? new Date().toISOString() : c.signed_at }
+            : c
+        )
+      );
+      setZapPendentes((prev) => prev.filter((x) => x.token !== p.token));
+    } catch (e: unknown) {
+      toast.error("Erro ao sincronizar", { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setSyncingToken(null);
+    }
+  };
+
+  const handleSincronizarTodos = async () => {
+    const comContrato = zapPendentes.filter((p) => p.contrato_id);
+    if (comContrato.length === 0) return;
+    let ok = 0;
+    let fail = 0;
+    for (const p of comContrato) {
+      try {
+        const { data, error } = await supabase.functions.invoke("zapsign-sincronizar-status", {
+          body: { contrato_id: p.contrato_id },
+        });
+        if (error || !data?.ok) { fail++; continue; }
+        ok++;
+        setList((prev) =>
+          prev.map((c) =>
+            c.id === p.contrato_id
+              ? { ...c, status: data.status, signed_at: data.status === "assinado" ? new Date().toISOString() : c.signed_at }
+              : c
+          )
+        );
+        setZapPendentes((prev) => prev.filter((x) => x.token !== p.token));
+      } catch { fail++; }
+    }
+    toast.success(`Sincronização concluída: ${ok} atualizados${fail > 0 ? `, ${fail} com erro` : ""}`);
+  };
+
   return (
     <AppLayout>
+      {/* Dialog: Contratos assinados na ZapSign mas não no sistema */}
+      <Dialog open={zapDialogOpen} onOpenChange={setZapDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CloudDownload className="h-5 w-5 text-primary" />
+              Contratos assinados na ZapSign
+            </DialogTitle>
+            <DialogDescription>
+              {zapLoading
+                ? "Consultando ZapSign..."
+                : `${zapTotalZapsign} documento(s) assinado(s) na ZapSign — ${zapPendentes.length} ainda não registrado(s) como assinado aqui.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto">
+            {zapLoading ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" /> Buscando documentos na ZapSign...
+              </div>
+            ) : zapPendentes.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
+                <CheckCircle2 className="h-10 w-10 text-success opacity-70" />
+                <p className="font-medium">Tudo sincronizado!</p>
+                <p className="text-sm">Todos os contratos assinados na ZapSign já estão registrados aqui.</p>
+              </div>
+            ) : (
+              <div className="space-y-2 pr-1">
+                {zapPendentes.length > 1 && (
+                  <div className="flex justify-end pb-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleSincronizarTodos}
+                      disabled={syncingToken !== null}
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Sincronizar todos ({zapPendentes.filter((p) => p.contrato_id).length})
+                    </Button>
+                  </div>
+                )}
+                {zapPendentes.map((p) => (
+                  <div key={p.token} className="flex items-center justify-between gap-3 border rounded-lg px-4 py-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{p.nome_local ?? p.name}</p>
+                      <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
+                        {p.cpf_local && <span className="font-mono">{maskCpf(p.cpf_local)}</span>}
+                        {p.signed_at && (
+                          <span>Assinado em {new Date(p.signed_at).toLocaleString("pt-BR")}</span>
+                        )}
+                        {p.status_local ? (
+                          <Badge variant="outline" className="text-xs">
+                            Local: {p.status_local}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs text-warning border-warning">
+                            <AlertCircle className="h-3 w-3 mr-1" />
+                            Não encontrado localmente
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => handleSincronizarPendente(p)}
+                      disabled={syncingToken !== null || !p.contrato_id}
+                      title={!p.contrato_id ? "Sem contrato local associado" : "Atualizar status para Assinado"}
+                    >
+                      {syncingToken === p.token ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4 mr-1" />
+                      )}
+                      Sincronizar
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <header className="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
@@ -243,14 +424,20 @@ export default function CrediarioContratosPage() {
           </h1>
           <p className="text-muted-foreground">Arquivo de contratos gerados, assinados e em andamento.</p>
         </div>
-        <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por nome ou CPF..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <Button variant="outline" onClick={handleBuscarPendentesZapsign} disabled={zapLoading} className="gap-2">
+            <CloudDownload className="h-4 w-4" />
+            Buscar assinados na ZapSign
+          </Button>
+          <div className="relative w-full sm:w-80">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por nome ou CPF..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
         </div>
       </header>
 
