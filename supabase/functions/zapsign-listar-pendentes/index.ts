@@ -136,8 +136,9 @@ Deno.serve(async (req) => {
           name: d.name,
           external_id: d.external_id,
           signed_at: d.last_update_date ?? d.created_at,
-          // Se o contrato existe localmente mas está em outro status (ex: "aguardando_assinatura")
-          contrato_id: local?.id ?? d.external_id ?? null,
+          // contrato_id só é preenchido quando existe um contrato local com esse token —
+          // NÃO usamos d.external_id como fallback pois pode ser ID do sistema antigo.
+          contrato_id: local?.id ?? null,
           status_local: local?.status ?? null,
           nome_local: local?.nome ?? null,
           cpf_local: local?.cpf ?? null,
