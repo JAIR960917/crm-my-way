@@ -71,13 +71,22 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "Contrato sem venda vinculada" }, 400);
     }
 
-    // Carrega empresa (credenciais Cora são resolvidas por company_id no banco)
-    const empresaSlug: string | null = null;
-    if (contrato.company_id) {
-      const { data: emp } = await admin
-        .from("companies").select("id").eq("id", contrato.company_id).maybeSingle();
-      if (!emp) return json({ ok: false, error: "Empresa não encontrada" }, 400);
+    // Resolve company_id: usa o do contrato; se nulo, cai para o da role do usuário logado
+    let resolvedCompanyId: string | null = contrato.company_id ?? null;
+    if (!resolvedCompanyId) {
+      const { data: roleRow } = await admin
+        .from("user_roles")
+        .select("company_id")
+        .eq("user_id", userId)
+        .not("company_id", "is", null)
+        .limit(1)
+        .maybeSingle();
+      resolvedCompanyId = roleRow?.company_id ?? null;
     }
+    if (!resolvedCompanyId) {
+      return json({ ok: false, error: "Usuário não está vinculado a nenhuma empresa" }, 400);
+    }
+    console.log(`[emit] company_id resolvido: ${resolvedCompanyId} (contrato.company_id=${contrato.company_id ?? "null"})`);
 
     // 2) Carrega venda
     const { data: venda, error: vendaErr } = await admin
@@ -115,7 +124,7 @@ Deno.serve(async (req) => {
           user_id: venda.user_id,
           venda_id: venda.id,
           contrato_id: contrato.id,
-          company_id: contrato.company_id,
+          company_id: resolvedCompanyId,
           numero_parcela: i,
           total_parcelas: venda.parcelas,
           valor: Number(venda.valor_parcela),
@@ -132,23 +141,19 @@ Deno.serve(async (req) => {
       parcelas = criadas ?? [];
     }
 
-    // 4) Setup mTLS Cora — tenta credenciais salvas no banco (por desenvolvedor),
-    //    senão usa secrets por slug, senão fallback global
-    let dbCreds: { cora_client_id: string | null; cora_certificate: string | null; cora_private_key: string | null } | null = null;
-    if (contrato.company_id) {
-      const { data } = await admin
-        .from("crediario_company_credentials")
-        .select("cora_client_id, cora_certificate, cora_private_key")
-        .eq("company_id", contrato.company_id)
-        .maybeSingle();
-      dbCreds = data ?? null;
-    }
-    const suffix = empresaSlug ? `_${empresaSlug}` : "";
-    const clientId = dbCreds?.cora_client_id || Deno.env.get(`CORA_CLIENT_ID${suffix}`) || Deno.env.get("CORA_CLIENT_ID");
-    const certPem  = dbCreds?.cora_certificate || Deno.env.get(`CORA_CERTIFICATE${suffix}`) || Deno.env.get("CORA_CERTIFICATE");
-    const keyPem   = dbCreds?.cora_private_key || Deno.env.get(`CORA_PRIVATE_KEY${suffix}`) || Deno.env.get("CORA_PRIVATE_KEY");
+    // 4) Setup mTLS Cora — credenciais por empresa no banco, senão env var global
+    const { data: dbCreds } = await admin
+      .from("crediario_company_credentials")
+      .select("cora_client_id, cora_certificate, cora_private_key")
+      .eq("company_id", resolvedCompanyId)
+      .maybeSingle();
+
+    const clientId = dbCreds?.cora_client_id || Deno.env.get("CORA_CLIENT_ID");
+    const certPem  = dbCreds?.cora_certificate || Deno.env.get("CORA_CERTIFICATE");
+    const keyPem   = dbCreds?.cora_private_key || Deno.env.get("CORA_PRIVATE_KEY");
+    console.log(`[emit] credenciais: ${dbCreds ? "banco" : "env"} | clientId=${clientId ? "ok" : "null"}`);
     if (!clientId || !certPem || !keyPem) {
-      return json({ ok: false, error: `Credenciais Cora ausentes${empresaSlug ? ` para empresa ${empresaSlug}` : ""}` }, 500);
+      return json({ ok: false, error: `Credenciais Cora não cadastradas para esta empresa. Acesse Crediário → Credenciais e cadastre o Client ID, Certificado e Private Key.` }, 500);
     }
 
     const httpClient = buildMtlsClient(certPem, keyPem);
