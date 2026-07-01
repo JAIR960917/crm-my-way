@@ -236,6 +236,8 @@ async function dumpTable(cfg, empresaMap, userMap, fallback, out) {
     settings: 'id',
     empresa_credenciais: 'id',
     codigos_autorizacao: 'id',
+    contract_template: 'updated_at',
+    contratos_assertiva: 'imported_at',
   };
   const orderCol = orderOverrides[src] || 'created_at';
 
