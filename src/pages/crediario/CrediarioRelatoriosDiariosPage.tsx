@@ -364,7 +364,7 @@ export default function CrediarioRelatoriosDiariosPage() {
 
               <DialogFooter>
                 {aberto.status !== "concluido" ? (
-                  <Button onClick={concluir} disabled={concluindo} className="bg-emerald-600 text-white hover:bg-emerald-700">
+                  <Button onClick={concluir} disabled={concluindo} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                     <CheckCircle2 className="mr-2 h-4 w-4" />
                     Marcar como concluído
                   </Button>
