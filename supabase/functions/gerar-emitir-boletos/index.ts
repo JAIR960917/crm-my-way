@@ -203,11 +203,21 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      const cpfDigits = (venda.cpf || contrato.cpf).replace(/\D/g, "");
+      if (!validarCpf(cpfDigits)) {
+        await admin.from("crediario_parcelas").update({
+          status: "erro",
+          erro_mensagem: `CPF inválido: ${venda.cpf || contrato.cpf}. Corrija o CPF do cliente.`,
+        }).eq("id", p.id);
+        results.push({ numero: p.numero_parcela, ok: false, error: `CPF inválido: ${cpfDigits}` });
+        continue;
+      }
+
       const payload: any = {
-        code: `V${venda.id.slice(0, 8)}-P${p.numero_parcela}`,
+        code: `P${p.id.replace(/-/g, "").slice(0, 20)}`,
         customer: {
           name: venda.nome || contrato.nome,
-          document: { identity: (venda.cpf || contrato.cpf).replace(/\D/g, ""), type: "CPF" },
+          document: { identity: cpfDigits, type: "CPF" },
         },
         services: [
           {
@@ -221,63 +231,55 @@ Deno.serve(async (req) => {
       };
 
       try {
-        // 1 retry automático para erro CIP async da Cora (idempotência pelo p.id)
-        let invResp: Response | null = null;
-        let invText = "";
+        const invResp = await fetch(CORA_INVOICES_URL, {
+          method: "POST",
+          // @ts-ignore
+          client: httpClient,
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            "Idempotency-Key": p.id,
+          },
+          body: JSON.stringify(payload),
+        });
+        const invText = await invResp.text();
         let invJson: any = null;
+        try { invJson = JSON.parse(invText); } catch {}
 
-        for (let attempt = 0; attempt < 2; attempt++) {
-          if (attempt > 0) await new Promise((r) => setTimeout(r, 4000));
-          invResp = await fetch(CORA_INVOICES_URL, {
-            method: "POST",
-            // @ts-ignore
-            client: httpClient,
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-              Accept: "application/json",
-              "Idempotency-Key": p.id,
-            },
-            body: JSON.stringify(payload),
-          });
-          invText = await invResp.text();
-          try { invJson = JSON.parse(invText); } catch { invJson = null; }
-          if (invResp.ok) break;
-          const errMsg = (invJson?.message || invJson?.errors?.[0]?.message || invText).toLowerCase();
-          if (!errMsg.includes("not registered in cip") && !errMsg.includes("cip")) break;
-          console.log(`parcela ${p.id} attempt ${attempt + 1} CIP error, retrying...`);
-        }
-
-        if (!invResp!.ok) {
-          const errMsg = invJson?.message || invJson?.errors?.[0]?.message || invText.slice(0, 300);
-          await admin.from("crediario_parcelas").update({ status: "erro", erro_mensagem: errMsg }).eq("id", p.id);
-          results.push({ numero: p.numero_parcela, ok: false, error: errMsg });
+        if (!invResp.ok) {
+          const errMsg = invJson?.message || invJson?.errors?.[0]?.message || invJson?.title || invText.slice(0, 200);
+          console.error(`cora error status=${invResp.status} parcela=${p.numero_parcela}`, invText.slice(0, 800));
+          await admin.from("crediario_parcelas").update({
+            status: "erro",
+            erro_mensagem: `[HTTP ${invResp.status}] ${errMsg}`,
+          }).eq("id", p.id);
+          results.push({ numero: p.numero_parcela, ok: false, error: errMsg, cora_status: invResp.status });
           continue;
         }
 
-        const bankSlipPost = invJson?.payment_options?.bank_slip ?? invJson?.bank_slip ?? {};
-        const pixPost = invJson?.payment_options?.pix ?? invJson?.pix ?? {};
-        const pixEmvPost = pixPost?.emv ?? pixPost?.copy_paste ?? null;
-        const pixQrPost  = pixPost?.qr_code ?? pixPost?.qrcode ?? pixPost?.image ?? null;
+        const bankSlip = invJson?.payment_options?.bank_slip ?? invJson?.bank_slip ?? {};
+        const pix = invJson?.payment_options?.pix ?? invJson?.pix ?? {};
+        const pdfUrl = (typeof bankSlip?.pdf === "string" ? bankSlip.pdf : bankSlip?.pdf?.url)
+          ?? bankSlip?.url ?? invJson?.pdf ?? invJson?.links?.invoice ?? null;
+        const pixEmv = pix?.emv ?? pix?.emv_code ?? pix?.payload ?? null;
+        const pixQr  = pix?.qr_code ?? pix?.qrcode ?? null;
 
-        // Log diagnóstico — visível no Supabase Edge Logs
-        console.log(`[POST] parcela ${p.numero_parcela} payment_options keys: ${Object.keys(invJson?.payment_options ?? {}).join(", ")}`);
-        console.log(`[POST] pix keys: ${Object.keys(pixPost).join(", ")} | emv=${pixEmvPost ? "ok" : "null"}`);
+        console.log(`[OK] parcela ${p.numero_parcela} | pix keys: ${Object.keys(pix).join(",")} | emv=${pixEmv ? "ok" : "null"}`);
 
         await admin.from("crediario_parcelas").update({
           cora_invoice_id: invJson?.id ?? null,
-          linha_digitavel: bankSlipPost?.digitable ?? bankSlipPost?.digitable_line ?? bankSlipPost?.typed_bar_code ?? null,
-          codigo_barras: bankSlipPost?.barcode ?? bankSlipPost?.bar_code ?? null,
-          pdf_url: bankSlipPost?.url ?? bankSlipPost?.pdf_url ?? invJson?.pdf ?? null,
-          pix_emv: pixEmvPost,
-          pix_qrcode: pixQrPost,
+          linha_digitavel: bankSlip?.digitable ?? bankSlip?.digitable_line ?? null,
+          codigo_barras: bankSlip?.barcode ?? null,
+          pdf_url: pdfUrl,
+          pix_emv: pixEmv,
+          pix_qrcode: pixQr,
           status: "emitido",
           emitido_em: new Date().toISOString(),
           erro_mensagem: null,
         }).eq("id", p.id);
 
-        // Só precisa do GET se o POST não trouxe Pix
-        if (!pixEmvPost) created.push({ parcela: p, invJson });
+        if (!pixEmv) created.push({ parcela: p, invJson });
         results.push({ numero: p.numero_parcela, ok: true, invoice_id: invJson?.id });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -360,22 +362,28 @@ function json(data: unknown, status = 200) {
   });
 }
 
-/** Formato payment_terms da API Cora v2 (/v2/invoices). Multa deve ser enviada explicitamente. */
 function buildCoraPaymentTerms(
   dueDate: string,
   multaPercent: number,
   jurosMensal: number,
   descontoPercent: number,
 ) {
-  const payment_terms: Record<string, unknown> = {
-    due_date: dueDate,
-    fine: { rate: multaPercent },
-  };
+  const payment_terms: Record<string, unknown> = { due_date: dueDate };
+  if (multaPercent > 0) payment_terms.fine = { rate: multaPercent };
   if (jurosMensal > 0) payment_terms.interest = { rate: jurosMensal };
-  if (descontoPercent > 0) {
-    payment_terms.discount = { type: "PERCENT", value: descontoPercent };
-  }
+  if (descontoPercent > 0) payment_terms.discount = { type: "PERCENT", value: descontoPercent };
   return payment_terms;
+}
+
+function validarCpf(digits: string): boolean {
+  if (digits.length !== 11 || /^(\d)\1{10}$/.test(digits)) return false;
+  const calc = (n: number) => {
+    let s = 0;
+    for (let i = 0; i < n; i++) s += Number(digits[i]) * (n + 1 - i);
+    const r = (s * 10) % 11;
+    return r >= 10 ? 0 : r;
+  };
+  return calc(9) === Number(digits[9]) && calc(10) === Number(digits[10]);
 }
 
 function buildMtlsClient(certPem: string, keyPem: string): Deno.HttpClient | null {
