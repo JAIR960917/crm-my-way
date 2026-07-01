@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
     // Carrega parcelas com cora_invoice_id
     let q = admin
       .from("crediario_parcelas")
-      .select("id, numero_parcela, status, cora_invoice_id, user_id")
+      .select("id, numero_parcela, status, cora_invoice_id, user_id, company_id, pdf_url, pix_emv, pix_qrcode")
       .not("cora_invoice_id", "is", null);
     if (body.contrato_id) q = q.eq("contrato_id", body.contrato_id);
     else if (body.venda_id) q = q.eq("venda_id", body.venda_id);
@@ -62,11 +62,22 @@ Deno.serve(async (req) => {
       if (!roleRow) return json({ ok: false, error: "Sem permissão" }, 403);
     }
 
-    // Setup mTLS Cora
-    const clientId = Deno.env.get("CORA_CLIENT_ID");
-    const certPem = Deno.env.get("CORA_CERTIFICATE");
-    const keyPem = Deno.env.get("CORA_PRIVATE_KEY");
-    if (!clientId || !certPem || !keyPem) return json({ ok: false, error: "Secrets Cora ausentes" }, 500);
+    // Carrega credenciais Cora — usa crediario_company_credentials se disponível, senão env global
+    const companyId = parcelas.find((p) => p.company_id)?.company_id ?? null;
+    let dbCreds: { cora_client_id?: string | null; cora_certificate?: string | null; cora_private_key?: string | null } | null = null;
+    if (companyId) {
+      const { data } = await admin
+        .from("crediario_company_credentials")
+        .select("cora_client_id, cora_certificate, cora_private_key")
+        .eq("company_id", companyId)
+        .maybeSingle();
+      dbCreds = data ?? null;
+    }
+
+    const clientId = dbCreds?.cora_client_id || Deno.env.get("CORA_CLIENT_ID");
+    const certPem = dbCreds?.cora_certificate || Deno.env.get("CORA_CERTIFICATE");
+    const keyPem = dbCreds?.cora_private_key || Deno.env.get("CORA_PRIVATE_KEY");
+    if (!clientId || !certPem || !keyPem) return json({ ok: false, error: "Credenciais Cora ausentes para esta empresa" }, 500);
 
     const certCandidates = buildPemCandidates(certPem, "cert");
     const keyCandidates = buildPemCandidates(keyPem, "key");
@@ -132,6 +143,13 @@ Deno.serve(async (req) => {
           /PAID|RECEIVED/i.test(String(inv?.payment?.status ?? ""));
         const isCanceled = /CANCEL|EXPIR|VOID/i.test(remoteStatus);
 
+        const bankSlip = inv?.payment_options?.bank_slip ?? inv?.bank_slip ?? {};
+        const pix = inv?.payment_options?.pix ?? inv?.pix ?? {};
+        const pdfUrl = (typeof bankSlip?.pdf === "string" ? bankSlip.pdf : bankSlip?.pdf?.url)
+          ?? bankSlip?.url ?? inv?.pdf ?? inv?.links?.invoice ?? null;
+        const pixEmv = pix?.emv ?? pix?.emv_code ?? pix?.payload ?? null;
+        const pixQrcode = pix?.qr_code ?? pix?.qrcode ?? null;
+
         let newStatus = p.status;
         const update: Record<string, unknown> = {};
 
@@ -145,6 +163,11 @@ Deno.serve(async (req) => {
           newStatus = "cancelado";
           update.status = "cancelado";
         }
+
+        // Preenche campos ausentes no banco a partir da resposta GET
+        if (!p.pdf_url && pdfUrl) update.pdf_url = pdfUrl;
+        if (!p.pix_emv && pixEmv) update.pix_emv = pixEmv;
+        if (!p.pix_qrcode && pixQrcode) update.pix_qrcode = pixQrcode;
 
         if (Object.keys(update).length > 0) {
           await admin.from("crediario_parcelas").update(update).eq("id", p.id);

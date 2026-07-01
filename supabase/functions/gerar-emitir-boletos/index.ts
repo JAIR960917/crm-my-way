@@ -71,17 +71,15 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "Contrato sem venda vinculada" }, 400);
     }
 
-    // Resolve company_id: usa o do contrato; se nulo, cai para o da role do usuário logado
+    // Resolve company_id: usa o do contrato; se nulo, cai para o do profile do usuário logado
     let resolvedCompanyId: string | null = contrato.company_id ?? null;
     if (!resolvedCompanyId) {
-      const { data: roleRow } = await admin
-        .from("user_roles")
+      const { data: profileRow } = await admin
+        .from("profiles")
         .select("company_id")
         .eq("user_id", userId)
-        .not("company_id", "is", null)
-        .limit(1)
         .maybeSingle();
-      resolvedCompanyId = roleRow?.company_id ?? null;
+      resolvedCompanyId = profileRow?.company_id ?? null;
     }
     if (!resolvedCompanyId) {
       return json({ ok: false, error: "Usuário não está vinculado a nenhuma empresa" }, 400);
