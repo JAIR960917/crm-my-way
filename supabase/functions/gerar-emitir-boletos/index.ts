@@ -255,19 +255,39 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Log da resposta completa para diagnóstico de campos Pix
-        console.log(`cora invoice response keys: ${Object.keys(invJson ?? {}).join(", ")}`);
-        if (invJson?.payment_options) {
-          console.log(`payment_options keys: ${Object.keys(invJson.payment_options).join(", ")}`);
-          if (invJson.payment_options.pix) {
-            console.log(`pix keys: ${Object.keys(invJson.payment_options.pix).join(", ")}`);
+        // O Pix é gerado de forma assíncrona pela Cora — o POST retorna o bank slip
+        // imediatamente, mas o Pix pode não estar disponível até alguns segundos depois.
+        // Fazemos um GET /v2/invoices/{id} após breve espera para obter os dados completos.
+        let fullJson = invJson;
+        if (invJson?.id) {
+          await new Promise((r) => setTimeout(r, 2500));
+          try {
+            const getResp = await fetch(`${CORA_INVOICES_URL}/${invJson.id}`, {
+              method: "GET",
+              // @ts-ignore
+              client: httpClient,
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                Accept: "application/json",
+              },
+            });
+            if (getResp.ok) {
+              const getJson = await getResp.json();
+              fullJson = getJson;
+            }
+          } catch (_e) {
+            // Se o GET falhar, usa a resposta do POST mesmo
           }
         }
 
-        const bankSlip = invJson?.payment_options?.bank_slip ?? invJson?.bank_slip ?? {};
-        const pix = invJson?.payment_options?.pix
-          ?? invJson?.pix
-          ?? invJson?.payment_forms?.pix
+        // Log para diagnóstico
+        const pixObj = fullJson?.payment_options?.pix ?? fullJson?.pix ?? {};
+        console.log(`cora GET payment_options keys: ${Object.keys(fullJson?.payment_options ?? {}).join(", ")}`);
+        console.log(`cora pix keys: ${Object.keys(pixObj).join(", ")}`);
+
+        const bankSlip = fullJson?.payment_options?.bank_slip ?? fullJson?.bank_slip ?? {};
+        const pix = fullJson?.payment_options?.pix
+          ?? fullJson?.pix
           ?? {};
 
         await admin.from("crediario_parcelas").update({
