@@ -176,8 +176,12 @@ Deno.serve(async (req) => {
     const multaPercent = Number(settingsRow?.cora_fine_percent ?? 0);
     const descontoPercent = Number(settingsRow?.cora_discount_percent ?? 0);
 
-    // 5) Emite cada parcela pendente (sem cora_invoice_id)
+    // 5) Emite cada parcela pendente (fase 1: só POSTs, sem espera entre eles)
     const results: any[] = [];
+    // Parcelas que foram criadas com sucesso na Cora — aguardam GET para Pix
+    type Created = { parcela: (typeof parcelas)[0]; invJson: any };
+    const created: Created[] = [];
+
     for (const p of parcelas) {
       if (p.cora_invoice_id) {
         results.push({ numero: p.numero_parcela, ok: true, skipped: true, invoice_id: p.cora_invoice_id });
@@ -212,15 +216,13 @@ Deno.serve(async (req) => {
       };
 
       try {
-        // Tenta emitir com 1 retry automático para o erro de CIP async da Cora.
-        // "Bank slip not registered in CIP" = boleto criado mas registro CIP ainda pendente.
-        // A Cora garante idempotência pelo p.id, então retentar retorna o mesmo boleto já registrado.
+        // 1 retry automático para erro CIP async da Cora (idempotência pelo p.id)
         let invResp: Response | null = null;
         let invText = "";
         let invJson: any = null;
 
         for (let attempt = 0; attempt < 2; attempt++) {
-          if (attempt > 0) await new Promise((r) => setTimeout(r, 4000)); // aguarda CIP registrar
+          if (attempt > 0) await new Promise((r) => setTimeout(r, 4000));
           invResp = await fetch(CORA_INVOICES_URL, {
             method: "POST",
             // @ts-ignore
@@ -235,80 +237,71 @@ Deno.serve(async (req) => {
           });
           invText = await invResp.text();
           try { invJson = JSON.parse(invText); } catch { invJson = null; }
-
           if (invResp.ok) break;
-
-          // Só retenta para erro de registro CIP — outros erros são definitivos
           const errMsg = (invJson?.message || invJson?.errors?.[0]?.message || invText).toLowerCase();
-          const isCipError = errMsg.includes("not registered in cip") || errMsg.includes("cip");
-          if (!isCipError) break;
+          if (!errMsg.includes("not registered in cip") && !errMsg.includes("cip")) break;
           console.log(`parcela ${p.id} attempt ${attempt + 1} CIP error, retrying...`);
         }
 
         if (!invResp!.ok) {
           const errMsg = invJson?.message || invJson?.errors?.[0]?.message || invText.slice(0, 300);
-          await admin.from("crediario_parcelas").update({
-            status: "erro",
-            erro_mensagem: errMsg,
-          }).eq("id", p.id);
+          await admin.from("crediario_parcelas").update({ status: "erro", erro_mensagem: errMsg }).eq("id", p.id);
           results.push({ numero: p.numero_parcela, ok: false, error: errMsg });
           continue;
         }
 
-        // O Pix é gerado de forma assíncrona pela Cora — o POST retorna o bank slip
-        // imediatamente, mas o Pix pode não estar disponível até alguns segundos depois.
-        // Fazemos um GET /v2/invoices/{id} após breve espera para obter os dados completos.
-        let fullJson = invJson;
-        if (invJson?.id) {
-          await new Promise((r) => setTimeout(r, 2500));
-          try {
-            const getResp = await fetch(`${CORA_INVOICES_URL}/${invJson.id}`, {
-              method: "GET",
-              // @ts-ignore
-              client: httpClient,
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                Accept: "application/json",
-              },
-            });
-            if (getResp.ok) {
-              const getJson = await getResp.json();
-              fullJson = getJson;
-            }
-          } catch (_e) {
-            // Se o GET falhar, usa a resposta do POST mesmo
-          }
-        }
-
-        // Log para diagnóstico
-        const pixObj = fullJson?.payment_options?.pix ?? fullJson?.pix ?? {};
-        console.log(`cora GET payment_options keys: ${Object.keys(fullJson?.payment_options ?? {}).join(", ")}`);
-        console.log(`cora pix keys: ${Object.keys(pixObj).join(", ")}`);
-
-        const bankSlip = fullJson?.payment_options?.bank_slip ?? fullJson?.bank_slip ?? {};
-        const pix = fullJson?.payment_options?.pix
-          ?? fullJson?.pix
-          ?? {};
-
+        // Salva bank slip já disponível no POST; Pix será buscado no GET abaixo
+        const bankSlipPost = invJson?.payment_options?.bank_slip ?? invJson?.bank_slip ?? {};
         await admin.from("crediario_parcelas").update({
           cora_invoice_id: invJson?.id ?? null,
-          linha_digitavel: bankSlip?.digitable ?? bankSlip?.digitable_line ?? bankSlip?.typed_bar_code ?? null,
-          codigo_barras: bankSlip?.barcode ?? bankSlip?.bar_code ?? null,
-          pdf_url: bankSlip?.url ?? bankSlip?.pdf_url ?? invJson?.pdf ?? null,
-          // Cora pode retornar o EMV Pix em vários campos dependendo da versão da API
-          pix_emv: pix?.emv ?? pix?.copy_paste ?? pix?.emv_code ?? pix?.payload ?? pix?.key ?? null,
-          pix_qrcode: pix?.qr_code ?? pix?.qr_code_url ?? pix?.qrcode ?? pix?.image ?? pix?.image_url ?? null,
+          linha_digitavel: bankSlipPost?.digitable ?? bankSlipPost?.digitable_line ?? bankSlipPost?.typed_bar_code ?? null,
+          codigo_barras: bankSlipPost?.barcode ?? bankSlipPost?.bar_code ?? null,
+          pdf_url: bankSlipPost?.url ?? bankSlipPost?.pdf_url ?? invJson?.pdf ?? null,
           status: "emitido",
           emitido_em: new Date().toISOString(),
           erro_mensagem: null,
         }).eq("id", p.id);
 
+        created.push({ parcela: p, invJson });
         results.push({ numero: p.numero_parcela, ok: true, invoice_id: invJson?.id });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         await admin.from("crediario_parcelas").update({ status: "erro", erro_mensagem: msg }).eq("id", p.id);
         results.push({ numero: p.numero_parcela, ok: false, error: msg });
       }
+    }
+
+    // Fase 2: aguarda UMA vez e faz GET de todas as faturas em paralelo para buscar Pix
+    if (created.length > 0) {
+      await new Promise((r) => setTimeout(r, 2500));
+      await Promise.allSettled(
+        created.map(async ({ parcela: p, invJson }) => {
+          try {
+            const getResp = await fetch(`${CORA_INVOICES_URL}/${invJson.id}`, {
+              method: "GET",
+              // @ts-ignore
+              client: httpClient,
+              headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+            });
+            if (!getResp.ok) return;
+            const full = await getResp.json();
+            const pix = full?.payment_options?.pix ?? full?.pix ?? {};
+            const bankSlip = full?.payment_options?.bank_slip ?? full?.bank_slip ?? {};
+            console.log(`pix keys [${p.numero_parcela}]: ${Object.keys(pix).join(", ")}`);
+            const pixEmv = pix?.emv ?? pix?.copy_paste ?? pix?.emv_code ?? pix?.payload ?? pix?.key ?? null;
+            const pixQr  = pix?.qr_code ?? pix?.qr_code_url ?? pix?.qrcode ?? pix?.image ?? pix?.image_url ?? null;
+            if (!pixEmv && !pixQr) return; // sem dados de Pix no GET, não sobrescreve
+            await admin.from("crediario_parcelas").update({
+              pix_emv: pixEmv,
+              pix_qrcode: pixQr,
+              // atualiza também pdf/linha caso o POST não tivesse retornado
+              linha_digitavel: bankSlip?.digitable ?? bankSlip?.digitable_line ?? bankSlip?.typed_bar_code ?? null,
+              codigo_barras: bankSlip?.barcode ?? bankSlip?.bar_code ?? null,
+              pdf_url: bankSlip?.url ?? bankSlip?.pdf_url ?? full?.pdf ?? null,
+            }).eq("id", p.id);
+          } catch (_e) { /* falha no GET não bloqueia o resultado */ }
+        })
+      );
     }
 
     const sucessos = results.filter((r) => r.ok && !r.skipped).length;
