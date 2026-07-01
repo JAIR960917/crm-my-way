@@ -66,11 +66,11 @@ export function ParcelasContrato({ contratoId, contratoAssinado, vendaAutorizada
         body: { contrato_id: contratoId, intervalo_dias: Number(intervalo) },
       });
       if (error) {
-        toast.error("Falha", { description: error.message });
-      } else if (!data?.ok && data?.error) {
-        toast.error("Erro", { description: data.error });
+        toast.error("Falha ao emitir", { description: error.message });
+      } else if (!data?.ok) {
+        toast.error("Erro ao emitir boletos", { description: data?.error || data?.message });
       } else {
-        toast.success(data?.message || "Boletos processados");
+        toast.success(data?.message || "Boletos emitidos");
       }
       await carregar();
     } finally {
