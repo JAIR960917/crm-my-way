@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import { toast } from "sonner";
-import { Plus, Trash2, GripVertical, ExternalLink, Heading, ImagePlus, Type, AlignLeft, Upload, Bold } from "lucide-react";
+import { Plus, Trash2, GripVertical, ExternalLink, Heading, ImagePlus, Type, AlignLeft, Upload, Bold, Flame } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveStoragePublicUrl } from "@/lib/storage-url";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -20,10 +20,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 type LinkType = "link" | "header" | "banner" | "title" | "paragraph";
 
+const HIGHLIGHT_COLOR = "#c0392b";
+
 type CompanyLink = {
   id: string;
   label: string;
   url: string;
+  color: string;
   link_type: LinkType;
   position: number;
   active: boolean;
@@ -52,7 +55,7 @@ export default function CompanyLinksManager() {
   const fetchLinks = useCallback(async () => {
     const { data, error } = await supabase
       .from("company_links")
-      .select("id, label, url, link_type, position, active, bold")
+      .select("id, label, url, color, link_type, position, active, bold")
       .order("position", { ascending: true });
     if (error) {
       toast.error("Erro ao carregar links");
@@ -88,8 +91,8 @@ export default function CompanyLinksManager() {
     };
     const { data, error } = await supabase
       .from("company_links")
-      .insert({ ...defaults[type], link_type: type, position: nextPosition, active: true, bold: false })
-      .select("id, label, url, link_type, position, active, bold")
+      .insert({ ...defaults[type], link_type: type, position: nextPosition, active: true, bold: false, color: "" })
+      .select("id, label, url, color, link_type, position, active, bold")
       .single();
     if (error || !data) {
       toast.error("Erro ao criar item");
@@ -254,16 +257,30 @@ export default function CompanyLinksManager() {
                                   onChange={(e) => patchLocal(link.id, { label: e.target.value })}
                                   onBlur={(e) => void persist(link.id, { label: e.target.value })}
                                 />
-                                <div className="flex items-center gap-2">
-                                  <Bold className="h-3.5 w-3.5 text-muted-foreground" />
-                                  <Label className="text-xs text-muted-foreground">Negrito</Label>
-                                  <Switch
-                                    checked={link.bold}
-                                    onCheckedChange={(checked) => {
-                                      patchLocal(link.id, { bold: checked });
-                                      void persist(link.id, { bold: checked });
-                                    }}
-                                  />
+                                <div className="flex items-center gap-4">
+                                  <div className="flex items-center gap-2">
+                                    <Bold className="h-3.5 w-3.5 text-muted-foreground" />
+                                    <Label className="text-xs text-muted-foreground">Negrito</Label>
+                                    <Switch
+                                      checked={link.bold}
+                                      onCheckedChange={(checked) => {
+                                        patchLocal(link.id, { bold: checked });
+                                        void persist(link.id, { bold: checked });
+                                      }}
+                                    />
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Flame className="h-3.5 w-3.5 text-muted-foreground" />
+                                    <Label className="text-xs text-muted-foreground">Destaque vermelho</Label>
+                                    <Switch
+                                      checked={link.color === HIGHLIGHT_COLOR}
+                                      onCheckedChange={(checked) => {
+                                        const c = checked ? HIGHLIGHT_COLOR : "";
+                                        patchLocal(link.id, { color: c });
+                                        void persist(link.id, { color: c });
+                                      }}
+                                    />
+                                  </div>
                                 </div>
                               </div>
                             )}
@@ -278,16 +295,30 @@ export default function CompanyLinksManager() {
                                   onChange={(e) => patchLocal(link.id, { label: e.target.value })}
                                   onBlur={(e) => void persist(link.id, { label: e.target.value })}
                                 />
-                                <div className="flex items-center gap-2">
-                                  <Bold className="h-3.5 w-3.5 text-muted-foreground" />
-                                  <Label className="text-xs text-muted-foreground">Negrito</Label>
-                                  <Switch
-                                    checked={link.bold}
-                                    onCheckedChange={(checked) => {
-                                      patchLocal(link.id, { bold: checked });
-                                      void persist(link.id, { bold: checked });
-                                    }}
-                                  />
+                                <div className="flex items-center gap-4">
+                                  <div className="flex items-center gap-2">
+                                    <Bold className="h-3.5 w-3.5 text-muted-foreground" />
+                                    <Label className="text-xs text-muted-foreground">Negrito</Label>
+                                    <Switch
+                                      checked={link.bold}
+                                      onCheckedChange={(checked) => {
+                                        patchLocal(link.id, { bold: checked });
+                                        void persist(link.id, { bold: checked });
+                                      }}
+                                    />
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Flame className="h-3.5 w-3.5 text-muted-foreground" />
+                                    <Label className="text-xs text-muted-foreground">Destaque vermelho</Label>
+                                    <Switch
+                                      checked={link.color === HIGHLIGHT_COLOR}
+                                      onCheckedChange={(checked) => {
+                                        const c = checked ? HIGHLIGHT_COLOR : "";
+                                        patchLocal(link.id, { color: c });
+                                        void persist(link.id, { color: c });
+                                      }}
+                                    />
+                                  </div>
                                 </div>
                               </div>
                             )}
