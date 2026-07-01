@@ -121,19 +121,20 @@ h1 {
   color: #fff;
 }
 
-/* ── Banner (full-bleed image) ── */
+/* ── Banner (imagem contida, com bordas arredondadas) ── */
 .link-banner {
-  width: calc(100% + 48px);
-  margin: 0 -24px;
+  width: 100%;
   display: block;
   overflow: hidden;
   line-height: 0;
+  border-radius: 14px;
 }
 
 .link-banner img {
   width: 100%;
   height: auto;
   display: block;
+  border-radius: 14px;
 }
 
 /* ── Title ── */
