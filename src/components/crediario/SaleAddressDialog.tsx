@@ -239,7 +239,7 @@ export function SaleAddressDialog({
             <DialogFooter className="shrink-0 border-t bg-background px-6 py-4">
               <Button variant="outline" onClick={() => setStep("form")}>Voltar e editar</Button>
               <Button
-                className="bg-success hover:bg-success/90 text-success-foreground"
+                className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
                 onClick={() => {
                   onConfirm({
                     endereco: enderecoCompleto,
