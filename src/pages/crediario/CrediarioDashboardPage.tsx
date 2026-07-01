@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Search, History, TrendingUp, CheckCircle2, XCircle } from "lucide-react";
 import { brl } from "@/lib/crediarioFinance";
 import { useAuth } from "@/contexts/AuthContext";
+import { CrediarioRelatoriosDiariosCard } from "@/components/crediario/CrediarioRelatoriosDiariosCard";
 
 export default function CrediarioDashboardPage() {
   const { user, isGerente } = useAuth();
@@ -98,6 +99,10 @@ export default function CrediarioDashboardPage() {
             </Button>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="mt-8">
+        <CrediarioRelatoriosDiariosCard />
       </div>
     </AppLayout>
   );
