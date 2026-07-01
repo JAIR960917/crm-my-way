@@ -46,17 +46,18 @@ const TABLE_MAP = [
   { src: 'empresa_credenciais',      dst: 'crediario_company_credentials',     renameCol: { empresa_id: 'company_id' }, userCols: [] },
   { src: 'relatorios_diarios',       dst: 'crediario_relatorios_diarios',      renameCol: { empresa_id: 'company_id' }, userCols: ['concluido_por'] },
   // Com FK de empresa + user
-  { src: 'consultas',                dst: 'crediario_consultas',               renameCol: { empresa_id: 'company_id' }, userCols: ['user_id'] },
-  { src: 'consultas_pg_entrega',     dst: 'crediario_consultas_pg_entrega',    renameCol: { empresa_id: 'company_id' }, userCols: ['user_id'] },
-  { src: 'consultas_renegociacao',   dst: 'crediario_consultas_renegociacao',  renameCol: { empresa_id: 'company_id' }, userCols: ['user_id'] },
+  // coerceText: colunas NOT NULL text na target que podem chegar NULL da source
+  { src: 'consultas',                dst: 'crediario_consultas',               renameCol: { empresa_id: 'company_id' }, userCols: ['user_id'],                  coerceText: ['cpf', 'status', 'cidade'] },
+  { src: 'consultas_pg_entrega',     dst: 'crediario_consultas_pg_entrega',    renameCol: { empresa_id: 'company_id' }, userCols: ['user_id'],                  coerceText: ['cpf', 'cidade'] },
+  { src: 'consultas_renegociacao',   dst: 'crediario_consultas_renegociacao',  renameCol: { empresa_id: 'company_id' }, userCols: ['user_id'],                  coerceText: ['cpf', 'cidade'] },
   // vendas depende de consultas
-  { src: 'vendas',                   dst: 'crediario_vendas',                  renameCol: { empresa_id: 'company_id' }, userCols: ['user_id', 'aprovacao_por'] },
+  { src: 'vendas',                   dst: 'crediario_vendas',                  renameCol: { empresa_id: 'company_id' }, userCols: ['user_id', 'aprovacao_por'], coerceText: ['cpf', 'nome', 'cidade', 'tipo', 'status'] },
   // contracts depende de consultas + vendas
-  { src: 'contracts',                dst: 'crediario_contracts',               renameCol: { empresa_id: 'company_id' }, userCols: ['user_id'] },
+  { src: 'contracts',                dst: 'crediario_contracts',               renameCol: { empresa_id: 'company_id' }, userCols: ['user_id'],                  coerceText: ['cpf', 'nome', 'endereco', 'telefone', 'content', 'cidade', 'status'] },
   // parcelas depende de vendas + contracts
-  { src: 'parcelas',                 dst: 'crediario_parcelas',                renameCol: { empresa_id: 'company_id' }, userCols: ['user_id'] },
+  { src: 'parcelas',                 dst: 'crediario_parcelas',                renameCol: { empresa_id: 'company_id' }, userCols: ['user_id'],                  coerceText: ['status'] },
   // codigos_autorizacao depende de vendas
-  { src: 'codigos_autorizacao',      dst: 'crediario_codigos_autorizacao',     renameCol: {}, userCols: ['criado_por', 'usado_por'] },
+  { src: 'codigos_autorizacao',      dst: 'crediario_codigos_autorizacao',     renameCol: {}, userCols: ['criado_por', 'usado_por'],                           coerceText: ['codigo'] },
 ];
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -200,7 +201,7 @@ async function buildUserMap() {
 
 // ─── Etapa 3: exportar tabela ────────────────────────────────────────────────
 
-function remapRow(row, renameCol, userCols, empresaMap, userMap, fallback) {
+function remapRow(row, renameCol, userCols, coerceText, empresaMap, userMap, fallback) {
   const out = {};
   for (const [k, v] of Object.entries(row)) {
     // Renomeia coluna (ex.: empresa_id → company_id) e remapeia UUID
@@ -210,9 +211,6 @@ function remapRow(row, renameCol, userCols, empresaMap, userMap, fallback) {
       // É uma coluna de empresa: remapeia UUID
       const mapped = empresaMap.get(v);
       out[newKey] = mapped !== undefined ? mapped : null;
-      if (mapped === undefined && v !== null) {
-        // sem match, deixa NULL (não quebra FK)
-      }
     } else if (userCols.includes(k) && v !== null) {
       // É coluna de user: remapeia ou usa fallback
       const mapped = userMap.get(v);
@@ -220,12 +218,17 @@ function remapRow(row, renameCol, userCols, empresaMap, userMap, fallback) {
     } else {
       out[newKey] = v;
     }
+
+    // coerceText: colunas NOT NULL text na target que chegam NULL da source → ''
+    if (coerceText.includes(newKey) && out[newKey] === null) {
+      out[newKey] = '';
+    }
   }
   return out;
 }
 
 async function dumpTable(cfg, empresaMap, userMap, fallback, out) {
-  const { src, dst, renameCol, userCols } = cfg;
+  const { src, dst, renameCol, userCols, coerceText = [] } = cfg;
   process.stdout.write(`  → ${src.padEnd(30)} → ${dst.padEnd(40)}`);
 
   // Determina coluna de ordenação (sem created_at em algumas tabelas)
@@ -247,7 +250,7 @@ async function dumpTable(cfg, empresaMap, userMap, fallback, out) {
 
   let written = 0;
   for (const row of rows) {
-    const mapped = remapRow(row, renameCol, userCols, empresaMap, userMap, fallback);
+    const mapped = remapRow(row, renameCol, userCols, coerceText, empresaMap, userMap, fallback);
     const cols = Object.keys(mapped);
     if (cols.length === 0) continue;
     const vals = cols.map((c) => sqlEscape(mapped[c]));
