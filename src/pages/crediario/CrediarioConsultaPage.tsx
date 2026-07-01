@@ -123,31 +123,39 @@ export default function CrediarioConsultaPage() {
     });
   }, []);
 
-  // Empresa/cidade do usuário logado
+  // Empresa/cidade do usuário logado — cidade vem de companies.city
   useEffect(() => {
     if (!user) return;
     supabase
       .from("profiles")
-      .select("company_id, cidade")
+      .select("company_id")
       .eq("user_id", user.id)
       .maybeSingle()
-      .then(({ data }) => {
-        setEmpresaId(data?.company_id ?? null);
-        setCidadeUsuario(data?.cidade ?? "");
+      .then(async ({ data }) => {
+        const companyId = data?.company_id ?? null;
+        setEmpresaId(companyId);
+        if (companyId) {
+          const { data: comp } = await supabase
+            .from("companies")
+            .select("city")
+            .eq("id", companyId)
+            .maybeSingle();
+          setCidadeUsuario(comp?.city ?? "");
+        }
       });
   }, [user]);
 
-  // Admin: carrega lista de empresas ativas para seleção na venda
+  // Admin: carrega lista de empresas para seleção na venda (inclui city)
   useEffect(() => {
     if (!isAdmin) return;
     supabase
       .from("companies")
-      .select("id, name")
+      .select("id, name, city")
       .order("name", { ascending: true })
       .then(({ data }) => {
         if (!data) return;
         setEmpresasDisponiveis(
-          data.map((e) => ({ id: e.id, nome: e.name, cidade: "" })),
+          data.map((e) => ({ id: e.id, nome: e.name, cidade: e.city ?? "" })),
         );
       });
   }, [isAdmin]);

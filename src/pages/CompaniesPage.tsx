@@ -16,6 +16,7 @@ type Company = {
   cnpj: string | null;
   phone: string | null;
   address: string | null;
+  city: string | null;
 };
 
 export default function CompaniesPage() {
@@ -27,6 +28,7 @@ export default function CompaniesPage() {
   const [cnpj, setCnpj] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
   const [hoursCompany, setHoursCompany] = useState<Company | null>(null);
 
   const fetchCompanies = async () => {
@@ -37,7 +39,7 @@ export default function CompaniesPage() {
   useEffect(() => { fetchCompanies(); }, []);
 
   const resetForm = () => {
-    setName(""); setCnpj(""); setPhone(""); setAddress("");
+    setName(""); setCnpj(""); setPhone(""); setAddress(""); setCity("");
     setEditingId(null);
   };
 
@@ -47,12 +49,13 @@ export default function CompaniesPage() {
     setCnpj(c.cnpj || "");
     setPhone(c.phone || "");
     setAddress(c.address || "");
+    setCity(c.city || "");
     setOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payload = { name, cnpj: cnpj || null, phone: phone || null, address: address || null };
+    const payload = { name, cnpj: cnpj || null, phone: phone || null, address: address || null, city: city || null };
 
     if (editingId) {
       const { error } = await supabase.from("companies").update(payload).eq("id", editingId);
@@ -107,6 +110,10 @@ export default function CompaniesPage() {
                 <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(00) 00000-0000" />
               </div>
               <div className="space-y-2">
+                <Label>Cidade</Label>
+                <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Ex: Fortaleza" />
+              </div>
+              <div className="space-y-2">
                 <Label>Endereço</Label>
                 <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Endereço completo" />
               </div>
@@ -125,6 +132,7 @@ export default function CompaniesPage() {
             <tr className="border-b">
               <th className="text-left p-3 text-sm font-medium text-muted-foreground">Nome</th>
               <th className="text-left p-3 text-sm font-medium text-muted-foreground">CNPJ</th>
+              <th className="text-left p-3 text-sm font-medium text-muted-foreground">Cidade</th>
               <th className="text-left p-3 text-sm font-medium text-muted-foreground">Telefone</th>
               <th className="text-left p-3 text-sm font-medium text-muted-foreground">Endereço</th>
               <th className="p-3 w-24"></th>
@@ -138,6 +146,7 @@ export default function CompaniesPage() {
               <tr key={c.id} className="border-b last:border-0">
                 <td className="p-3 font-medium">{c.name}</td>
                 <td className="p-3 text-muted-foreground text-sm">{c.cnpj || "—"}</td>
+                <td className="p-3 text-muted-foreground text-sm">{c.city || "—"}</td>
                 <td className="p-3 text-muted-foreground text-sm">{c.phone || "—"}</td>
                 <td className="p-3 text-muted-foreground text-sm">{c.address || "—"}</td>
                 <td className="p-3">
@@ -185,6 +194,7 @@ export default function CompaniesPage() {
             </div>
             <div className="space-y-1 text-xs text-muted-foreground">
               {c.cnpj && <p><span className="font-medium">CNPJ:</span> {c.cnpj}</p>}
+              {c.city && <p><span className="font-medium">Cidade:</span> {c.city}</p>}
               {c.phone && <p><span className="font-medium">Tel:</span> {c.phone}</p>}
               {c.address && <p><span className="font-medium">End:</span> {c.address}</p>}
             </div>
