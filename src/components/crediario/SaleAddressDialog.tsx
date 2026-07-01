@@ -137,7 +137,7 @@ export function SaleAddressDialog({
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Como administrador, escolha a empresa onde a venda está sendo realizada.
+                    Escolha a empresa onde a venda está sendo realizada.
                   </p>
                 </div>
               )}

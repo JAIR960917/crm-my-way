@@ -77,7 +77,7 @@ async function getFunctionErrorMessage(error: unknown) {
 
 export default function CrediarioConsultaPage() {
   const nav = useNavigate();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isGerente } = useAuth();
   const [cidadeUsuario, setCidadeUsuario] = useState<string>("");
   const [empresaId, setEmpresaId] = useState<string | null>(null);
   const [cpf, setCpf] = useState("");
@@ -145,7 +145,7 @@ export default function CrediarioConsultaPage() {
       });
   }, [user]);
 
-  // Admin: carrega lista de empresas para seleção na venda (inclui city)
+  // Admin: carrega todas as empresas para seleção na venda
   useEffect(() => {
     if (!isAdmin) return;
     supabase
@@ -159,6 +159,30 @@ export default function CrediarioConsultaPage() {
         );
       });
   }, [isAdmin]);
+
+  // Gerente: carrega empresas do profile + manager_companies; mostra seletor se > 1
+  useEffect(() => {
+    if (!user || isAdmin || !isGerente) return;
+    (async () => {
+      const [{ data: profile }, { data: extras }] = await Promise.all([
+        supabase.from("profiles").select("company_id").eq("user_id", user.id).maybeSingle(),
+        supabase.from("manager_companies").select("company_id").eq("user_id", user.id),
+      ]);
+      const ids = new Set<string>();
+      if (profile?.company_id) ids.add(profile.company_id);
+      (extras ?? []).forEach((r: { company_id: string }) => ids.add(r.company_id));
+      if (ids.size <= 1) return; // única empresa — empresaId já foi preenchido pelo effect anterior
+      const { data: comps } = await supabase
+        .from("companies")
+        .select("id, name, city")
+        .in("id", [...ids])
+        .order("name", { ascending: true });
+      if (!comps) return;
+      setEmpresasDisponiveis(
+        comps.map((e) => ({ id: e.id, nome: e.name, cidade: e.city ?? "" })),
+      );
+    })();
+  }, [user, isAdmin, isGerente]);
 
   const total = parseFloat(valorTotal.replace(",", ".")) || 0;
   const entrada = parseFloat(valorEntrada.replace(",", ".")) || 0;
@@ -722,7 +746,7 @@ export default function CrediarioConsultaPage() {
         clienteNome={result?.nome}
         cidadePadrao={cidadeUsuario || ""}
         empresaPadraoId={empresaId}
-        empresasDisponiveis={isAdmin ? empresasDisponiveis : undefined}
+        empresasDisponiveis={(isAdmin || isGerente) && empresasDisponiveis.length > 0 ? empresasDisponiveis : undefined}
       />
     </AppLayout>
   );
