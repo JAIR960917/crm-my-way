@@ -26,3 +26,11 @@ WHERE a.is_cpf_field = true
   AND b.is_cpf_field = true
   AND (a.parent_field_id IS NULL AND b.parent_field_id IS NULL)
   AND a.ctid > b.ctid;
+
+-- Duplicatas de campo telefone
+DELETE FROM public.crm_renovacao_form_fields a
+USING public.crm_renovacao_form_fields b
+WHERE a.is_phone_field = true
+  AND b.is_phone_field = true
+  AND (a.parent_field_id IS NULL AND b.parent_field_id IS NULL)
+  AND a.ctid > b.ctid;

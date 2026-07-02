@@ -278,11 +278,12 @@ export default function ActiveClientsPage() {
     const roles = unwrap(rolesRes, "papéis", [] as UserRole[]);
     const comps = unwrap(compsRes, "empresas", [] as Company[]);
     const rawFf = unwrap<any[]>(ffRes as PromiseSettledResult<{ data: any[]; error: any }>, "campos do formulário", []);
-    // Deduplica campos de sistema (nome, data última consulta, CPF) — campos de telefone
-    // podem ter dois intencionalmente (principal + secundário), por isso não são deduplicados.
+    // Deduplica campos de sistema (nome, telefone, data última consulta, CPF) — podem
+    // surgir duplicados quando o deploy.sh roda as seeds mais de uma vez.
     const seenSysFlags: Record<string, boolean> = {};
     const ff = rawFf.filter((f: any) => {
       const flag = f.is_name_field ? "name"
+        : f.is_phone_field ? "phone"
         : (f.is_last_visit_field && !f.parent_field_id) ? "lastVisit"
         : f.is_cpf_field ? "cpf"
         : null;
