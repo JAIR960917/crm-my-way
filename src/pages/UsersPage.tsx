@@ -14,7 +14,7 @@ import { Plus, User, Pencil, Trash2, KeyRound, MoreVertical } from "lucide-react
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 type Company = { id: string; name: string };
-type Profile = { id: string; user_id: string; full_name: string; email: string; company_id: string | null };
+type Profile = { id: string; user_id: string; full_name: string; email: string; company_id: string | null; crediario_ver_todas_empresas?: boolean };
 type UserRole = { user_id: string; role: string; role_key: string | null };
 type ManagerCompany = { user_id: string; company_id: string };
 type RoleDef = { key: string; label: string; is_system: boolean; base_role: string };
@@ -54,6 +54,7 @@ export default function UsersPage() {
   const [editRole, setEditRole] = useState("");
   const [editCompanyId, setEditCompanyId] = useState<string>("__none__");
   const [editExtraCompanyIds, setEditExtraCompanyIds] = useState<string[]>([]);
+  const [editVerTodasEmpresas, setEditVerTodasEmpresas] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Reset password dialog
@@ -162,6 +163,7 @@ export default function UsersPage() {
     setEditRole(roles[0] || "vendedor");
     setEditCompanyId(p.company_id || "__none__");
     setEditExtraCompanyIds(getExtraCompanies(p.user_id));
+    setEditVerTodasEmpresas(!!p.crediario_ver_todas_empresas);
     setOpenEdit(true);
   };
 
@@ -197,6 +199,10 @@ export default function UsersPage() {
           extraIds.map((cid) => ({ user_id: editTarget.user_id, company_id: cid }))
         );
       }
+      await supabase
+        .from("profiles")
+        .update({ crediario_ver_todas_empresas: editVerTodasEmpresas })
+        .eq("user_id", editTarget.user_id);
     }
 
     toast.success("Usuário atualizado");
@@ -510,6 +516,21 @@ export default function UsersPage() {
                 onToggle={(id) => toggleCompanyInList(editExtraCompanyIds, setEditExtraCompanyIds, id)}
                 excludeId={editCompanyId !== "__none__" ? editCompanyId : undefined}
               />
+            )}
+            {isAdmin && (
+              <label className="flex items-start gap-2 rounded-md border p-3 text-sm cursor-pointer">
+                <Checkbox
+                  checked={editVerTodasEmpresas}
+                  onCheckedChange={(v) => setEditVerTodasEmpresas(!!v)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Ver contratos do Crediário de <strong>todas as empresas</strong>
+                  <span className="block text-xs text-muted-foreground font-normal">
+                    Desmarcado: só vê os contratos que é dono ou da empresa que gerencia.
+                  </span>
+                </span>
+              </label>
             )}
             <Button type="submit" className="w-full" disabled={saving}>
               {saving ? "Salvando..." : "Salvar"}

@@ -2136,6 +2136,7 @@ export type Database = {
           avatar_url: string | null
           company_id: string | null
           created_at: string
+          crediario_ver_todas_empresas: boolean
           email: string
           full_name: string
           id: string
@@ -2147,6 +2148,7 @@ export type Database = {
           avatar_url?: string | null
           company_id?: string | null
           created_at?: string
+          crediario_ver_todas_empresas?: boolean
           email: string
           full_name?: string
           id?: string
@@ -2158,6 +2160,7 @@ export type Database = {
           avatar_url?: string | null
           company_id?: string | null
           created_at?: string
+          crediario_ver_todas_empresas?: boolean
           email?: string
           full_name?: string
           id?: string

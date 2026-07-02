@@ -49,7 +49,9 @@ interface ContractRow {
   signature_data: { signed_pdf_url?: string } | null;
   created_at: string;
   user_id: string;
+  company_id: string | null;
   created_by_name?: string;
+  company_name?: string;
 }
 
 interface TemplateRow {
@@ -165,15 +167,24 @@ export default function CrediarioContratosPage() {
       if (error) toast.error("Erro ao carregar contratos", { description: error.message });
       const rows = (contracts as ContractRow[]) ?? [];
       const userIds = Array.from(new Set(rows.map((r) => r.user_id).filter(Boolean)));
+      const companyIds = Array.from(new Set(rows.map((r) => r.company_id).filter(Boolean))) as string[];
       let nameMap: Record<string, string> = {};
-      if (userIds.length) {
-        const { data: profs } = await supabase
-          .from("profiles")
-          .select("user_id, full_name, email")
-          .in("user_id", userIds);
-        nameMap = Object.fromEntries((profs ?? []).map((p: { user_id: string; full_name: string | null; email: string | null }) => [p.user_id, p.full_name || p.email || "—"]));
-      }
-      setList(rows.map((r) => ({ ...r, created_by_name: nameMap[r.user_id] ?? "—" })));
+      let companyMap: Record<string, string> = {};
+      const [{ data: profs }, { data: comps }] = await Promise.all([
+        userIds.length
+          ? supabase.from("profiles").select("user_id, full_name, email").in("user_id", userIds)
+          : Promise.resolve({ data: [] as { user_id: string; full_name: string | null; email: string | null }[] }),
+        companyIds.length
+          ? supabase.from("companies").select("id, name").in("id", companyIds)
+          : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+      ]);
+      nameMap = Object.fromEntries((profs ?? []).map((p: { user_id: string; full_name: string | null; email: string | null }) => [p.user_id, p.full_name || p.email || "—"]));
+      companyMap = Object.fromEntries((comps ?? []).map((c: { id: string; name: string }) => [c.id, c.name]));
+      setList(rows.map((r) => ({
+        ...r,
+        created_by_name: nameMap[r.user_id] ?? "—",
+        company_name: r.company_id ? (companyMap[r.company_id] ?? "—") : "—",
+      })));
       if (template) setTpl(template as TemplateRow);
       setLoading(false);
     })();
@@ -538,6 +549,7 @@ export default function CrediarioContratosPage() {
                 <TableRow>
                   <TableHead>Cliente</TableHead>
                   <TableHead>CPF</TableHead>
+                  <TableHead>Empresa</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Criado por</TableHead>
                   <TableHead>Criado em</TableHead>
@@ -554,6 +566,7 @@ export default function CrediarioContratosPage() {
                     <TableRow key={c.id} className="cursor-pointer hover:bg-muted/30" onClick={() => nav(`/crediario/contratos/${c.id}`)}>
                       <TableCell className="font-medium">{c.nome}</TableCell>
                       <TableCell className="font-mono text-sm">{maskCpf(c.cpf)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{c.company_name ?? "—"}</TableCell>
                       <TableCell>
                         <Badge className={s.cls}>{s.label}</Badge>
                       </TableCell>
