@@ -7,20 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar as CalendarComp } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Loader2, FileDown, RefreshCw, Calendar, CalendarIcon, Package, Users, ShoppingBag, Layers } from "lucide-react";
+import { Loader2, FileDown, RefreshCw, Calendar, CalendarIcon, Package, Users, ShoppingBag, Layers, ChevronDown, Trophy } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -59,8 +53,6 @@ type Venda = {
 
 type Company = { id: string; name: string };
 
-const ALL = "__ALL__";
-
 const fmtBRL = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -88,7 +80,8 @@ export default function SalesReportPage() {
   const [startDate, setStartDate] = useState<string>(def.start);
   const [endDate, setEndDate] = useState<string>(def.end);
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [companyFilter, setCompanyFilter] = useState<string>(ALL);
+  const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([]);
+  const [companyPopoverOpen, setCompanyPopoverOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [vendas, setVendas] = useState<Venda[] | null>(null);
@@ -107,8 +100,35 @@ export default function SalesReportPage() {
         .order("name");
       const filtered = ((data as Company[]) || []).filter((c) => ids.has(c.id));
       setCompanies(filtered);
+      setSelectedCompanyIds(filtered.map((c) => c.id));
     })();
   }, []);
+
+  const allCompaniesSelected =
+    companies.length > 0 && selectedCompanyIds.length === companies.length;
+
+  const toggleCompany = (id: string) => {
+    setSelectedCompanyIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
+
+  const toggleAllCompanies = () => {
+    setSelectedCompanyIds(allCompaniesSelected ? [] : companies.map((c) => c.id));
+  };
+
+  const companyFilterLabel = (() => {
+    if (companies.length === 0) return "Nenhuma empresa";
+    if (allCompaniesSelected) return "Todas as empresas";
+    if (selectedCompanyIds.length === 0) return "Nenhuma selecionada";
+    if (selectedCompanyIds.length <= 2) {
+      return companies
+        .filter((c) => selectedCompanyIds.includes(c.id))
+        .map((c) => c.name)
+        .join(", ");
+    }
+    return `${selectedCompanyIds.length} empresas selecionadas`;
+  })();
 
   const fetchReport = async () => {
     if (!startDate || !endDate) {
@@ -123,10 +143,9 @@ export default function SalesReportPage() {
       toast.error("Nenhuma empresa com integração SSótica ativa");
       return;
     }
-    const targets =
-      companyFilter === ALL ? companies : companies.filter((c) => c.id === companyFilter);
+    const targets = companies.filter((c) => selectedCompanyIds.includes(c.id));
     if (targets.length === 0) {
-      toast.error("Selecione uma empresa válida");
+      toast.error("Selecione ao menos uma empresa");
       return;
     }
 
@@ -378,10 +397,14 @@ export default function SalesReportPage() {
     const periodo = `Período: ${format(new Date(startDate + "T00:00:00"), "dd/MM/yyyy")} a ${format(new Date(endDate + "T00:00:00"), "dd/MM/yyyy")}`;
     doc.text(periodo, 40, 70);
 
-    const empresaTxt =
-      companyFilter === ALL
-        ? "Todas as empresas"
-        : companies.find((c) => c.id === companyFilter)?.name || "—";
+    const empresaTxt = allCompaniesSelected
+      ? "Todas as empresas"
+      : selectedCompanyIds.length > 3
+        ? `${selectedCompanyIds.length} empresas selecionadas`
+        : companies
+            .filter((c) => selectedCompanyIds.includes(c.id))
+            .map((c) => c.name)
+            .join(", ") || "—";
     doc.text(`Empresa: ${empresaTxt}`, 40, 86);
     doc.text(
       `Total: ${totalVendasGeral} venda(s) · ${totalItensGeral} produto(s) · ${fmtBRL(totalGeral)}`,
@@ -429,7 +452,7 @@ export default function SalesReportPage() {
       doc.rect(40, y, pageWidth - 80, 22, "F");
       doc.setFont("helvetica", "bold");
       doc.setFontSize(11);
-      doc.text(`${g.nome}${g.funcao ? ` — ${g.funcao}` : ""}`, 48, y + 15);
+      doc.text(`${idx + 1}° Lugar — ${g.nome}${g.funcao ? ` — ${g.funcao}` : ""}`, 48, y + 15);
       const right = `${g.vendas.length} venda(s) · ${g.totalItens} produto(s) · ${fmtBRL(g.totalValor)}`;
       doc.text(right, pageWidth - 48 - doc.getTextWidth(right), y + 15);
       doc.setTextColor(0, 0, 0);
@@ -549,21 +572,43 @@ export default function SalesReportPage() {
                 </Popover>
               </div>
               {showCompanyFilter && (
-                <div>
-                  <Label>Empresa</Label>
-                  <Select value={companyFilter} onValueChange={setCompanyFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecionar..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL}>Todas as empresas</SelectItem>
-                      {companies.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="flex flex-col">
+                  <Label className="mb-2">Empresa</Label>
+                  <Popover open={companyPopoverOpen} onOpenChange={setCompanyPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="justify-between font-normal"
+                      >
+                        <span className="truncate">{companyFilterLabel}</span>
+                        <ChevronDown className="h-4 w-4 shrink-0 opacity-50 ml-2" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-72 p-0" align="start">
+                      <div
+                        className="flex items-center gap-2 px-3 py-2 border-b cursor-pointer hover:bg-accent"
+                        onClick={toggleAllCompanies}
+                      >
+                        <Checkbox checked={allCompaniesSelected} className="pointer-events-none" />
+                        <span className="text-sm font-medium">Todas as empresas</span>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto py-1">
+                        {companies.map((c) => (
+                          <div
+                            key={c.id}
+                            className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-accent"
+                            onClick={() => toggleCompany(c.id)}
+                          >
+                            <Checkbox
+                              checked={selectedCompanyIds.includes(c.id)}
+                              className="pointer-events-none"
+                            />
+                            <span className="text-sm">{c.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               )}
               <div className="flex items-end gap-2">
@@ -728,7 +773,7 @@ export default function SalesReportPage() {
               </Card>
             ) : (
               <Accordion type="multiple" className="space-y-3">
-                {grouped.map((g) => (
+                {grouped.map((g, idx) => (
                   <AccordionItem
                     key={g.nome}
                     value={g.nome}
@@ -737,6 +782,18 @@ export default function SalesReportPage() {
                     <AccordionTrigger className="px-4 py-3 hover:no-underline">
                       <div className="flex items-center justify-between w-full pr-3 gap-3 flex-wrap">
                         <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className={cn(
+                              "flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-bold shrink-0",
+                              idx === 0 && "bg-amber-500/15 border-amber-500/40 text-amber-500",
+                              idx === 1 && "bg-zinc-400/15 border-zinc-400/40 text-zinc-400",
+                              idx === 2 && "bg-orange-700/15 border-orange-700/40 text-orange-700",
+                              idx > 2 && "bg-muted border-border text-muted-foreground",
+                            )}
+                          >
+                            {idx < 3 && <Trophy className="h-3 w-3" />}
+                            {idx + 1}° Lugar
+                          </div>
                           <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
                             {g.nome.slice(0, 2).toUpperCase()}
                           </div>
