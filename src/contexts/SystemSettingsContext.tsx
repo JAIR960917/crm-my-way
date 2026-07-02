@@ -195,6 +195,13 @@ async function applyManifestIcons(s: Settings) {
       { src: icon512, sizes: "512x512", type: "image/png", purpose: "maskable" },
     ];
 
+    // start_url/scope (e id) relativos ("/") não resolvem contra um Blob URL —
+    // o Chrome invalida o manifest inteiro e o prompt nativo de instalação
+    // nunca aparece. Precisam ser absolutos quando servidos via Blob.
+    manifest.start_url = new URL(manifest.start_url || "/", location.origin).href;
+    manifest.scope = new URL(manifest.scope || "/", location.origin).href;
+    if (manifest.id) manifest.id = new URL(manifest.id, location.origin).href;
+
     const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
     const blobUrl = URL.createObjectURL(blob);
     link.href = blobUrl;
