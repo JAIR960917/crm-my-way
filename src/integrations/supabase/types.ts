@@ -2339,6 +2339,8 @@ export type Database = {
           period_start: string
           period_end: string
           target_amount: number
+          atingido_amount: number
+          atingido_updated_at: string | null
           created_by: string | null
           created_at: string
           updated_at: string
@@ -2352,6 +2354,8 @@ export type Database = {
           period_start: string
           period_end: string
           target_amount: number
+          atingido_amount?: number
+          atingido_updated_at?: string | null
           created_by?: string | null
           created_at?: string
           updated_at?: string
@@ -2365,6 +2369,8 @@ export type Database = {
           period_start?: string
           period_end?: string
           target_amount?: number
+          atingido_amount?: number
+          atingido_updated_at?: string | null
           created_by?: string | null
           created_at?: string
           updated_at?: string

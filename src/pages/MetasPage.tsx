@@ -20,6 +20,8 @@ type SalesGoal = {
   period_start: string;
   period_end: string;
   target_amount: number;
+  atingido_amount: number;
+  atingido_updated_at: string | null;
 };
 type Company = { id: string; name: string };
 type Profile = { user_id: string; full_name: string };
@@ -29,57 +31,52 @@ const fmtBRL = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const fmtDate = (d: string) => format(new Date(d + "T00:00:00"), "dd/MM/yyyy");
 
-type GoalWithProgress = SalesGoal & { atingido: number; pct: number };
+type GoalWithPct = SalesGoal & { pct: number };
 
 export default function MetasPage() {
   const { user, isAdmin, isGerente } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [progressLoaded, setProgressLoaded] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [goals, setGoals] = useState<SalesGoal[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [progressByGoal, setProgressByGoal] = useState<Record<string, number>>({});
 
-  // Só carrega os dados cadastrais (metas, empresas, usuários) — leve e rápido.
-  // O cálculo de "atingido" via SSótica é manual (botão "Atualizar vendas"),
-  // para não ficar refazendo chamadas pesadas toda vez que a tela é aberta.
+  // Os valores "atingido" ficam salvos na própria meta (sales_goals.atingido_amount),
+  // atualizados só pelo admin (botão abaixo). Vendedores/gerentes apenas leem o que
+  // já está salvo — não precisam (nem têm acesso) para puxar a SSótica sozinhos.
+  const fetchGoals = async () => {
+    setLoading(true);
+    const { data: goalRows, error } = await supabase
+      .from("sales_goals")
+      .select("*")
+      .order("period_start", { ascending: false });
+
+    if (error || !goalRows || goalRows.length === 0) {
+      setGoals([]);
+      setLoading(false);
+      return;
+    }
+
+    const gs = goalRows as SalesGoal[];
+    setGoals(gs);
+
+    const companyIds = Array.from(new Set(gs.map((g) => g.company_id)));
+    const userIds = Array.from(new Set(gs.map((g) => g.user_id).filter((x): x is string => !!x)));
+
+    const [compRes, profRes] = await Promise.all([
+      supabase.from("companies").select("id, name").in("id", companyIds),
+      userIds.length > 0
+        ? supabase.from("profiles").select("user_id, full_name").in("user_id", userIds)
+        : Promise.resolve({ data: [] as Profile[] }),
+    ]);
+    setCompanies((compRes.data as Company[]) || []);
+    setProfiles((profRes.data as Profile[]) || []);
+    setLoading(false);
+  };
+
   useEffect(() => {
     if (!user?.id) return;
-    (async () => {
-      setLoading(true);
-
-      // RLS já restringe: admin vê tudo; usuário vê a própria meta + meta da(s)
-      // loja(s) a que pertence; gerente vê também a meta de toda a equipe das
-      // lojas que administra.
-      const { data: goalRows, error } = await supabase
-        .from("sales_goals")
-        .select("*")
-        .order("period_start", { ascending: false });
-
-      if (error || !goalRows || goalRows.length === 0) {
-        setGoals([]);
-        setLoading(false);
-        return;
-      }
-
-      const gs = goalRows as SalesGoal[];
-      setGoals(gs);
-
-      const companyIds = Array.from(new Set(gs.map((g) => g.company_id)));
-      const userIds = Array.from(new Set(gs.map((g) => g.user_id).filter((x): x is string => !!x)));
-
-      const [compRes, profRes] = await Promise.all([
-        supabase.from("companies").select("id, name").in("id", companyIds),
-        userIds.length > 0
-          ? supabase.from("profiles").select("user_id, full_name").in("user_id", userIds)
-          : Promise.resolve({ data: [] as Profile[] }),
-      ]);
-      setCompanies((compRes.data as Company[]) || []);
-      setProfiles((profRes.data as Profile[]) || []);
-      setLoading(false);
-    })();
+    void fetchGoals();
   }, [user?.id]);
 
   const handleRefreshVendas = async () => {
@@ -121,31 +118,51 @@ export default function MetasPage() {
         }),
       );
 
-      const progress: Record<string, number> = {};
-      goals.forEach((g) => {
+      const nowIso = new Date().toISOString();
+      const updates = goals.map((g) => {
         const key = `${g.company_id}::${g.period_start}::${g.period_end}`;
         const vendas = vendasByKey.get(key) || [];
+        let atingido = 0;
         if (g.scope === "company") {
-          progress[g.id] = vendas.reduce((acc, v) => acc + Number(v.valor_liquido || 0), 0);
+          atingido = vendas.reduce((acc, v) => acc + Number(v.valor_liquido || 0), 0);
         } else {
           const mapping = mappings.find((m) => m.company_id === g.company_id && m.user_id === g.user_id);
-          if (!mapping) {
-            progress[g.id] = 0;
-            return;
+          if (mapping) {
+            atingido = vendas
+              .filter((v) => v.funcionario?.id === mapping.ssotica_funcionario_id)
+              .reduce((acc, v) => acc + Number(v.valor_liquido || 0), 0);
           }
-          progress[g.id] = vendas
-            .filter((v) => v.funcionario?.id === mapping.ssotica_funcionario_id)
-            .reduce((acc, v) => acc + Number(v.valor_liquido || 0), 0);
         }
+        return { id: g.id, atingido };
       });
-      setProgressByGoal(progress);
-      setProgressLoaded(true);
-      setLastUpdated(new Date());
+
+      // Persiste no banco — assim vendedores/gerentes veem o valor atualizado
+      // sem precisar (nem ter acesso) para puxar a SSótica.
+      const results = await Promise.all(
+        updates.map((u) =>
+          supabase
+            .from("sales_goals")
+            .update({ atingido_amount: u.atingido, atingido_updated_at: nowIso })
+            .eq("id", u.id),
+        ),
+      );
+      const saveError = results.find((r) => r.error);
+      if (saveError?.error) throw saveError.error;
+
+      setGoals((prev) =>
+        prev.map((g) => {
+          const u = updates.find((x) => x.id === g.id);
+          return u ? { ...g, atingido_amount: u.atingido, atingido_updated_at: nowIso } : g;
+        }),
+      );
+
       if (hadError) {
         toast.warning("Vendas atualizadas com algum erro — alguns valores podem estar incompletos");
       } else {
         toast.success("Vendas atualizadas com sucesso");
       }
+    } catch (err: any) {
+      toast.error("Erro ao atualizar vendas", { description: err?.message ?? String(err) });
     } finally {
       setRefreshing(false);
     }
@@ -154,30 +171,29 @@ export default function MetasPage() {
   const companyName = (id: string) => companies.find((c) => c.id === id)?.name || "—";
   const userName = (id: string | null) => profiles.find((p) => p.user_id === id)?.full_name || "—";
 
-  const withProgress = (list: SalesGoal[]): GoalWithProgress[] =>
-    list.map((g) => {
-      const atingido = progressByGoal[g.id] ?? 0;
-      const pct = g.target_amount > 0 ? (atingido / g.target_amount) * 100 : 0;
-      return { ...g, atingido, pct };
-    });
+  const withPct = (list: SalesGoal[]): GoalWithPct[] =>
+    list.map((g) => ({
+      ...g,
+      pct: g.target_amount > 0 ? (g.atingido_amount / g.target_amount) * 100 : 0,
+    }));
 
   const minhasMetas = useMemo(
-    () => withProgress(goals.filter((g) => g.scope === "user" && g.user_id === user?.id)),
-    [goals, progressByGoal, user],
+    () => withPct(goals.filter((g) => g.scope === "user" && g.user_id === user?.id)),
+    [goals, user],
   );
   const metasDaLoja = useMemo(
-    () => withProgress(goals.filter((g) => g.scope === "company")),
-    [goals, progressByGoal],
+    () => withPct(goals.filter((g) => g.scope === "company")),
+    [goals],
   );
   const metasDaEquipe = useMemo(
-    () => withProgress(goals.filter((g) => g.scope === "user" && g.user_id !== user?.id)),
-    [goals, progressByGoal, user],
+    () => withPct(goals.filter((g) => g.scope === "user" && g.user_id !== user?.id)),
+    [goals, user],
   );
 
-  const nomeDaLinha = (g: GoalWithProgress) =>
+  const nomeDaLinha = (g: GoalWithPct) =>
     g.scope === "company" ? (g.label || companyName(g.company_id)) : userName(g.user_id);
 
-  const GoalCard = ({ g }: { g: GoalWithProgress }) => {
+  const GoalCard = ({ g }: { g: GoalWithPct }) => {
     const pctClamped = Math.min(100, Math.max(0, g.pct));
     return (
       <div className="rounded-lg border bg-card p-4 space-y-3">
@@ -190,26 +206,25 @@ export default function MetasPage() {
             </div>
           </div>
           <Badge className="bg-primary/10 text-primary border-primary/30">
-            {progressLoaded ? `${g.pct.toFixed(2)}%` : "—"}
+            {g.pct.toFixed(2)}%
           </Badge>
         </div>
-        <Progress value={progressLoaded ? pctClamped : 0} />
+        <Progress value={pctClamped} />
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">
             Atingido:{" "}
-            <span className="font-medium text-foreground">
-              {progressLoaded ? fmtBRL(g.atingido) : "—"}
-            </span>
+            <span className="font-medium text-foreground">{fmtBRL(g.atingido_amount)}</span>
           </span>
           <span className="text-muted-foreground">
             Meta: <span className="font-medium text-foreground">{fmtBRL(g.target_amount)}</span>
           </span>
         </div>
-        {progressLoaded && (
-          <div className="text-xs text-muted-foreground">
-            Falta {fmtBRL(Math.max(0, g.target_amount - g.atingido))} para atingir a meta.
-          </div>
-        )}
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>Falta {fmtBRL(Math.max(0, g.target_amount - g.atingido_amount))} para atingir a meta.</span>
+          {g.atingido_updated_at && (
+            <span>Atualizado {format(new Date(g.atingido_updated_at), "dd/MM HH:mm")}</span>
+          )}
+        </div>
       </div>
     );
   };
@@ -227,18 +242,11 @@ export default function MetasPage() {
               Acompanhe as metas de venda e o quanto já foi realizado no período.
             </p>
           </div>
-          {goals.length > 0 && (
-            <div className="flex flex-col items-end gap-1">
-              <Button onClick={handleRefreshVendas} disabled={refreshing}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
-                {refreshing ? "Atualizando..." : "Atualizar vendas (SSótica)"}
-              </Button>
-              {lastUpdated && (
-                <span className="text-xs text-muted-foreground">
-                  Atualizado às {format(lastUpdated, "HH:mm")}
-                </span>
-              )}
-            </div>
+          {isAdmin && goals.length > 0 && (
+            <Button onClick={handleRefreshVendas} disabled={refreshing}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
+              {refreshing ? "Atualizando..." : "Atualizar vendas (SSótica)"}
+            </Button>
           )}
         </div>
 
@@ -255,12 +263,6 @@ export default function MetasPage() {
           </Card>
         ) : (
           <>
-            {!progressLoaded && (
-              <div className="text-sm text-muted-foreground rounded-lg border border-dashed p-3">
-                Clique em "Atualizar vendas (SSótica)" para calcular o quanto já foi vendido no período.
-              </div>
-            )}
-
             {minhasMetas.length > 0 && (
               <Card>
                 <CardHeader>
