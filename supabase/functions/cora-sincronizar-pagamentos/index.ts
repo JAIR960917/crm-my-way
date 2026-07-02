@@ -80,8 +80,9 @@ Deno.serve(async (req) => {
     }
 
     let totalAtualizadas = 0;
+    let totalFalhas = 0;
     const erros: Array<{ company_id: string; error: string }> = [];
-    const detalhes: Array<{ company_id: string; verificadas: number; pagas: number }> = [];
+    const detalhes: Array<{ company_id: string; verificadas: number; pagas: number; falhas: number; status_amostra: string[] }> = [];
 
     for (const [empresaId, lista] of porEmpresa) {
       try {
@@ -138,6 +139,8 @@ Deno.serve(async (req) => {
 
         // Consulta invoices em paralelo (10 simultâneas)
         let pagasEmpresa = 0;
+        let falhasEmpresa = 0;
+        const statusAmostra = new Set<string>();
         const CONCURRENCY = 10;
         const processOne = async (p: typeof lista[number]) => {
           if (!p.cora_invoice_id) return;
@@ -148,7 +151,12 @@ Deno.serve(async (req) => {
               client: httpClient,
               headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
             });
-            if (!resp.ok) { await resp.text(); return; }
+            if (!resp.ok) {
+              const txt = await resp.text();
+              falhasEmpresa++;
+              if (statusAmostra.size < 5) statusAmostra.add(`HTTP ${resp.status}: ${txt.slice(0, 120)}`);
+              return;
+            }
             const inv = await resp.json();
             const status: string = String(inv?.status ?? "").toUpperCase();
             const isPaid = /PAID|RECEIVED|LIQUID/.test(status) ||
@@ -163,15 +171,27 @@ Deno.serve(async (req) => {
               totalAtualizadas++;
             } else if (/CANCEL|VOID/.test(status)) {
               await admin.from("crediario_parcelas").update({ status: "cancelado" }).eq("id", p.id);
+            } else if (statusAmostra.size < 5) {
+              statusAmostra.add(status || "(vazio)");
             }
           } catch (e) {
+            falhasEmpresa++;
+            const msg = e instanceof Error ? e.message : String(e);
+            if (statusAmostra.size < 5) statusAmostra.add(`erro: ${msg.slice(0, 120)}`);
             console.error("erro consulta invoice", p.cora_invoice_id, e);
           }
         };
         for (let i = 0; i < lista.length; i += CONCURRENCY) {
           await Promise.all(lista.slice(i, i + CONCURRENCY).map(processOne));
         }
-        detalhes.push({ company_id: empresaId, verificadas: lista.length, pagas: pagasEmpresa });
+        totalFalhas += falhasEmpresa;
+        detalhes.push({
+          company_id: empresaId,
+          verificadas: lista.length,
+          pagas: pagasEmpresa,
+          falhas: falhasEmpresa,
+          status_amostra: [...statusAmostra],
+        });
       } catch (e) {
         erros.push({ company_id: empresaId, error: e instanceof Error ? e.message : String(e) });
       }
@@ -181,6 +201,7 @@ Deno.serve(async (req) => {
       ok: erros.length === 0,
       total: parcelas.length,
       atualizadas: totalAtualizadas,
+      falhas: totalFalhas,
       detalhes,
       erros,
     });

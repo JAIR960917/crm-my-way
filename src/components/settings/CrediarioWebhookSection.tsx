@@ -38,11 +38,18 @@ export default function CrediarioWebhookSection() {
 
     let totalVerificadas = 0;
     let totalAtualizadas = 0;
+    let totalFalhas = 0;
     let ok = true;
     let lastMsg = "";
+    let amostraStatus: string[] = [];
+    let travou = false;
 
     // A função só processa até PAGE_LIMIT parcelas por chamada — repete até
     // não sobrar mais nada pendente (evita parar em 200 quando o backlog é maior).
+    // Se uma página cheia não gerar nenhum progresso (nada pago, nada com
+    // falha), é a MESMA página sendo devolvida de novo (ordenada por
+    // updated_at, que só muda quando algo é marcado como pago) — para para
+    // não reconsultar a Cora à toa.
     for (let pagina = 1; pagina <= 50; pagina++) {
       setSyncResult({
         ok: true,
@@ -56,20 +63,33 @@ export default function CrediarioWebhookSection() {
         ok = false;
         break;
       }
-      const d = data as { ok?: boolean; total?: number; atualizadas?: number } | null;
+      const d = data as {
+        ok?: boolean; total?: number; atualizadas?: number; falhas?: number;
+        detalhes?: Array<{ status_amostra?: string[] }>;
+      } | null;
       const total = d?.total ?? 0;
+      const atualizadas = d?.atualizadas ?? 0;
+      const falhas = d?.falhas ?? 0;
       totalVerificadas += total;
-      totalAtualizadas += d?.atualizadas ?? 0;
+      totalAtualizadas += atualizadas;
+      totalFalhas += falhas;
+      for (const det of d?.detalhes ?? []) {
+        for (const s of det.status_amostra ?? []) if (!amostraStatus.includes(s)) amostraStatus.push(s);
+      }
       if (d?.ok === false) ok = false;
       if (total < PAGE_LIMIT) break; // menos que uma página cheia = não sobrou pendente
+      if (atualizadas === 0 && falhas === 0) { travou = true; break; } // página cheia sem progresso
     }
 
     setSyncLoading(null);
-    const msg = ok
-      ? `Verificadas ${totalVerificadas} parcela(s), ${totalAtualizadas} marcada(s) como paga(s).`
-      : lastMsg || `Verificadas ${totalVerificadas} parcela(s) antes de um erro.`;
-    setSyncResult({ ok, message: msg });
-    if (ok) toast.success(msg); else toast.error(msg);
+    const partes = [`Verificadas ${totalVerificadas} parcela(s), ${totalAtualizadas} marcada(s) como paga(s)`];
+    if (totalFalhas > 0) partes.push(`${totalFalhas} falha(s) ao consultar a Cora`);
+    let msg = ok ? `${partes.join(", ")}.` : lastMsg || `${partes.join(", ")}.`;
+    if (travou) msg += ` Parou porque as parcelas restantes continuam com o mesmo status na Cora (não foi possível avançar).`;
+    if (amostraStatus.length > 0) msg += ` Status vistos: ${amostraStatus.slice(0, 5).join(" · ")}.`;
+    setSyncResult({ ok: ok && totalFalhas === 0, message: msg });
+    if (ok && totalFalhas === 0) toast.success(msg);
+    else toast.warning(msg);
   };
 
   const registrarWebhook = async () => {
