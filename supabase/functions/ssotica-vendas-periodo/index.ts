@@ -132,7 +132,19 @@ Deno.serve(async (req) => {
         .select("company_id")
         .eq("user_id", user.id)
         .single();
-      if (!profile?.company_id || profile.company_id !== companyId) {
+      let authorized = profile?.company_id === companyId;
+      if (!authorized) {
+        // Gerente com mais de uma loja (manager_companies) também pode consultar
+        // as lojas extras que administra, não só a principal do profile.
+        const { data: mc } = await supabase
+          .from("manager_companies")
+          .select("company_id")
+          .eq("user_id", user.id)
+          .eq("company_id", companyId)
+          .maybeSingle();
+        authorized = !!mc;
+      }
+      if (!authorized) {
         return new Response(JSON.stringify({ error: "Acesso negado: empresa não autorizada" }), {
           status: 403,
           headers: { ...corsHeaders, "Content-Type": "application/json" },

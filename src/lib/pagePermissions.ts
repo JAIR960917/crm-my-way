@@ -28,6 +28,8 @@ export const APP_PAGES: AppPage[] = [
   { key: "meu_dashboard",        label: "Meu Dashboard",          path: "/meu-dashboard" },
   { key: "meu_dashboard_cobranca", label: "Dashboard Cobrança",   path: "/meu-dashboard-cobranca" },
   { key: "relatorio_vendas",     label: "Relatório de Vendas",    path: "/relatorio-vendas" },
+  { key: "metas",                label: "Metas",                  path: "/metas" },
+  { key: "metas_cadastro",       label: "Metas (Cadastro)",       path: "/metas-cadastro" },
   { key: "usuarios",             label: "Usuários",               path: "/usuarios" },
   { key: "empresas",             label: "Empresas",               path: "/empresas" },
   { key: "colunas",              label: "Colunas CRM",            path: "/colunas" },

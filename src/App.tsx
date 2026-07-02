@@ -63,6 +63,8 @@ import ContasReceberPage from "./pages/financeiro/ContasReceberPage";
 import ContasPagarPage from "./pages/financeiro/ContasPagarPage";
 import DashboardPage from "./pages/DashboardPage";
 import SalesReportPage from "./pages/SalesReportPage";
+import MetasPage from "./pages/MetasPage";
+import MetasCadastroPage from "./pages/MetasCadastroPage";
 import MeuDashboardPage from "./pages/MeuDashboardPage";
 import CobrancaDashboardPage from "./pages/CobrancaDashboardPage";
 import CrediarioTarefasPage from "./pages/CrediarioTarefasPage";
@@ -202,6 +204,8 @@ const AppRoutes = () => {
       <Route path="/financeiro/contas-pagar" element={<RoleGate><ContasPagarPage /></RoleGate>} />
       <Route path="/dashboard" element={<RoleGate><DashboardPage /></RoleGate>} />
       <Route path="/relatorio-vendas" element={<RoleGate><SalesReportPage /></RoleGate>} />
+      <Route path="/metas" element={<RoleGate><MetasPage /></RoleGate>} />
+      <Route path="/metas-cadastro" element={<RoleGate><MetasCadastroPage /></RoleGate>} />
       <Route path="/meu-dashboard" element={<RoleGate><MeuDashboardPage /></RoleGate>} />
       <Route path="/meu-dashboard-cobranca" element={<RoleGate><CobrancaDashboardPage /></RoleGate>} />
       <Route path="/analytics-site" element={<RoleGate><SiteAnalyticsPage /></RoleGate>} />

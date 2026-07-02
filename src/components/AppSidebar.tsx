@@ -26,6 +26,7 @@ import {
   ChevronDown, SlidersHorizontal, CalendarClock,
   Trophy, Boxes, Package, Banknote, TrendingUp, TrendingDown, Globe, Link2,
   Wallet, FileSignature, ShieldCheck, KeyRound, FileBarChart2, AlertTriangle, ScanLine,
+  Target,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,7 @@ const mainNavItems: NavItem[] = [
   { path: "/meu-dashboard",        label: "Meu Dashboard",          icon: LayoutDashboard },
   { path: "/meu-dashboard-cobranca", label: "Dashboard Cobrança",   icon: LayoutDashboard },
   { path: "/relatorio-vendas",     label: "Relatório de Vendas",    icon: FileBarChart },
+  { path: "/metas",                label: "Metas",                  icon: Target },
   { path: "/",                     label: "Leads",                  icon: LayoutDashboard },
   { path: "/cobrancas",            label: "Cobranças",              icon: Receipt },
   { path: "/tarefas-crediario",    label: "Tarefas",               icon: CalendarClock },
@@ -71,6 +73,7 @@ const configNavItems: NavItem[] = [
   { path: "/colunas",              label: "Colunas CRM",            icon: Columns3 },
   { path: "/formulario",           label: "Formulário Lead",        icon: FileText },
   { path: "/formulario-renovacao", label: "Formulário Renovação",   icon: CalendarHeart },
+  { path: "/metas-cadastro",       label: "Metas (Cadastro)",       icon: Target },
   { path: "/configuracoes",        label: "Configurações",          icon: Settings },
   { path: "/links-admin",          label: "Links Públicos (/links)", icon: Link2 },
   { path: "/cobrancas/fluxo",      label: "Fluxo Cobrança",         icon: Workflow },

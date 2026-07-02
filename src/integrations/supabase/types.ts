@@ -2329,6 +2329,56 @@ export type Database = {
         }
         Relationships: []
       }
+      sales_goals: {
+        Row: {
+          id: string
+          scope: string
+          company_id: string
+          user_id: string | null
+          label: string | null
+          period_start: string
+          period_end: string
+          target_amount: number
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          scope: string
+          company_id: string
+          user_id?: string | null
+          label?: string | null
+          period_start: string
+          period_end: string
+          target_amount: number
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          scope?: string
+          company_id?: string
+          user_id?: string | null
+          label?: string | null
+          period_start?: string
+          period_end?: string
+          target_amount?: number
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_goals_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scheduled_whatsapp_messages: {
         Row: {
           created_at: string
