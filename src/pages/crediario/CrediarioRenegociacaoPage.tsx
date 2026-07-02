@@ -123,19 +123,16 @@ export default function CrediarioRenegociacaoPage() {
     setValorAcordo("");
     setValorEntrada("");
     try {
-      // 1) Consulta salva do Serasa (crediario_consultas_cache, válida por 3 meses)
-      const { data: serasa } = await supabase
-        .from("crediario_consultas_cache")
-        .select("nome")
-        .eq("cpf", digits)
-        .gt("expira_em", new Date().toISOString())
-        .not("nome", "is", null)
-        .order("consultado_em", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      // 1) Consulta salva do Serasa (via edge function — a tabela de cache
+      // guarda relatório de crédito completo de qualquer CPF, então o
+      // acesso direto é restrito a admin/gerente/financeiro).
+      const { data: serasaResp } = await supabase.functions.invoke("crediario-checar-cache-cpf", {
+        body: { cpf: digits },
+      });
+      const nomeSerasa = (serasaResp as { nome?: string | null } | null)?.nome;
 
-      if (serasa?.nome) {
-        setNome(serasa.nome);
+      if (nomeSerasa) {
+        setNome(nomeSerasa);
         toast.success("Cliente encontrado (base Serasa)");
         return;
       }
